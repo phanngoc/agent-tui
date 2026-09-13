@@ -93,12 +93,17 @@ type Model struct {
 	finderSel int
 
 	// Project search overlay.
-	grepIn   textinput.Model
-	grepRes  search.Result
-	grepSel  int
-	grepBusy bool
-	grepSeq  int
-	grepStop context.CancelFunc
+	grepIn    textinput.Model
+	grepRes   search.Result
+	grepFiles []grepFile
+	grepRows  []grepRow
+	grepSel   int
+	grepTop   int
+	grepCase  bool // exact case, the Aa toggle
+	grepRegex bool // treat the query as a pattern, the .* toggle
+	grepBusy  bool
+	grepSeq   int
+	grepStop  context.CancelFunc
 
 	// Preview pane.
 	file        *preview.File
@@ -108,6 +113,10 @@ type Model struct {
 	findHits    int
 	findMatches []findMatch
 	findSel     int
+
+	// Editing the previewed file. Nil unless the buffer is open.
+	edit         *editor
+	discardArmed bool // a second esc discards unsaved changes
 
 	// Session list.
 	sessSel int
@@ -469,11 +478,13 @@ func (m *Model) runGrep(q string) tea.Cmd {
 	root := m.idx.Root()
 	workers := m.cfg.Workers
 	fsys := m.sessionFS(m.mgr.Active())
+	regex, exact := m.grepRegex, m.grepCase
 
 	return func() tea.Msg {
 		defer cancel()
 		hits, truncated, err := fsys.Grep(ctx, root, vfs.GrepOptions{
-			Query: q, Limit: 500, Workers: workers,
+			Query: q, Regex: regex, CaseSensitive: exact,
+			Limit: 2000, Workers: workers,
 			MaxFileBytes: 4 << 20, Files: files,
 		})
 		res := search.Result{Truncated: truncated, Err: err}
@@ -482,6 +493,7 @@ func (m *Model) runGrep(q string) tea.Cmd {
 			seen[h.Path] = true
 			res.Matches = append(res.Matches, search.Match{
 				Path: h.Path, Line: h.Line, Text: h.Text,
+				Start: h.Start, End: h.End,
 			})
 		}
 		res.Files = len(seen)
@@ -726,6 +738,74 @@ func (m *Model) loadFileAt(abs, rel string, line int, takeFocus bool) tea.Cmd {
 	return func() tea.Msg {
 		return fileMsg{seq: seq, f: m.loader.Load(fsys, abs, rel), line: line, focus: takeFocus}
 	}
+}
+
+// openEditor turns the preview into a writable buffer for the open file.
+func (m *Model) openEditor() tea.Cmd {
+	if m.file == nil || m.file.Err != nil {
+		m.notice = "no file open"
+		return nil
+	}
+	if m.file.Binary {
+		m.notice = m.file.Rel + " is a binary file"
+		return nil
+	}
+	if m.file.Truncated {
+		m.notice = m.file.Rel + " was truncated for display; not safe to edit"
+		return nil
+	}
+
+	body := strings.Join(m.file.Plain, "\n")
+	if len(m.file.Plain) > 0 {
+		body += "\n"
+	}
+	ed, why := newEditor(m.st, m.sessionFS(m.mgr.Active()),
+		m.file.Abs, m.file.Rel, body, m.prevW-2, m.bodyH-2)
+	if ed == nil {
+		m.notice = why
+		return nil
+	}
+
+	m.edit = ed
+	m.showPreview = true
+	m.setFocus(focusPreview)
+	m.stopFind()
+	m.resize(m.w, m.h)
+	m.notice = "editing " + m.file.Rel + " — ctrl+s save · esc close"
+	return nil
+}
+
+// closeEditor leaves the buffer, refusing to drop unsaved work silently.
+func (m *Model) closeEditor(force bool) tea.Cmd {
+	if m.edit == nil {
+		return nil
+	}
+	if m.edit.Dirty() && !force {
+		m.notice = "unsaved changes — ctrl+s to save, or esc again to discard"
+		m.discardArmed = true
+		return nil
+	}
+	rel, abs := m.edit.rel, m.edit.abs
+	m.edit, m.discardArmed = nil, false
+	m.setFocus(focusPreview)
+	// Reload so the syntax highlighting comes back.
+	return m.loadFileAt(abs, rel, m.fileLine, false)
+}
+
+// saveEditor writes the buffer and reloads the preview from what was written.
+func (m *Model) saveEditor() tea.Cmd {
+	if m.edit == nil {
+		return nil
+	}
+	if err := m.edit.Save(); err != nil {
+		m.errText = "could not save " + m.edit.rel + ": " + err.Error()
+		return nil
+	}
+	m.errText = ""
+	m.notice = "saved " + m.edit.rel
+	m.discardArmed = false
+	// The tree and the index may care that the file changed.
+	return nil
 }
 
 // previewSelected shows whatever the explorer selection is pointing at.

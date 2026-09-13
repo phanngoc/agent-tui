@@ -165,14 +165,18 @@ func TestDockerHealth(t *testing.T) {
 
 func TestParseGrepLineHandlesColons(t *testing.T) {
 	// Paths and text both routinely contain colons.
-	hit, ok := parseGrepLine("/root/a:b.go:42:map[string]:int{}", "/root")
+	hit, ok := parseGrepLine("/root/a:b.go:42:map[string]:int{}", "/root", "int")
 	if !ok {
 		t.Fatal("failed to parse")
 	}
 	if hit.Path != "a:b.go" || hit.Line != 42 || hit.Text != "map[string]:int{}" {
 		t.Errorf("hit = %+v", hit)
 	}
-	if _, ok := parseGrepLine("no colons here", "/root"); ok {
+	// The match is located within the line, since grep reports no column.
+	if got := hit.Text[hit.Start:hit.End]; got != "int" {
+		t.Errorf("located %q, want int", got)
+	}
+	if _, ok := parseGrepLine("no colons here", "/root", "x"); ok {
 		t.Error("a line with no location should not parse")
 	}
 }

@@ -33,6 +33,9 @@ type GrepHit struct {
 	Path string // relative to the search root, slash-separated
 	Line int
 	Text string
+	// Start and End locate the match within Text, so a result list can pick
+	// out the part that matched rather than highlighting the whole line.
+	Start, End int
 }
 
 // GrepOptions configures a content search.

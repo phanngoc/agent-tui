@@ -186,7 +186,7 @@ func TestOverlaysOpenAndClose(t *testing.T) {
 		text string
 	}{
 		{"ctrl+p", overlayFinder, "Go to file"},
-		{"ctrl+g", overlayGrep, "Search in files"},
+		{"ctrl+g", overlayGrep, "Search"},
 		{"f1", overlayHelp, "Keyboard shortcuts"},
 	} {
 		out := press(t, m, tc.key)

@@ -169,35 +169,43 @@ func highlightPath(st *theme.Styles, hit fsx.Hit, w int) string {
 // ---- project-wide content search ------------------------------------------
 
 func (m *Model) grepKey(k tea.KeyPressMsg) tea.Cmd {
+	// Only keys that cannot be typed are commands here: this overlay owns a
+	// text box, and binding a bare letter would swallow it out of the query.
 	switch k.String() {
-	case "enter":
-		if len(m.grepRes.Matches) == 0 {
-			q := strings.TrimSpace(m.grepIn.Value())
-			if q == "" {
-				return nil
-			}
-			m.grepBusy = true
-			return m.runGrep(q)
+	case "enter", "right":
+		if hit, ok := m.selectedHit(); ok {
+			m.closeOverlay()
+			m.showPreview = true
+			m.resize(m.w, m.h)
+			return m.loadFile(hit.Path, hit.Line, true)
 		}
-		hit := m.grepRes.Matches[m.grepSel]
-		m.closeOverlay()
-		m.showPreview = true
-		m.resize(m.w, m.h)
-		return m.loadFile(hit.Path, hit.Line, true)
+		// On a file header, enter folds it.
+		return m.foldSelected()
+	case "left":
+		return m.foldSelected()
 	case "down", "ctrl+n":
-		m.grepSel = min(len(m.grepRes.Matches)-1, m.grepSel+1)
+		m.grepSel = min(len(m.grepRows)-1, m.grepSel+1)
 		return nil
 	case "up", "ctrl+p":
 		m.grepSel = max(0, m.grepSel-1)
 		return nil
+	case "alt+a":
+		// Exact case, the way a search panel's Aa button works.
+		m.grepCase = !m.grepCase
+		return m.rerunGrep()
+	case "alt+r":
+		m.grepRegex = !m.grepRegex
+		return m.rerunGrep()
 	}
+
 	var cmd tea.Cmd
 	before := m.grepIn.Value()
 	m.grepIn, cmd = m.grepIn.Update(k)
 	q := strings.TrimSpace(m.grepIn.Value())
 	if q != before {
 		if len(q) < 2 {
-			m.grepRes, m.grepBusy = searchEmpty(), false
+			m.setGrepResult(search.Result{})
+			m.grepBusy = false
 			return cmd
 		}
 		m.grepBusy = true
@@ -206,49 +214,89 @@ func (m *Model) grepKey(k tea.KeyPressMsg) tea.Cmd {
 	return cmd
 }
 
-func (m *Model) grepView() string {
-	w := m.overlayWidth()
-	inner := w - 2
-	rows := clamp(m.h/2, 6, 16)
-
-	var b strings.Builder
-	head := m.st.Accent.Render("  Search in files")
-	switch {
-	case m.grepBusy:
-		head += "  " + m.st.Faint.Render("searching…")
-	case len(m.grepRes.Matches) > 0:
-		head += "  " + m.st.Faint.Render(plural(len(m.grepRes.Matches), "match")+
-			" in "+plural(m.grepRes.Files, "file"))
-		if m.grepRes.Truncated {
-			head += m.st.Faint.Render(" (capped)")
+// foldSelected collapses or expands the file the cursor is inside.
+func (m *Model) foldSelected() tea.Cmd {
+	if m.grepSel < 0 || m.grepSel >= len(m.grepRows) {
+		return nil
+	}
+	i := m.grepRows[m.grepSel].file
+	m.grepFiles[i].collapsed = !m.grepFiles[i].collapsed
+	// Put the cursor on the header so folding twice is symmetric.
+	for r := range m.grepRows {
+		if m.grepRows[r].file == i && m.grepRows[r].hit < 0 {
+			m.grepSel = r
+			break
 		}
 	}
-	b.WriteString(head + "\n  " + m.grepIn.View() + "\n\n")
+	m.rebuildGrepRows()
+	return nil
+}
+
+// rerunGrep repeats the current query after a toggle changed its meaning.
+func (m *Model) rerunGrep() tea.Cmd {
+	q := strings.TrimSpace(m.grepIn.Value())
+	if len(q) < 2 {
+		return nil
+	}
+	m.grepBusy = true
+	return m.runGrep(q)
+}
+
+// setGrepResult installs a result and regroups it.
+func (m *Model) setGrepResult(res search.Result) {
+	m.grepRes = res
+	m.grepFiles = groupMatches(res.Matches)
+	m.grepSel, m.grepTop = 0, 0
+	m.rebuildGrepRows()
+}
+
+func (m *Model) grepView() string {
+	w := m.overlayWidth()
+	rows := clamp(m.h/2, 8, 22)
+
+	var b strings.Builder
+	b.WriteString(m.st.Accent.Render("  Search") + "  " + m.grepToggles() + "\n")
+	b.WriteString("  " + m.grepIn.View() + "\n")
+	b.WriteString("  " + m.st.Faint.Render(m.grepSummary()) + "\n\n")
 
 	if m.grepRes.Err != nil {
 		b.WriteString("  " + m.st.Bad.Render(m.grepRes.Err.Error()) + "\n")
 	}
-	if len(m.grepRes.Matches) == 0 && !m.grepBusy && strings.TrimSpace(m.grepIn.Value()) != "" {
-		b.WriteString(m.st.Faint.Render("  no match"))
+	if tree := m.grepTreeView(w, rows); tree != "" {
+		b.WriteString(tree + "\n")
 	}
 
-	start := max(0, m.grepSel-rows+2)
-	for i := start; i < len(m.grepRes.Matches) && i < start+rows; i++ {
-		hit := m.grepRes.Matches[i]
-		loc := hit.Path + ":" + strconv.Itoa(hit.Line)
-		text := strings.TrimSpace(hit.Text)
-
-		locW := min(lipgloss.Width(loc), inner/2)
-		body := m.st.Accent.Render(truncate(loc, locW)) + "  " +
-			m.st.Dim.Render(truncate(text, max(8, inner-locW-6)))
-		row := "  " + body
-		if i == m.grepSel {
-			row = m.st.SelRow.Render(padRight(" ▸ "+stripANSI(body), inner))
-		}
-		b.WriteString(row + "\n")
-	}
-	b.WriteString("\n  " + m.st.Faint.Render("enter open · ↑↓ move · esc cancel"))
+	b.WriteString("\n  " + m.st.Faint.Render(
+		"enter open · ←→ fold · alt+a exact case · alt+r regex · esc close"))
 	return m.st.Overlay.Width(w).Render(b.String())
+}
+
+// grepToggles shows which switches are on, the way a search panel does.
+func (m *Model) grepToggles() string {
+	on := func(label string, active bool) string {
+		if active {
+			return m.st.StatusKey.Render(" " + label + " ")
+		}
+		return m.st.Faint.Render(" " + label + " ")
+	}
+	return on("Aa", m.grepCase) + " " + on(".*", m.grepRegex)
+}
+
+// grepSummary is the count line: how much was found, and where.
+func (m *Model) grepSummary() string {
+	switch {
+	case m.grepBusy:
+		return "searching…"
+	case strings.TrimSpace(m.grepIn.Value()) == "":
+		return "type at least two characters"
+	case len(m.grepRes.Matches) == 0:
+		return "no results"
+	}
+	s := plural(len(m.grepRes.Matches), "result") + " in " + plural(len(m.grepFiles), "file")
+	if m.grepRes.Truncated {
+		s += " (capped)"
+	}
+	return s
 }
 
 // ---- tool approval ---------------------------------------------------------
@@ -318,6 +366,12 @@ var helpGroups = []struct {
 		{"ctrl+f", "search file contents (or find in file)"},
 		{"/", "find in the previewed file"},
 		{"n / N", "next / previous hit"},
+	}},
+	{"Editing", []binding{
+		{"e", "edit the previewed file"},
+		{"ctrl+s", "save"},
+		{"ctrl+z", "undo  ·  ctrl+y redo"},
+		{"esc", "close; again to discard unsaved changes"},
 	}},
 	{"Files", []binding{
 		{"↑  ↓", "browse; the file under the cursor is shown as you move"},

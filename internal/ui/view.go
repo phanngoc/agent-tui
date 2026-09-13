@@ -213,6 +213,13 @@ func injectTitle(border, label string) string {
 }
 
 func (m *Model) previewTitle() string {
+	if m.edit != nil {
+		t := m.edit.rel + "  editing"
+		if m.edit.Dirty() {
+			t += " ●"
+		}
+		return t
+	}
 	if m.file == nil {
 		return "preview"
 	}
@@ -227,6 +234,9 @@ func (m *Model) previewTitle() string {
 }
 
 func (m *Model) previewPane() string {
+	if m.edit != nil {
+		return m.edit.ta.View()
+	}
 	if m.file == nil {
 		hint := []string{
 			"",
@@ -304,7 +314,7 @@ func (m *Model) statusBar() string {
 	} else if m.notice != "" {
 		left = append(left, m.st.Good.Render(m.notice))
 	} else {
-		left = append(left, m.st.Dim.Render(hintFor(m.focus)))
+		left = append(left, m.st.Dim.Render(m.hintFor(m.focus)))
 	}
 
 	engineLabel := m.cfg.Model
@@ -381,10 +391,13 @@ func compact(n int64) string {
 	}
 }
 
-func hintFor(f focus) string {
+func (m *Model) hintFor(f focus) string {
 	switch f {
 	case focusPreview:
-		return "preview · / find · n next · w wrap · tab switch pane"
+		if m.edit != nil {
+			return "editing · ctrl+s save · ctrl+z undo · esc close"
+		}
+		return "preview · e edit · / find · n next · w wrap · ctrl+o switch pane"
 	case focusChat:
 		return "transcript · ↑↓ scroll · tab or ctrl+o switch pane"
 	case focusExplorer:
@@ -437,6 +450,9 @@ func (m *Model) cursor() *tea.Cursor {
 		return offsetCursor(m.findIn.Cursor(), x, y)
 	}
 
+	if m.edit != nil && m.focus == focusPreview {
+		return offsetCursor(m.edit.ta.Cursor(), m.sideW+m.chatW+1, headerRows+1)
+	}
 	if m.focus == focusInput {
 		return offsetCursor(m.input.Cursor(),
 			promptBorderX, headerRows+m.bodyH+promptBorderY)

@@ -37,7 +37,8 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case grepMsg:
 		if msg.seq == m.grepSeq {
-			m.grepRes, m.grepBusy, m.grepSel = msg.res, false, 0
+			m.setGrepResult(msg.res)
+			m.grepBusy = false
 		}
 		return m, nil
 
@@ -102,6 +103,23 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.approvalKey(key)
 	case overlayChoice:
 		return m.choiceKey(key)
+	}
+
+	// An open buffer owns the keyboard, because almost every key is text. Only
+	// the handful that would otherwise be unreachable are let through, and
+	// quitting is guarded while there is unsaved work.
+	if m.edit != nil && m.focus == focusPreview && m.overlay == overlayNone {
+		switch key {
+		case "ctrl+c", "ctrl+q":
+			if m.edit.Dirty() {
+				m.notice = "unsaved changes in " + m.edit.rel + " — ctrl+s to save, esc esc to discard"
+				return nil
+			}
+		case "ctrl+o", "f1":
+			// fall through to the global bindings
+		default:
+			return m.editorKey(k)
+		}
 	}
 
 	switch key {
@@ -423,6 +441,11 @@ func (m *Model) changeDir(dir string) tea.Cmd {
 
 func (m *Model) previewKey(k tea.KeyPressMsg) tea.Cmd {
 	key := k.String()
+
+	// The editor owns the pane while it is open.
+	if m.edit != nil {
+		return m.editorKey(k)
+	}
 	if m.finding {
 		switch key {
 		case "enter":
@@ -459,6 +482,8 @@ func (m *Model) previewKey(k tea.KeyPressMsg) tea.Cmd {
 	case "w":
 		m.prev.SoftWrap = !m.prev.SoftWrap
 		return nil
+	case "e":
+		return m.openEditor()
 	}
 	var cmd tea.Cmd
 	before := m.prev.YOffset()
@@ -467,6 +492,50 @@ func (m *Model) previewKey(k tea.KeyPressMsg) tea.Cmd {
 		m.fileLine = m.prev.YOffset() + 1
 	}
 	return cmd
+}
+
+// editorKey routes a key inside the open buffer.
+//
+// Only the few commands that are not text go to us; everything else is typing,
+// and the textarea already knows what to do with it.
+func (m *Model) editorKey(k tea.KeyPressMsg) tea.Cmd {
+	key := k.String()
+	switch key {
+	case "ctrl+s":
+		return m.saveEditor()
+	case "esc":
+		return m.closeEditor(m.discardArmed)
+	case "ctrl+z":
+		if !m.edit.Undo() {
+			m.notice = "nothing to undo"
+		}
+		return nil
+	case "ctrl+y", "ctrl+shift+z":
+		if !m.edit.Redo() {
+			m.notice = "nothing to redo"
+		}
+		return nil
+	}
+
+	// Anything that changes the buffer opens an undo step first.
+	m.edit.snapshot(editKindOf(key))
+	m.discardArmed = false
+
+	var cmd tea.Cmd
+	m.edit.ta, cmd = m.edit.ta.Update(k)
+	return cmd
+}
+
+// editKindOf classifies a keystroke for undo grouping.
+func editKindOf(key string) editKind {
+	switch key {
+	case "enter", "backspace", "delete", "ctrl+k", "ctrl+u", "ctrl+w", "ctrl+v", "alt+backspace":
+		return editStructural
+	}
+	if len(key) == 1 || key == "space" || key == "tab" {
+		return editType
+	}
+	return editNone // a cursor move: no snapshot, but it ends a typing run
 }
 
 // explorerKey drives the project tree.
@@ -574,7 +643,7 @@ func (m *Model) setSessionRoot(abs string) tea.Cmd {
 	m.tree.SetRoot(abs)
 	m.treeSel, m.treeTop = 0, 0
 	m.idx.Retarget(fsys, abs)
-	m.grepRes = search.Result{}
+	m.setGrepResult(search.Result{})
 	m.status = "indexing…"
 	m.notice = "working in " + abs
 	return m.buildIndex()
@@ -1026,6 +1095,10 @@ func (m *Model) resize(w, h int) {
 	m.chat.SetHeight(max(1, bodyH-2))
 	m.prev.SetWidth(max(1, previewW-2))
 	m.prev.SetHeight(max(1, bodyH-2))
+	if m.edit != nil {
+		m.edit.ta.SetWidth(max(10, previewW-2))
+		m.edit.ta.SetHeight(max(3, bodyH-2))
+	}
 	m.input.SetWidth(max(10, w-2))
 	m.input.SetHeight(inputIn)
 

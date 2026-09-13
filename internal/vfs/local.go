@@ -156,7 +156,7 @@ func (l *Local) Grep(ctx context.Context, root string, o GrepOptions) ([]GrepHit
 	}
 	hits := make([]GrepHit, len(res.Matches))
 	for i, m := range res.Matches {
-		hits[i] = GrepHit{Path: m.Path, Line: m.Line, Text: m.Text}
+		hits[i] = GrepHit{Path: m.Path, Line: m.Line, Text: m.Text, Start: m.Start, End: m.End}
 	}
 	return hits, res.Truncated, nil
 }

@@ -247,7 +247,7 @@ func (d *Docker) Grep(ctx context.Context, root string, o GrepOptions) ([]GrepHi
 		if line == "" {
 			continue
 		}
-		hit, ok := parseGrepLine(line, root)
+		hit, ok := parseGrepLine(line, root, o.Query)
 		if !ok || ig.Match(hit.Path, false) {
 			continue
 		}
@@ -262,7 +262,7 @@ func (d *Docker) Grep(ctx context.Context, root string, o GrepOptions) ([]GrepHi
 
 // parseGrepLine splits `path:line:text`. Paths can contain colons, so the line
 // number is found by scanning for the first all-digit field after a colon.
-func parseGrepLine(line, root string) (GrepHit, bool) {
+func parseGrepLine(line, root, needle string) (GrepHit, bool) {
 	for i := 0; i < len(line); i++ {
 		if line[i] != ':' {
 			continue
@@ -284,7 +284,12 @@ func parseGrepLine(line, root string) (GrepHit, bool) {
 		if len(text) > 400 {
 			text = text[:400] + "…"
 		}
-		return GrepHit{Path: path, Line: n, Text: text}, true
+		hit := GrepHit{Path: path, Line: n, Text: text}
+		// grep gives no column, so the match is located here.
+		if at := strings.Index(text, needle); at >= 0 && needle != "" {
+			hit.Start, hit.End = at, at+len(needle)
+		}
+		return hit, true
 	}
 	return GrepHit{}, false
 }

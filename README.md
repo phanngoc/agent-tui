@@ -75,7 +75,8 @@ agent made, each with its status and how long it took. Failed and denied calls
 show the first lines of their output inline.
 
 **Preview** — a file viewer with line numbers, syntax highlighting, in-file
-search with match highlighting, and soft-wrap on demand.
+search with match highlighting, soft-wrap on demand, and an editor: `e` turns
+the pane you are reading into a writable buffer.
 
 In-file search draws its own highlights rather than using the viewport's.
 Bubbles' `SetHighlights` walks the ANSI-stripped content to advance a byte
@@ -89,6 +90,49 @@ the agent edits the file you are looking at.
 **Sessions** — conversations run concurrently. Starting a turn in one session
 does not block the others; a session that needs approval pulls itself to the
 front, because its agent is waiting on you.
+
+## Editing
+
+`e` in the preview opens the file for editing; `ctrl+s` saves, `ctrl+z` and
+`ctrl+y` undo and redo, `esc` closes. The title carries `editing ●` while there
+is unsaved work, a second `esc` is required to throw it away, and `ctrl+c` will
+not quit the app over a dirty buffer.
+
+Saving goes through the session's filesystem, so editing a file in a
+container-targeted session writes it *in* the container — the same file the
+agent is looking at, not a same-named one on the host.
+
+Two deliberate limits. The buffer drops syntax colour while you type, because a
+textarea treats ANSI escapes as editable characters and you would be able to put
+the cursor in the middle of one; colour comes back on save, when the file is
+reloaded through the highlighter. And files over 5000 lines or 512 KB, and
+anything that looks binary, open read-only rather than loading a buffer that
+would be slow to edit and easy to corrupt.
+
+Undo is ours, not the textarea's: bubbles has no undo stack, so the editor keeps
+snapshots and coalesces a typing run into a single step — otherwise one `ctrl+z`
+per character is not undo, it is a rewind.
+
+## Project search
+
+`ctrl+f` with no file open, or `ctrl+g` anywhere, searches every file under the
+current directory and groups the hits the way Warp does: one header per file
+with its name, its directory, and a count badge, and under it each matching line
+with the match picked out and the line windowed around it so a hit in a long
+line is still visible.
+
+```
+▾ main.go  cmd/agent-tui                          9
+   43         model = flag.String("model", cfg.Model, "Claude model id")
+   74     mode := agent.ParseMode(*modeFlag)
+▾ agent.go  internal/agent                        7
+  106     // Mode is how much the agent may do without asking on this turn.
+```
+
+`←` and `→` fold a file away and back, `enter` opens the hit in the preview at
+its line, `alt+a` switches to exact case and `alt+r` to regex. Search runs on
+the session's filesystem too, so a container-targeted session greps inside the
+container.
 
 `/new` starts an empty session and `/fork` branches the current one; `ctrl+t`
 and `alt+t` are the same thing as shortcuts. Every command Tab-completes, and a
@@ -133,8 +177,9 @@ installed **in** the container for a container-targeted session to use it.
 | `enter` / `alt+enter` | send / newline |
 | `ctrl+c` | stop the agent, or quit when idle |
 | `ctrl+p` | fuzzy-find a file |
-| `ctrl+f` | search file contents, or find in the open file |
+| `ctrl+f` / `ctrl+g` | search file contents, or find in the open file |
 | `/`, `n`, `N` | find in file, next hit, previous hit |
+| `e` | edit the open file — `ctrl+s` save, `ctrl+z` / `ctrl+y` undo / redo |
 | `ctrl+t` / `ctrl+w` | new / close session |
 | `alt+t` | fork this session — same history, separate branch |
 | `ctrl+r` | choose the engine for this session |
@@ -348,7 +393,7 @@ internal/highlight one-pass syntax highlighter
 internal/preview   file loading, binary detection, LRU of highlighted files
 internal/search    parallel content search
 internal/session   conversation model and on-disk persistence
-internal/ui        Bubble Tea model, panes, overlays
+internal/ui        Bubble Tea model, panes, overlays, the file editor
 ```
 
 ## Tests
