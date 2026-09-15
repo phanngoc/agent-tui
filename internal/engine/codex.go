@@ -43,17 +43,29 @@ func codexArgv(c *CLI, t agent.Turn, _ *broker) []string {
 
 	if !continuing {
 		if root := firstNonEmpty(t.Root, c.root); root != "" {
-			a = append(a, "-C", root)
+			a = append(a, "-C", c.argPath(root))
 		}
 	}
 	switch {
 	case t.Mode == agent.ModeFull:
 		// Accepted by every subcommand.
 		a = append(a, "--dangerously-bypass-approvals-and-sandbox")
+	case !continuing && t.Mode != agent.ModePlan && c.noSandbox():
+		// Codex cannot build its sandbox on Windows: it wants to re-ACL a
+		// helper directory, which needs a privilege an ordinary account does
+		// not have, and every command then fails with
+		// "helper_sandbox_lock_failed ... access denied". Confinement is not
+		// available, so run without it rather than shipping an engine where
+		// nothing works. The UI says so — see Detail.
+		a = append(a, "--dangerously-bypass-approvals-and-sandbox")
 	case !continuing:
 		// codex exec cannot ask, so the sandbox is the whole of the policy:
 		// plan reads only, everything else is confined to the project. A
 		// resumed session keeps the sandbox it was started with.
+		//
+		// Plan mode keeps its sandbox even where one cannot start: failing
+		// closed is the point of plan mode, and quietly granting it write
+		// access would be the opposite of what was asked for.
 		sandbox := "workspace-write"
 		if t.Mode == agent.ModePlan {
 			sandbox = "read-only"

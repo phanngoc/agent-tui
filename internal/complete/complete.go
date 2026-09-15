@@ -134,20 +134,22 @@ func Paths(ctx context.Context, fsys vfs.FS, root, home string, tok Token, kind 
 		word = home + strings.TrimPrefix(word, "~")
 	}
 
-	// Split the word into the directory to list and the prefix to match.
+	// Split the word into the directory to list and the prefix to match. Either
+	// separator ends a component: expanding ~ on Windows yields a native path,
+	// while what the user typed after it is still whatever they typed.
 	dir, prefix := "", word
-	if i := strings.LastIndexByte(word, '/'); i >= 0 {
+	if i := strings.LastIndexAny(word, `/\`); i >= 0 {
 		dir, prefix = word[:i+1], word[i+1:]
 	}
 
 	listing := dir
 	switch {
-	case strings.HasPrefix(dir, "/"):
+	case vfs.IsAbs(dir):
 		// absolute, use as-is
 	case dir == "":
 		listing = root
 	default:
-		listing = vfs.Join(root, strings.TrimSuffix(dir, "/"))
+		listing = vfs.Join(root, strings.TrimRight(dir, `/\`))
 	}
 
 	entries, err := fsys.ReadDir(ctx, listing)

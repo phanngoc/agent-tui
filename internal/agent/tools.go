@@ -17,6 +17,7 @@ import (
 
 	"github.com/phanngoc/agent-tui/internal/fsx"
 	"github.com/phanngoc/agent-tui/internal/session"
+	"github.com/phanngoc/agent-tui/internal/shell"
 	"github.com/phanngoc/agent-tui/internal/task"
 	"github.com/phanngoc/agent-tui/internal/vfs"
 )
@@ -193,10 +194,10 @@ func (e *Executor) resolve(p string) (string, error) {
 		return "", fmt.Errorf("path %q is outside the project root", p)
 	}
 	abs := p
-	if !strings.HasPrefix(abs, "/") {
-		abs = vfs.Join(e.Root, filepath.ToSlash(p))
+	if !vfs.IsAbs(abs) {
+		abs = vfs.Join(e.Root, p)
 	}
-	if abs != e.Root && !strings.HasPrefix(abs, strings.TrimSuffix(e.Root, "/")+"/") {
+	if !vfs.Within(e.Root, abs) {
 		return "", fmt.Errorf("path %q is outside the project root", p)
 	}
 	return abs, nil
@@ -501,7 +502,8 @@ func (e *Executor) bash(ctx context.Context, raw json.RawMessage) (string, bool)
 
 	// The command runs where the files are: locally for the host, inside the
 	// container when the session targets one.
-	cmd := e.FS.Command(cctx, e.Root, "/bin/sh", "-c", in.Command)
+	sh, shArgs := shell.For(e.FS.IsLocal())
+	cmd := e.FS.Command(cctx, e.Root, sh, append(shArgs, in.Command)...)
 	if e.FS.IsLocal() {
 		cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1", "CI=1")
 	}
@@ -587,7 +589,8 @@ func (e *Executor) bashBackground(command string) (string, bool) {
 		return "background commands are not available here", true
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := e.FS.Command(ctx, e.Root, "/bin/sh", "-c", command)
+	sh, shArgs := shell.For(e.FS.IsLocal())
+	cmd := e.FS.Command(ctx, e.Root, sh, append(shArgs, command)...)
 	if e.FS.IsLocal() {
 		cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1", "CI=1")
 	}

@@ -432,10 +432,10 @@ func (m *Model) changeDir(dir string) tea.Cmd {
 		return m.setSessionRoot(m.hostRoot())
 	case dir == "-":
 		return m.setSessionRoot(m.hostRoot())
-	case strings.HasPrefix(dir, "/"):
-		return m.setSessionRoot(path.Clean(dir))
+	case vfs.IsAbs(dir):
+		return m.setSessionRoot(vfs.CleanPath(dir))
 	default:
-		return m.setSessionRoot(path.Clean(vfs.Join(root, dir)))
+		return m.setSessionRoot(vfs.CleanPath(vfs.Join(root, dir)))
 	}
 }
 

@@ -270,6 +270,10 @@ func TestClaudeErrorResultSurfaces(t *testing.T) {
 var codexResumeRejects = []string{"-C", "--cd", "--sandbox"}
 
 func TestCodexArgvMatchesTheSubcommand(t *testing.T) {
+	// Pin the host to one with a working sandbox; the Windows case, where there
+	// is none, is covered by TestCodexBypassesTheSandboxWhereItCannotStart.
+	defer pinSandbox(false)()
+
 	c := newCodex("/project")
 
 	first := codexArgv(c, agent.Turn{Prompt: "hi", Root: "/project", Mode: agent.ModeAuto}, nil)
@@ -370,5 +374,53 @@ func TestForkWithoutAnIDStartsFresh(t *testing.T) {
 				t.Errorf("%s passed %s with no session to branch from: %v", name, bad, argv)
 			}
 		}
+	}
+}
+
+// pinSandbox forces the "is there a usable sandbox here" answer so both
+// platforms are testable from either one. The returned func restores it.
+func pinSandbox(broken bool) func() {
+	prev := hostSandboxBroken
+	hostSandboxBroken = func() bool { return broken }
+	return func() { hostSandboxBroken = prev }
+}
+
+// On Windows codex cannot build its sandbox at all: it re-ACLs a helper
+// directory, which an ordinary account may not do, and every command then fails
+// with helper_sandbox_lock_failed. Confining is not on offer, so the engine runs
+// unconfined rather than running not at all — and must say so.
+func TestCodexBypassesTheSandboxWhereItCannotStart(t *testing.T) {
+	defer pinSandbox(true)()
+
+	c := newCodex("/project")
+	got := codexArgv(c, agent.Turn{Prompt: "hi", Root: "/project", Mode: agent.ModeAuto}, nil)
+	if !hasFlag(got, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Errorf("a host with no sandbox should bypass it: %v", got)
+	}
+	if hasFlag(got, "--sandbox") {
+		t.Errorf("--sandbox must not accompany bypass: %v", got)
+	}
+
+	// Plan mode is the exception: failing closed is the whole point of it, so
+	// it keeps the sandbox it cannot start rather than gaining write access.
+	plan := codexArgv(c, agent.Turn{Prompt: "hi", Root: "/project", Mode: agent.ModePlan}, nil)
+	if hasFlag(plan, "--dangerously-bypass-approvals-and-sandbox") {
+		t.Errorf("plan mode must not be widened into write access: %v", plan)
+	}
+	if !hasFlag(plan, "read-only") {
+		t.Errorf("plan mode should stay read-only: %v", plan)
+	}
+}
+
+// An engine that cannot confine itself must not describe itself as confined.
+func TestDetailAdmitsThereIsNoSandbox(t *testing.T) {
+	defer pinSandbox(true)()
+
+	c := newCodex("/project")
+	c.detectOnce.Do(func() {}) // skip probing for a binary that may not be here
+	c.ok, c.version = true, "1.2.3"
+
+	if got := c.Detail(); !strings.Contains(got, "UNCONFINED") {
+		t.Errorf("Detail = %q, want it to admit nothing is enforcing a policy", got)
 	}
 }

@@ -5,7 +5,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +42,10 @@ type CLI struct {
 	version string
 	ok      bool
 	why     string
+	// path is the resolved binary; winBin marks a Windows build reached from
+	// WSL through interop, whose path arguments must be translated.
+	path   string
+	winBin bool
 
 	argv   func(c *CLI, t agent.Turn, br *broker) []string
 	newDec func() decoder
@@ -76,26 +80,66 @@ func (c *CLI) Detail() string {
 		return c.why
 	}
 	d := c.version
-	if c.CanAsk() {
+	switch {
+	case c.CanAsk():
 		d += " · can ask before acting"
-	} else {
+	case c.noSandbox():
+		// Do not claim a policy that is not being enforced.
+		d += " · UNCONFINED: no sandbox on Windows"
+	default:
 		d += " · cannot ask; its mode is set by sandbox policy"
 	}
 	return d
 }
 
+// noSandbox reports whether this CLI's own confinement cannot start here.
+//
+// Codex builds its sandbox from a helper directory it re-ACLs at startup, which
+// an ordinary Windows account may not do; the same applies to a Windows build
+// reached from WSL, which is still a Windows process. Nothing is confined in
+// that case, and the UI has to say so rather than imply a gate that is absent.
+func (c *CLI) noSandbox() bool {
+	if c.approvals {
+		return false // this engine asks instead of confining
+	}
+	c.detect()
+	return hostSandboxBroken() || c.winBin
+}
+
+// hostSandboxBroken is a variable so a test can exercise both platforms from
+// either one, the same way lookPath and executable are.
+var hostSandboxBroken = func() bool { return runtime.GOOS == "windows" }
+
+// argPath renders a path for this CLI's own namespace. A Windows binary reached
+// from WSL is handed Windows paths even though this process speaks Linux ones.
+func (c *CLI) argPath(p string) string {
+	if c.winBin && runtime.GOOS != "windows" {
+		return toWindowsPath(p)
+	}
+	return p
+}
+
 // detect resolves the binary and its version once.
 func (c *CLI) detect() {
 	c.detectOnce.Do(func() {
-		path, err := lookPath(c.bin)
+		path, win, err := lookAgent(c.bin)
 		if err != nil {
 			c.why = "not installed"
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		out, err := exec.CommandContext(ctx, path, "--version").Output()
+		out, err := probeVersion(path)
+		if err != nil && !win {
+			// Under WSL a Linux launcher can be present but broken — an npm
+			// install done on the Windows side leaves a shim whose platform
+			// binary was never fetched. A working Windows build is often right
+			// there, so do not let the broken one hide it.
+			if alt, aerr := lookPath(c.bin + ".exe"); aerr == nil && underWSL() {
+				if altOut, altErr := probeVersion(alt); altErr == nil {
+					path, win, out, err = alt, true, altOut, nil
+				}
+			}
+		}
+		c.path, c.winBin = path, win
 		if err != nil {
 			// A binary that cannot even report its version is not usable, but
 			// say what actually happened rather than claiming it is missing.
@@ -209,10 +253,19 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		// against a caller assembling one by hand.
 		fsys = vfs.NewLocal(root)
 	}
-	cmd := fsys.Command(ctx, root, c.bin, args...)
+	bin := c.bin
+	if c.path != "" && fsys.IsLocal() {
+		bin = c.path
+	}
+	cmd := fsys.Command(ctx, root, bin, args...)
 	// A nil Stdin gives the child /dev/null. Codex otherwise blocks reading a
 	// prompt from a pipe it will never receive.
 	cmd.Stdin = nil
+	// Cancelling a turn kills the process we spawned, but not a grandchild it
+	// left behind — a node process behind a .cmd shim on Windows, say. That
+	// grandchild keeps the output pipes open and Wait would block on them for
+	// as long as it lives, stranding the session. WaitDelay bounds that.
+	cmd.WaitDelay = 5 * time.Second
 	if fsys.IsLocal() {
 		cmd.Env = append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0")
 	}
