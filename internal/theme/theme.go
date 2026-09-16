@@ -69,6 +69,14 @@ type Styles struct {
 	Gutter, GutterOn lipgloss.Style
 	Match, MatchOn   lipgloss.Style
 
+	// Diff colours. The line carries the colour as foreground; the span that
+	// actually changed inverts it, so the eye lands on the word rather than on
+	// the fact that the line is one of the two colours.
+	DiffAdd, DiffDel     lipgloss.Style
+	DiffAddOn, DiffDelOn lipgloss.Style
+	DiffHunk, DiffMeta   lipgloss.Style
+	Ref, RefHead         lipgloss.Style
+
 	Overlay     lipgloss.Style
 	SelRow      lipgloss.Style
 	SelRowDim   lipgloss.Style
@@ -119,6 +127,15 @@ func New(p Palette) *Styles {
 
 	s.Gutter = base.Foreground(p.Faint)
 	s.GutterOn = base.Foreground(p.Accent).Bold(true)
+	s.DiffAdd = base.Foreground(p.Good)
+	s.DiffDel = base.Foreground(p.Bad)
+	s.DiffAddOn = base.Foreground(p.Bg).Background(p.Good).Bold(true)
+	s.DiffDelOn = base.Foreground(p.Bg).Background(p.Bad).Bold(true)
+	s.DiffHunk = base.Foreground(p.Accent)
+	s.DiffMeta = base.Foreground(p.Faint).Italic(true)
+	s.Ref = base.Foreground(p.Bg).Background(p.Dim)
+	s.RefHead = base.Foreground(p.Bg).Background(p.Accent).Bold(true)
+
 	s.Match = base.Foreground(p.Bg).Background(p.Warn)
 	s.MatchOn = base.Foreground(p.Bg).Background(p.Accent).Bold(true)
 

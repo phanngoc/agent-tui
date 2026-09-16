@@ -67,6 +67,9 @@ var slashCmds = []slashCmd{
 		}
 		return m.setModelByName(arg)
 	}},
+	{"git", "", "browse the history and its diffs", func(m *Model, _ string) tea.Cmd {
+		return m.openGit()
+	}},
 	{"target", "[host|container|distro]", "work on the host, in a container, or in WSL", func(m *Model, arg string) tea.Cmd {
 		m.refreshTargets()
 		if arg == "" {

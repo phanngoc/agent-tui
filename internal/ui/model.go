@@ -52,6 +52,7 @@ const (
 	overlayEngine
 	overlayTarget
 	overlayModel
+	overlayGit
 )
 
 // Model is the root Bubble Tea model.
@@ -148,6 +149,9 @@ type Model struct {
 	engineSel  int
 	modelSel   int
 	lastEngine string // engine a new session inherits
+
+	// History browser, nil until /git opens it.
+	git *gitState
 
 	// Filesystem target picker.
 	hostFS    vfs.FS

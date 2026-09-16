@@ -80,6 +80,13 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case wslReadyMsg:
 		return m, m.applyWSLReady(msg)
 
+	case gitLogMsg:
+		return m, m.applyGitLog(msg)
+
+	case gitDiffMsg:
+		m.applyGitDiff(msg)
+		return m, nil
+
 	case treeMsg:
 		// Keep the selection on the same path when rows shift underneath it.
 		if n := len(m.tree.Rows()); m.treeSel >= n {
@@ -280,6 +287,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.engineKey(k.String())
 	case overlayModel:
 		return m.modelKey(k.String())
+	case overlayGit:
+		return m.gitKey(k.String())
 	case overlayTarget:
 		return m.targetKey(k.String())
 	case overlayTasks:

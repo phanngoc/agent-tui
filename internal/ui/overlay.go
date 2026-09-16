@@ -66,6 +66,8 @@ func (m *Model) composeOverlay(base string) string {
 		body = m.engineView()
 	case overlayModel:
 		body = m.modelView()
+	case overlayGit:
+		body = m.gitView()
 	case overlayTarget:
 		body = m.targetView()
 	default:
@@ -360,6 +362,7 @@ var helpGroups = []struct {
 		{"alt+t", "fork this session — same history, separate branch"},
 		{"ctrl+r", "choose the engine (built-in, claude, codex, opencode)"},
 		{"/model", "choose the model this session runs on"},
+		{"/git", "browse the history and its diffs"},
 		{"ctrl+d", "work on the host, in a container, or in WSL"},
 		{"ctrl+k", "background commands, and their output"},
 		{"ctrl+w", "close session"},
