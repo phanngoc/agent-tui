@@ -66,7 +66,8 @@ rather than implying a gate that does not exist; `-perms` chooses between `ask`,
 ## Panes
 
 **Project explorer** — a lazily expanded tree of the directory the active
-session's agent is actually working in — on the host, or inside a container.
+session's agent is actually working in — on the host, inside a container, or
+inside a WSL distribution.
 `r` on a directory repoints that session: the tree follows, and so does the
 `-C` / `--dir` the CLI is given.
 
@@ -146,12 +147,34 @@ is left exactly as it was, so you can try a second approach without losing the
 first. With the session list focused, `n` and `f` do the same to whichever
 session is highlighted.
 
-## Host or container
+## Running a command
 
-`ctrl+d` points a session at the host or at any running container. Everything
-follows the choice at once — the explorer, the preview, `ctrl+p`, `ctrl+f`, and
-the agent itself, which is run with `docker exec` so it edits the files you are
-looking at rather than same-named files on the host.
+A prompt that starts with `!` is run rather than asked:
+
+```
+❯ !go test ./internal/search/
+❯ !git log --oneline -5
+```
+
+It runs where the session works, in the session's directory, and the command
+and its output are appended to the transcript as your turn — so the next thing
+you ask starts with the failure already in context, instead of you describing
+it. Output is capped at 40 KB, keeping the tail, which is where the failure is.
+
+`!!` escapes, for the rare prompt that opens with an exclamation.
+
+Two lines are acted on instead of executed, because executing them could not do
+what they say. `cd` in a subshell moves a directory that dies with the
+subshell; a bare `wsl` asks for a login shell, and there is no terminal to give
+it. Both are requests to move the session, so they move it.
+
+## Host, container, or WSL
+
+`ctrl+d` points a session at the host, at any running container, or at a WSL
+distribution — `!wsl` and `!exit` are the same move from the prompt. Everything
+follows the choice at once: the explorer, the preview, `ctrl+p`, `ctrl+f`, `!`
+itself, and the agent, which is run over there so it edits the files you are
+looking at rather than same-named files somewhere else.
 
 ```
 ┌ host ─────────────────┐   ctrl+d   ┌ container ────────────────┐
@@ -160,21 +183,50 @@ looking at rather than same-named files on the host.
 │ grep   in-process     │            │ grep   docker exec grep   │
 │ agent  runs here      │            │ agent  docker exec claude │
 └───────────────────────┘            └───────────────────────────┘
+        │                            ┌ wsl ──────────────────────┐
+        └────────── !wsl ──────────▶ │ tree   wsl.exe find       │
+                                     │ agent  wsl.exe claude     │
+                                     └───────────────────────────┘
 ```
 
+This matters most on Windows, where the two filesystems overlap without being
+the same: `C:\src\app` and `/mnt/c/src/app` are one directory seen through two
+namespaces, `/home/you/app` is only reachable from one of them, and an explorer
+showing one while the agent edits the other is worse than no explorer.
+
+`!wsl` lands in the distribution's **login home**, and the explorer shows that
+tree immediately. This is deliberately not what bare `wsl.exe` does: given a
+Windows working directory it translates it and starts under `/mnt`. That is the
+wrong half of the choice here, because the reason to enter a distribution is
+the work that only exists inside it — a checkout under `~`, a toolchain that
+was never installed on the host. A session that wanted the `/mnt` view of a
+Windows project never needed to leave the host to get it. `!exit` comes back
+out, to the Windows spelling of where you were when there is one.
+
+The move is **one** `wsl.exe` launch: the distribution names itself through
+`WSL_DISTRO_NAME` and the same shell reports where `~` is, so the explorer
+lands in about 260 ms warm instead of spending most of a second on three round
+trips while still showing the directory you just left. Enumerating
+distributions happens only on the path that has already failed, where naming
+the ones that do exist is worth the trip. Typing `!wsl` when you are already
+inside says so and stays put, rather than discarding wherever you had navigated
+to.
+
 Sessions carry their target independently, so one can work on the host while
-another works inside a container. A container that has gone away falls back to
-the host and says so rather than leaving the session pointed at nothing.
+another works inside a container or a distribution. A container or distribution
+that has gone away falls back to the host and says so rather than leaving the
+session pointed at nothing.
 
 Two honest limits: approval interception is host-only, because the broker talks
 over a unix socket a container cannot reach; and the agent CLI has to be
-installed **in** the container for a container-targeted session to use it.
+installed **over there** for a session targeting it to use it.
 
 ## Keys
 
 | Key | |
 |---|---|
 | `enter` / `alt+enter` | send / newline |
+| `!<cmd>` | run a command where this session works |
 | `ctrl+c` | stop the agent, or quit when idle |
 | `ctrl+p` | fuzzy-find a file |
 | `ctrl+f` / `ctrl+g` | search file contents, or find in the open file |
@@ -192,6 +244,37 @@ installed **in** the container for a container-targeted session to use it.
 | `ctrl+k` | background commands and their output |
 | `shift+tab` | cycle mode: plan → ask → auto |
 | `f1` | all shortcuts and commands |
+
+## Models
+
+`/model` picks the model, per session, so a question worth Opus and a rename
+worth Haiku can run at the same time instead of one waiting on the other's
+setting. With no argument it opens a picker; with one it takes a family name or
+a full id, and a bare `sonnet` means the current Sonnet — which is what someone
+who has not been following version numbers means by it.
+
+| | |
+|---|---|
+| `opus` | 1M context · the default, and the strongest all-round coding model |
+| `fable` | 1M context · the most capable, and the most expensive |
+| `sonnet` | 1M context · faster and cheaper than Opus |
+| `haiku` | 200K context · the cheapest |
+
+Unlike switching engine, changing model keeps the conversation: the model reads
+the transcript it is handed, where an engine is a different program with its
+own server-side history.
+
+What a request may contain is a property of the model rather than a constant in
+the agent, because it is not uniform: the current models take adaptive thinking
+and an effort level, while Haiku 4.5 takes a fixed thinking budget and rejects
+an effort outright. A picker that did not know that would offer a model that
+fails on the first prompt. An id the catalogue has never heard of — one from
+your config file, or a model newer than the build — is still offered and still
+run, on the assumption that naming it was deliberate.
+
+`/model` reaches the built-in agent and Claude Code, which is passed `--model`.
+`codex` and `opencode` drive other providers entirely and choose their own; the
+picker says so rather than accepting a setting it knows will be ignored.
 
 ## Modes
 
@@ -255,8 +338,9 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/new` `/fork` `/close` | start, branch, or close a session |
 | `/cd <dir>` | move this session to another directory |
 | `/mode [name]` | plan, ask, auto or full |
+| `/model [name]` | choose the model: `opus`, `sonnet`, `haiku`, `fable` |
 | `/engine [name]` | choose the agent: `api`, `claude`, `codex`, `opencode` |
-| `/target [name]` | work on the host or inside a container |
+| `/target [name]` | work on the host, in a container, or in WSL |
 | `/files` `/search [text]` | open the file finder or content search |
 | `/tasks` | background commands and their output |
 | `/help` `/quit` | |
@@ -314,13 +398,15 @@ Measured on an M1, `make bench`:
 ### Reading a filesystem that is not ours
 
 Everything that touches files goes through one `vfs.FS`: the explorer, the
-preview, the fuzzy index, content search, and the built-in agent's tools. There
-are two implementations, so pointing a session somewhere else repoints all of
-them at once.
+preview, the fuzzy index, content search, `!`, and the built-in agent's tools.
+There are three implementations, so pointing a session somewhere else repoints
+all of them at once.
 
-The container backend is `docker exec`, and every command it runs was chosen to
-behave the same under BusyBox and GNU coreutils, because a container is as
-likely to be Alpine as Debian. That rules out `stat --printf`, `ls
+Two of the three are one filesystem with a different launcher — a container
+over `docker exec`, a distribution over `wsl.exe` — so the scripts live once in
+`posixFS` and each backend supplies only how one is run. Every command was
+chosen to behave the same under BusyBox and GNU coreutils, because a container
+is as likely to be Alpine as Debian. That rules out `stat --printf`, `ls
 --time-style` and `grep --exclude-dir` — none of which BusyBox implements — and
 leaves `find -exec stat -c`, and `find -print0 | xargs -0 grep`.
 
@@ -328,6 +414,13 @@ One round trip costs about a quarter of a second, which decides the design:
 a tree refresh reads **every open directory in a single exec** rather than one
 per directory. Measured on five directories, 60 ms batched against 157 ms
 one-at-a-time, and the gap widens as more of the tree is open.
+
+`wsl.exe` adds a wrinkle of its own: it writes its diagnostics as UTF-16LE to a
+redirected pipe, so an error arrives as ASCII interleaved with NULs. Launches
+set `WSL_UTF8=1`, which fixes it at the source on builds that know the
+variable, and older ones are decoded on the way in. Only wsl.exe's own output
+is decoded — file contents are the bytes Linux wrote, and are passed through
+untouched.
 
 ### Staying current inside Docker and WSL
 
@@ -347,8 +440,9 @@ simply stop updating there, with nothing to show for it. Instead:
 - the environment is detected at startup, and the poll tightens from 900 ms to
   400 ms when events are known not to arrive. The pane title says `docker` or
   `wsl` so the behaviour is explicable rather than mysterious;
-- a tree reading into a container is never watched at all — there are no events
-  to receive — and polls at 1.2 s, paced for the round trip.
+- a tree reading into a container or a WSL distribution is never watched at all
+  — the events, where they exist, are raised in a namespace this process is not
+  in — and polls at 1.2 s, paced for the round trip.
 
 ### The terminal's own cursor
 
@@ -386,8 +480,8 @@ cmd/agent-tui      entry point, flags, and --permission-broker mode
 internal/agent     event vocabulary, Engine interface, built-in Claude loop
 internal/engine    engine registry, the three CLI adapters, approval broker
 internal/explorer  lazy file tree, hybrid watcher, Docker/WSL detection
-internal/ignore    .gitignore matching, shared by both filesystems
-internal/vfs       the filesystem abstraction: host and docker exec backends
+internal/ignore    .gitignore matching, shared by every filesystem
+internal/vfs       the filesystem abstraction: host, docker exec, wsl.exe
 internal/fsx       background file indexer and .gitignore matching
 internal/highlight one-pass syntax highlighter
 internal/preview   file loading, binary detection, LRU of highlighted files
@@ -405,6 +499,13 @@ side fails a test instead of blanking the transcript.
 `AGENT_TUI_DOCKER=1 go test ./internal/vfs/` exercises the container backend
 against whatever containers happen to be running: listing, byte-exact reads,
 stat, walking, grep, and that batching really is one round trip.
+
+The WSL backend needs no flag: on a Windows machine with a distribution
+registered it runs the same checks against it, and skips itself everywhere
+else. `internal/ui` goes one further and drives the whole move — `!wsl`, then
+`!exit` — asserting that the tree, the index and the directory the agent would
+run in all end up in the same place, because the failure worth catching is not
+that one of them is wrong but that they disagree.
 
 `AGENT_TUI_LIVE=1 go test ./internal/engine/` additionally spawns the real
 binaries — it costs real money and needs real credentials. It covers the full

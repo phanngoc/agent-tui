@@ -63,8 +63,8 @@ type Styles struct {
 
 	TabOn, TabOff lipgloss.Style
 
-	UserTag, AgentTag, ToolTag, ErrTag lipgloss.Style
-	UserBar, AgentBar, ToolBar         lipgloss.Style
+	UserTag, AgentTag, ToolTag, ErrTag, ShellTag lipgloss.Style
+	UserBar, AgentBar, ToolBar, ShellBar         lipgloss.Style
 
 	Gutter, GutterOn lipgloss.Style
 	Match, MatchOn   lipgloss.Style
@@ -112,6 +112,10 @@ func New(p Palette) *Styles {
 	s.UserBar = base.Foreground(p.Accent)
 	s.AgentBar = base.Foreground(p.Good)
 	s.ToolBar = base.Foreground(p.Faint)
+	// A command the user ran is neither the user talking nor the agent working,
+	// so it gets a rail of its own rather than borrowing one of theirs.
+	s.ShellTag = base.Foreground(p.Warn).Bold(true)
+	s.ShellBar = base.Foreground(p.Warn)
 
 	s.Gutter = base.Foreground(p.Faint)
 	s.GutterOn = base.Foreground(p.Accent).Bold(true)

@@ -106,8 +106,7 @@ func (t *Tree) setRoot(root string, force bool) {
 		// Ignore rules and the environment come from the remote filesystem,
 		// which supplies its own; nothing here can read them.
 		t.ig = nil
-		t.env = Env{Kind: "container", WatchReliable: false,
-			Note: "listings are read over docker exec; polling"}
+		t.env = remoteEnv(t.fs.ID())
 	}
 	t.mu.Unlock()
 

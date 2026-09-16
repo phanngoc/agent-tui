@@ -108,9 +108,11 @@ const (
 )
 
 // KindFor decides what the line is asking for. A line that starts with cd can
-// only mean a directory.
+// only mean a directory, whether it was typed as a bare cd or behind the `!`
+// that runs a command.
 func KindFor(line string) Kind {
 	trimmed := strings.TrimLeft(line, " \t")
+	trimmed = strings.TrimLeft(strings.TrimPrefix(trimmed, "!"), " \t")
 	if trimmed == "cd" || strings.HasPrefix(trimmed, "cd ") || strings.HasPrefix(trimmed, "cd\t") {
 		return DirsOnly
 	}

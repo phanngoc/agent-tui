@@ -24,18 +24,18 @@ var slashCmds = []slashCmd{
 	{"new", "", "start an empty session", func(m *Model, _ string) tea.Cmd {
 		s := m.mgr.New()
 		s.Engine = m.lastEngine
-		m.onSessionSwitch()
+		cmd := m.onSessionSwitch()
 		m.notice = "new session"
-		return nil
+		return cmd
 	}},
 	{"fork", "", "branch this session, keeping the agent's context", func(m *Model, _ string) tea.Cmd {
 		return m.forkSession(m.mgr.Active())
 	}},
 	{"close", "", "close this session", func(m *Model, _ string) tea.Cmd {
 		m.mgr.Close(m.mgr.ActiveIndex())
-		m.onSessionSwitch()
+		cmd := m.onSessionSwitch()
 		m.notice = "session closed"
-		return nil
+		return cmd
 	}},
 	{"cd", "<dir>", "move this session to another directory", func(m *Model, arg string) tea.Cmd {
 		if arg == "" {
@@ -60,7 +60,14 @@ var slashCmds = []slashCmd{
 		}
 		return m.setEngineByName(arg)
 	}},
-	{"target", "[host|container]", "work on the host or inside a container", func(m *Model, arg string) tea.Cmd {
+	{"model", "[name]", "choose the model this session runs on", func(m *Model, arg string) tea.Cmd {
+		if arg == "" {
+			m.openModelPicker()
+			return nil
+		}
+		return m.setModelByName(arg)
+	}},
+	{"target", "[host|container|distro]", "work on the host, in a container, or in WSL", func(m *Model, arg string) tea.Cmd {
 		m.refreshTargets()
 		if arg == "" {
 			m.overlay = overlayTarget
@@ -160,8 +167,11 @@ func (m *Model) setTargetByName(name string) tea.Cmd {
 	name = strings.ToLower(name)
 	for _, t := range m.targets {
 		if strings.ToLower(t.label) == name || strings.ToLower(t.id) == name {
-			return m.useTarget(t)
+			return m.chooseTarget(t)
 		}
+	}
+	if name == "wsl" {
+		return m.enterWSL("")
 	}
 	m.notice = "no target called " + name
 	return nil

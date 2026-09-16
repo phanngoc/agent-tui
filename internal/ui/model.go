@@ -51,6 +51,7 @@ const (
 	overlayHelp
 	overlayEngine
 	overlayTarget
+	overlayModel
 )
 
 // Model is the root Bubble Tea model.
@@ -145,6 +146,7 @@ type Model struct {
 
 	// Engine picker.
 	engineSel  int
+	modelSel   int
 	lastEngine string // engine a new session inherits
 
 	// Filesystem target picker.
@@ -159,6 +161,9 @@ type Model struct {
 	approvals []pendingApproval
 	choices   []pendingChoice
 	choiceSel int
+
+	// deferred holds commands produced where none could be returned.
+	deferred []tea.Cmd
 
 	status  string
 	errText string
@@ -403,8 +408,10 @@ func (m *Model) recallHistory(delta int) bool {
 
 func (m *Model) Init() tea.Cmd {
 	m.tree.Watch()
+	// The active session may have been restored inside a container or a
+	// distribution, which the tree was built on the host not knowing.
 	return tea.Batch(
-		m.buildIndex(),
+		m.showActiveSession(),
 		m.spin.Tick,
 		m.watchTree(),
 		m.watchTasks(),
@@ -535,6 +542,7 @@ func (m *Model) send(text string) tea.Cmd {
 		Fork:       s.ForkPending,
 		Root:       m.sessionCWD(s),
 		Mode:       sessionMode(s),
+		Model:      m.sessionModel(s),
 		FS:         fsys,
 	}
 
@@ -671,12 +679,16 @@ func itoa(n int) string {
 }
 
 // target is one row of the filesystem picker.
+//
+// A WSL row carries distro instead of fs: resolving one means starting the
+// distribution, which is too slow to do for every row the picker draws.
 type target struct {
 	id      string
 	label   string
 	detail  string
 	workdir string
 	fs      vfs.FS
+	distro  string
 }
 
 // sessionFS resolves the filesystem a session works in, remembering resolved

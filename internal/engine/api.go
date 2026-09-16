@@ -84,5 +84,5 @@ func (e *apiEngine) Run(ctx context.Context, t agent.Turn, out chan<- agent.Even
 		hist = agent.Replay(t.History)
 	}
 	hist = append(hist, anthropic.NewUserMessage(anthropic.NewTextBlock(t.Prompt)))
-	e.ag.Run(ctx, hist, t.Mode, out)
+	e.ag.Run(ctx, hist, t.Mode, t.Model, out)
 }

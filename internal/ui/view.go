@@ -317,11 +317,14 @@ func (m *Model) statusBar() string {
 		left = append(left, m.st.Dim.Render(m.hintFor(m.focus)))
 	}
 
-	engineLabel := m.cfg.Model
-	if e := m.reg.Get(s.Engine); e != nil {
-		engineLabel = e.Label()
-		if e.ID() == "api" {
-			engineLabel = m.cfg.Model
+	// The model is what this slot has always shown, and it is now per-session,
+	// so it has to be read from the session rather than from the config. An
+	// engine that picks its own model shows its name instead, because ours
+	// would be a claim about something it is not doing.
+	engineLabel := agent.ModelFor(m.sessionModel(s)).Label
+	if _, ignored := m.modelIgnored(s); ignored {
+		if e := m.reg.Get(s.Engine); e != nil {
+			engineLabel = e.Label()
 		}
 	}
 

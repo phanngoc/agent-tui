@@ -85,6 +85,10 @@ func toolStateKey(s *session.Session) string {
 func (m *Model) renderMessage(b *strings.Builder, msg *session.Message, width int) {
 	stamp := m.st.Faint.Render(msg.At.Format("15:04"))
 
+	if msg.Shell != nil {
+		m.renderShell(b, msg.Shell, stamp, width)
+		return
+	}
 	if msg.Role == session.RoleUser {
 		m.block(b, m.st.UserBar, m.st.UserTag.Render("you"), stamp, msg.Text, width)
 		return
@@ -98,6 +102,41 @@ func (m *Model) renderMessage(b *strings.Builder, msg *session.Message, width in
 	}
 	if msg.Err != "" {
 		m.block(b, m.st.Bad, m.st.ErrTag.Render("error"), "", msg.Err, width)
+	}
+}
+
+// renderShell draws a command the user ran with `!`.
+//
+// Output is left unwrapped and clipped instead: command output is columnar —
+// a `ls -l`, a test summary, a table — and wrapping it the way prose is
+// wrapped destroys the alignment that makes it readable at a glance.
+func (m *Model) renderShell(b *strings.Builder, run *session.ShellRun, stamp string, width int) {
+	bar := m.st.ShellBar.Render("▎")
+	head := bar + " " + m.st.ShellTag.Render(run.Where+" $")
+	if stamp != "" {
+		head += "  " + stamp
+	}
+	if run.Done && run.Exit != 0 {
+		head += "  " + m.st.Bad.Render("exit "+strconv.Itoa(run.Exit))
+	}
+	if run.Done && run.Elapsed > 0 {
+		head += "  " + m.st.Faint.Render(shortDur(run.Elapsed))
+	}
+	b.WriteString(head + "\n")
+	b.WriteString(bar + " " + m.st.Body.Render(truncate(run.Command, max(10, width-2))) + "\n")
+
+	if !run.Done {
+		b.WriteString(bar + " " + m.st.Faint.Render("running…") + "\n")
+		return
+	}
+	body := strings.TrimRight(run.Output, "\n")
+	if strings.TrimSpace(body) == "" {
+		b.WriteString(bar + " " + m.st.Faint.Render("(no output)") + "\n")
+		return
+	}
+	for _, l := range strings.Split(body, "\n") {
+		b.WriteString(bar + " " + m.st.Dim.Render(truncate(strings.TrimRight(l, "\r"),
+			max(10, width-2))) + "\n")
 	}
 }
 
@@ -168,6 +207,7 @@ func (m *Model) welcome(width int) string {
 		"",
 		st.Dim.Render("Ask a question, or start with a shortcut:"),
 		"",
+		kv(st, "!<cmd>", "run it here instead of asking"),
 		kv(st, "ctrl+p", "fuzzy-find a file"),
 		kv(st, "ctrl+f", "search file contents"),
 		kv(st, "/new", "start a session  ·  /fork to branch this one"),

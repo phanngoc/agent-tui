@@ -16,7 +16,28 @@ import (
 	"github.com/phanngoc/agent-tui/internal/vfs"
 )
 
+// Update drains any work left by a path that had no way to return it. The
+// approval and choice queues pull a waiting session to the front from inside
+// the event pump, several frames deep in functions that return nothing; the
+// reindex that move needs has to reach the runtime somehow.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	_, cmd := m.update(msg)
+	if len(m.deferred) == 0 {
+		return m, cmd
+	}
+	batch := append([]tea.Cmd{cmd}, m.deferred...)
+	m.deferred = nil
+	return m, tea.Batch(batch...)
+}
+
+// defer_ queues a command for the next Update to return.
+func (m *Model) defer_(cmd tea.Cmd) {
+	if cmd != nil {
+		m.deferred = append(m.deferred, cmd)
+	}
+}
+
+func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 
 	case tea.WindowSizeMsg:
@@ -51,6 +72,13 @@ func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.mgr.Save(msg.sess)
 		m.invalidateChat()
 		return m, nil
+
+	case bangDoneMsg:
+		m.applyBangDone(msg)
+		return m, nil
+
+	case wslReadyMsg:
+		return m, m.applyWSLReady(msg)
 
 	case treeMsg:
 		// Keep the selection on the same path when rows shift underneath it.
@@ -191,23 +219,20 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+t":
 		s := m.mgr.New()
 		s.Engine = m.lastEngine
-		m.onSessionSwitch()
+		cmd := m.onSessionSwitch()
 		m.notice = "new session"
-		return nil
+		return cmd
 	case "alt+t":
 		return m.forkSession(m.mgr.Active())
 	case "ctrl+w":
 		m.mgr.Close(m.mgr.ActiveIndex())
-		m.onSessionSwitch()
-		return nil
+		return m.onSessionSwitch()
 	case "ctrl+pgdown", "alt+down":
 		m.mgr.Cycle(1)
-		m.onSessionSwitch()
-		return nil
+		return m.onSessionSwitch()
 	case "ctrl+pgup", "alt+up":
 		m.mgr.Cycle(-1)
-		m.onSessionSwitch()
-		return nil
+		return m.onSessionSwitch()
 	case "ctrl+b":
 		m.showSessions = !m.showSessions
 		m.resize(m.w, m.h)
@@ -242,8 +267,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	if strings.HasPrefix(key, "alt+") && len(key) == 5 && key[4] >= '1' && key[4] <= '9' {
 		if n, err := strconv.Atoi(key[4:]); err == nil {
 			m.mgr.Select(n - 1)
-			m.onSessionSwitch()
-			return nil
+			return m.onSessionSwitch()
 		}
 	}
 
@@ -254,6 +278,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.grepKey(k)
 	case overlayEngine:
 		return m.engineKey(k.String())
+	case overlayModel:
+		return m.modelKey(k.String())
 	case overlayTarget:
 		return m.targetKey(k.String())
 	case overlayTasks:
@@ -330,6 +356,15 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 			m.pushHistory(text)
 			m.input.Reset()
 			return m.runSlash(name, arg)
+		}
+		// A `!` line is a command to run here, not a question to ask. It does
+		// not wait for a turn to finish: the reason to reach for it mid-turn is
+		// usually to find out what the agent is doing.
+		if line, ok := parseBang(text); ok {
+			m.pushHistory(text)
+			m.input.Reset()
+			m.chat.GotoBottom()
+			return m.runBang(line)
 		}
 		if dir, ok := parseCD(text); ok {
 			m.pushHistory(text)
@@ -667,14 +702,14 @@ func (m *Model) forkSession(src *session.Session) tea.Cmd {
 	}
 
 	f := m.mgr.Fork(src)
-	m.onSessionSwitch()
+	cmd := m.onSessionSwitch()
 
 	if f.ForkPending {
 		m.notice = "forked " + src.Label() + "; the agent branches on your next message"
 	} else {
 		m.notice = "forked " + src.Label()
 	}
-	return nil
+	return cmd
 }
 
 func (m *Model) sessionsKey(key string) tea.Cmd {
@@ -685,13 +720,15 @@ func (m *Model) sessionsKey(key string) tea.Cmd {
 		m.sessSel = min(m.mgr.Len()-1, m.sessSel+1)
 	case "enter":
 		m.mgr.Select(m.sessSel)
-		m.onSessionSwitch()
+		cmd := m.onSessionSwitch()
 		m.setFocus(focusInput)
+		return cmd
 	case "n":
 		s := m.mgr.New()
 		s.Engine = m.lastEngine
-		m.onSessionSwitch()
+		cmd := m.onSessionSwitch()
 		m.notice = "new session"
+		return cmd
 	case "f":
 		all := m.mgr.All()
 		if m.sessSel >= 0 && m.sessSel < len(all) {
@@ -700,7 +737,7 @@ func (m *Model) sessionsKey(key string) tea.Cmd {
 	case "d", "x":
 		m.mgr.Close(m.sessSel)
 		m.sessSel = min(m.sessSel, m.mgr.Len()-1)
-		m.onSessionSwitch()
+		return m.onSessionSwitch()
 	}
 	return nil
 }
@@ -843,7 +880,7 @@ func (m *Model) showNextChoice() {
 	for i, s := range m.mgr.All() {
 		if s == head.sess {
 			m.mgr.Select(i)
-			m.onSessionSwitch()
+			m.defer_(m.onSessionSwitch())
 			break
 		}
 	}
@@ -900,7 +937,7 @@ func (m *Model) showNextApproval() {
 	for i, s := range m.mgr.All() {
 		if s == head.sess {
 			m.mgr.Select(i)
-			m.onSessionSwitch()
+			m.defer_(m.onSessionSwitch())
 			break
 		}
 	}
@@ -998,16 +1035,39 @@ func (m *Model) cycleFocus(d int) {
 	m.setFocus(order[((at+d)%len(order)+len(order))%len(order)])
 }
 
-func (m *Model) onSessionSwitch() {
+func (m *Model) onSessionSwitch() tea.Cmd {
 	m.sessSel = m.mgr.ActiveIndex()
-	// The tree always shows the directory the active session's agent runs in,
-	// on whichever filesystem that is.
-	s := m.mgr.Active()
-	m.tree.SetFS(m.sessionFS(s), m.sessionCWD(s))
-	m.treeSel, m.treeTop = 0, 0
+	cmd := m.showActiveSession()
 	m.invalidateChat()
 	m.chat.GotoBottom()
-	m.errText = s.LastErr
+	m.errText = m.mgr.Active().LastErr
+	return cmd
+}
+
+// showActiveSession points everything that reads files at the filesystem and
+// directory the active session's agent runs in.
+//
+// The tree and the index have to move together. They did not: switching
+// session repointed the tree alone, and starting up built the tree on the host
+// whatever the session said — so a session restored inside a distribution came
+// back with the host filesystem aimed at a POSIX path, which reads as an empty
+// directory. An explorer showing nothing, and a finder still listing the
+// previous session's project, is the same bug seen from two panes.
+func (m *Model) showActiveSession() tea.Cmd {
+	s := m.mgr.Active()
+	fsys, dir := m.sessionFS(s), m.sessionCWD(s)
+
+	if m.tree.FS() == fsys && m.tree.Root() == dir && m.idx.Root() == dir {
+		return nil
+	}
+	m.tree.SetFS(fsys, dir)
+	m.treeSel, m.treeTop = 0, 0
+	m.file = nil
+	m.prev.SetContent("")
+	m.idx.Retarget(fsys, dir)
+	m.setGrepResult(search.Result{})
+	m.status = "indexing…"
+	return m.buildIndex()
 }
 
 // applyFile installs a freshly loaded file into the preview pane.

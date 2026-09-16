@@ -64,6 +64,8 @@ func (m *Model) composeOverlay(base string) string {
 		body = m.helpView()
 	case overlayEngine:
 		body = m.engineView()
+	case overlayModel:
+		body = m.modelView()
 	case overlayTarget:
 		body = m.targetView()
 	default:
@@ -347,6 +349,8 @@ var helpGroups = []struct {
 		{"tab", "complete a path, then cycle the candidates"},
 		{"shift+tab", "cycle mode: plan → ask → auto → full"},
 		{"↑  ↓", "recall earlier prompts"},
+		{"!<cmd>", "run a command where this session works; the agent sees it"},
+		{"!wsl", "move this session into WSL  ·  !exit comes back"},
 		{"cd <dir>", "move this session to another directory"},
 		{"alt+enter", "newline"},
 	}},
@@ -355,7 +359,8 @@ var helpGroups = []struct {
 		{"ctrl+t", "new session"},
 		{"alt+t", "fork this session — same history, separate branch"},
 		{"ctrl+r", "choose the engine (built-in, claude, codex, opencode)"},
-		{"ctrl+d", "work on the host or inside a container"},
+		{"/model", "choose the model this session runs on"},
+		{"ctrl+d", "work on the host, in a container, or in WSL"},
 		{"ctrl+k", "background commands, and their output"},
 		{"ctrl+w", "close session"},
 		{"alt+1…9", "jump to session"},
@@ -493,9 +498,14 @@ func (m *Model) engineView() string {
 
 // ---- filesystem target picker ----------------------------------------------
 
-// refreshTargets lists the host plus every running container. Enumerating
-// containers shells out, so it happens when the picker opens rather than on
-// every frame.
+// refreshTargets lists the host, every running container, and every registered
+// WSL distribution. Enumerating both shells out, so it happens when the picker
+// opens rather than on every frame.
+//
+// A distribution is listed without being started and without its home being
+// probed, because either would mean booting every registered distribution just
+// to draw a menu. Its row therefore carries no working directory; choosing it
+// goes through enterWSL, which resolves one once there is a reason to.
 func (m *Model) refreshTargets() {
 	list := []target{{
 		id: "host", label: "host", fs: m.hostFS,
@@ -507,6 +517,15 @@ func (m *Model) refreshTargets() {
 		list = append(list, target{
 			id: fs.ID(), label: c.Name, fs: fs,
 			detail: c.Image + "  " + c.Workdir, workdir: c.Workdir,
+		})
+	}
+	for _, d := range vfs.Distros(context.Background()) {
+		detail := "wsl  " + strings.ToLower(d.State)
+		if d.Default {
+			detail += "  (default)"
+		}
+		list = append(list, target{
+			id: "wsl:" + d.Name, label: d.Name, detail: detail, distro: d.Name,
 		})
 	}
 	m.targets = list
@@ -538,9 +557,19 @@ func (m *Model) targetKey(key string) tea.Cmd {
 		if m.targetSel >= len(m.targets) {
 			return nil
 		}
-		return m.useTarget(m.targets[m.targetSel])
+		return m.chooseTarget(m.targets[m.targetSel])
 	}
 	return nil
+}
+
+// chooseTarget switches to a picked row, starting a WSL distribution first
+// when that is what was picked.
+func (m *Model) chooseTarget(t target) tea.Cmd {
+	if t.fs == nil {
+		m.overlay = overlayNone
+		return m.enterWSL(t.distro)
+	}
+	return m.useTarget(t)
 }
 
 // useTarget repoints the active session at a filesystem: the tree, the preview,

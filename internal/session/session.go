@@ -108,6 +108,26 @@ type Message struct {
 	Tools    []ToolCall `json:"tools,omitempty"`
 	At       time.Time  `json:"at"`
 	Err      string     `json:"err,omitempty"`
+
+	// Shell is set on a message the user produced by running a command with
+	// `!` rather than by writing a prompt. The role stays "user", because the
+	// agent is meant to see what was run and what it printed — the command is
+	// part of the conversation, not a detour from it. Only the rendering
+	// differs, and this is what tells the transcript to render it that way.
+	Shell *ShellRun `json:"shell,omitempty"`
+}
+
+// ShellRun is a command the user ran with `!`, and what it printed.
+type ShellRun struct {
+	Command string `json:"command"`
+	// Where is the filesystem it ran in, for the header: a session that moves
+	// between the host and WSL leaves a transcript where that matters.
+	Where   string        `json:"where,omitempty"`
+	Dir     string        `json:"dir,omitempty"`
+	Output  string        `json:"output,omitempty"`
+	Exit    int           `json:"exit"`
+	Elapsed time.Duration `json:"elapsed,omitempty"`
+	Done    bool          `json:"done,omitempty"`
 }
 
 // Session is a single conversation thread.
@@ -131,9 +151,9 @@ type Session struct {
 	// project root but can be narrowed to a subdirectory, and the file tree
 	// always shows whatever it points at.
 	CWD string `json:"cwd,omitempty"`
-	// Target is the filesystem this session works in: "host", or
-	// "docker:<container>". The explorer, the preview, search and the agent all
-	// follow it.
+	// Target is the filesystem this session works in: "host",
+	// "docker:<container>", or "wsl:<distribution>". The explorer, the preview,
+	// search and the agent all follow it.
 	Target string `json:"target,omitempty"`
 	// Mode is how much this session's agent may do without asking. Empty
 	// means auto, which is what a new session gets.
@@ -168,7 +188,9 @@ func (s *Session) Append(m Message) {
 	s.Messages = append(s.Messages, m)
 	s.Updated = m.At
 	s.Dirty = true
-	if s.Title == "" && m.Role == RoleUser {
+	// A command run with `!` is not what the session is about, so it does not
+	// get to name it.
+	if s.Title == "" && m.Role == RoleUser && m.Shell == nil {
 		s.Title = deriveTitle(m.Text)
 	}
 }

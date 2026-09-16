@@ -669,11 +669,8 @@ func (e *Executor) ShouldAsk(call session.ToolCall, mode Mode, trusted bool) (bo
 	case ModeAsk:
 		return true, "ask mode confirms every change"
 	case ModeAuto:
-		if inside, decided := call.PathsInside(e.Root); decided && inside {
+		if AutoAllows(call, e.Root) {
 			return false, ""
-		}
-		if call.Name == "bash" {
-			return false, "" // auto runs commands in the project; the shell is not a path
 		}
 		return true, "this is outside " + e.Root
 	default:

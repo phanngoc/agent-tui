@@ -77,9 +77,17 @@ func shortID(id string) string {
 }
 
 // Open resolves a persisted filesystem id back into an FS. An id naming a
-// container that is gone falls back to the host rather than failing the
-// session outright.
+// container or distribution that is gone falls back to the host rather than
+// failing the session outright.
 func Open(ctx context.Context, id, hostRoot string) FS {
+	if name, ok := strings.CutPrefix(id, "wsl:"); ok {
+		for _, d := range Distros(ctx) {
+			if strings.EqualFold(d.Name, name) || (name == "" && d.Default) {
+				return NewWSL(d.Name)
+			}
+		}
+		return NewLocal(hostRoot)
+	}
 	if !strings.HasPrefix(id, "docker:") {
 		return NewLocal(hostRoot)
 	}

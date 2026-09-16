@@ -171,7 +171,7 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 		if idx := m.sessionRowAt(e.Y); idx >= 0 {
 			m.sessSel = idx
 			m.mgr.Select(idx)
-			m.onSessionSwitch()
+			return m.onSessionSwitch()
 		}
 		return nil
 

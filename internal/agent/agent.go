@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -105,6 +106,10 @@ type Turn struct {
 	Root string
 	// Mode is how much the agent may do without asking on this turn.
 	Mode Mode
+	// Model is the model this session runs on. It belongs to the turn rather
+	// than the engine because sessions choose independently, and two sessions
+	// on different models run side by side.
+	Model string
 	// FS is where this turn's work happens. A session aimed at a container
 	// runs its agent there, so the agent edits the files the user is looking at.
 	FS vfs.FS
@@ -244,7 +249,7 @@ func Replay(msgs []session.Message) []anthropic.MessageParam {
 // history is the session's live SDK history including the new user message. The
 // updated history comes back on EvDone, so the caller can store it from its own
 // goroutine and nothing is shared across the boundary.
-func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode Mode, out chan<- Event) {
+func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode Mode, model string, out chan<- Event) {
 	defer close(out)
 
 	// Trust granted at an approval prompt lasts for this run and no longer.
@@ -259,21 +264,23 @@ func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode 
 		}
 	}
 
+	spec := ModelFor(cmp.Or(model, a.Model))
+
 	params := anthropic.MessageNewParams{
-		Model:     anthropic.Model(a.Model),
+		Model:     anthropic.Model(spec.ID),
 		MaxTokens: a.MaxTokens,
 		System: []anthropic.TextBlockParam{{
 			Text:         systemPrompt + mode.prompt(),
 			CacheControl: anthropic.NewCacheControlEphemeralParam(),
 		}},
-		Tools:        a.exec.Defs(mode),
-		OutputConfig: anthropic.OutputConfigParam{Effort: a.Effort},
-		Thinking: anthropic.ThinkingConfigParamUnion{
-			OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
-				Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
-			},
-		},
+		Tools:    a.exec.Defs(mode),
+		Thinking: thinkingFor(spec, a.MaxTokens),
 		Messages: history,
+	}
+	// Effort is not universal: a model that does not take one rejects the
+	// request outright rather than ignoring the field.
+	if spec.Effort {
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: a.Effort}
 	}
 
 	defer func() {
