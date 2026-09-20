@@ -3,9 +3,11 @@ package agent
 import (
 	"cmp"
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
 	"runtime"
 	"strings"
 	"time"
@@ -47,6 +49,16 @@ type (
 		Options  []session.Choice
 		Reply    chan int
 	}
+	// EvToolPending carries the tool calls of the turn being written right
+	// now, while the model is still emitting them. Their inputs are half a
+	// JSON object and are meant to be read as such: the point is to see the
+	// path or the command appear, not to act on it. The same calls arrive
+	// again, complete, on the EvAssistant that ends the turn.
+	EvToolPending struct{ Calls []session.ToolCall }
+	// EvToolOutput is what a running tool has printed so far. A build or a
+	// test run is the reason to watch a turn at all, and it has nothing to say
+	// until it exits unless someone forwards it.
+	EvToolOutput struct{ ID, Text string }
 	// EvToolStart marks a tool as running.
 	EvToolStart struct{ Call session.ToolCall }
 	// EvToolDone carries the tool's outcome.
@@ -113,6 +125,41 @@ type Turn struct {
 	// FS is where this turn's work happens. A session aimed at a container
 	// runs its agent there, so the agent edits the files the user is looking at.
 	FS vfs.FS
+	// Files are what the user attached to this prompt.
+	Files []session.Attachment
+}
+
+// PromptText is the prompt as an engine that can only be handed text should see
+// it. An engine with no way to carry an image is given the path to it instead:
+// every CLI here can open a file, and a path it can open beats an attachment it
+// cannot receive.
+//
+// The path has to be one that side can open. A CLI running inside a container
+// is told where the file was copied to in there, never where it sits on this
+// machine — and an image that never got within its reach is left out, because
+// naming a path it cannot open sends it looking for a file that is not there,
+// which is worse than not mentioning the image at all.
+func (t Turn) PromptText() string {
+	if len(t.Files) == 0 {
+		return t.Prompt
+	}
+	remote := t.FS != nil && !t.FS.IsLocal()
+	var b strings.Builder
+	b.WriteString(t.Prompt)
+	for _, f := range t.Files {
+		where := f.Path
+		if remote {
+			where = f.Ref
+		}
+		if where == "" {
+			continue
+		}
+		if b.Len() > 0 {
+			b.WriteByte('\n')
+		}
+		b.WriteString("Attached image: " + where)
+	}
+	return b.String()
 }
 
 // Engine runs a turn and reports progress as events. Run owns out and closes it
@@ -200,6 +247,33 @@ func (a *Agent) Prepare(s *session.Session) []anthropic.MessageParam {
 	return h
 }
 
+// UserBlocks builds the content of one user message: the images first, then
+// what was typed, which is the order the API asks for and the order a reader
+// would use anyway — you look at the screenshot, then at the question about it.
+//
+// An attachment whose file has gone is dropped rather than fatal. The bytes
+// live outside the session, and a transcript that cannot be resumed because a
+// temporary file was swept up is worse than one that loses a picture.
+func UserBlocks(text string, files []session.Attachment) []anthropic.ContentBlockParamUnion {
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(files)+1)
+	for _, f := range files {
+		data, err := os.ReadFile(f.Path)
+		if err != nil || len(data) == 0 {
+			continue
+		}
+		media := f.Media
+		if media == "" {
+			media = "image/png"
+		}
+		blocks = append(blocks, anthropic.NewImageBlockBase64(media,
+			base64.StdEncoding.EncodeToString(data)))
+	}
+	if strings.TrimSpace(text) != "" {
+		blocks = append(blocks, anthropic.NewTextBlock(text))
+	}
+	return blocks
+}
+
 // Replay rebuilds API history from persisted messages. Thinking blocks are not
 // restored: they carry signatures we do not persist, and a resumed session
 // starts a fresh reasoning context anyway.
@@ -207,8 +281,8 @@ func Replay(msgs []session.Message) []anthropic.MessageParam {
 	out := make([]anthropic.MessageParam, 0, len(msgs)*2)
 	for _, m := range msgs {
 		if m.Role == session.RoleUser {
-			if strings.TrimSpace(m.Text) != "" {
-				out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(m.Text)))
+			if blocks := UserBlocks(m.Text, m.Files); len(blocks) > 0 {
+				out = append(out, anthropic.NewUserMessage(blocks...))
 			}
 			continue
 		}
@@ -395,7 +469,12 @@ func (a *Agent) runTool(ctx context.Context, call session.ToolCall, mode Mode,
 	send(EvStatus{Text: call.Name})
 
 	start := time.Now()
-	res, isErr := a.exec.Run(ctx, call.Name, call.Input)
+	// The sink is how a command's output reaches the transcript while it still
+	// has somewhere to go. Only bash writes to it; every other tool answers in
+	// one piece and has nothing to stream.
+	res, isErr := a.exec.Run(ctx, call.Name, call.Input, func(chunk string) {
+		send(EvToolOutput{ID: call.ID, Text: chunk})
+	})
 	call.Result, call.IsError = res, isErr
 	call.Elapsed = time.Since(start)
 	call.Done = true
@@ -464,6 +543,7 @@ func (a *Agent) stream(ctx context.Context, params anthropic.MessageNewParams,
 
 	st := a.client.Messages.NewStreaming(ctx, params)
 	var msg anthropic.Message
+	var pending pendingCalls
 
 	for st.Next() {
 		ev := st.Current()
@@ -481,10 +561,19 @@ func (a *Agent) stream(ctx context.Context, params anthropic.MessageNewParams,
 				if d.Thinking != "" && !send(EvThinkingDelta{Text: d.Thinking}) {
 					return nil, ctx.Err()
 				}
+			case anthropic.InputJSONDelta:
+				// The call's arguments arrive as a run of JSON fragments. They
+				// are forwarded as they come so a long write shows the file it
+				// is writing while it writes it.
+				if pending.grow(e.Index, d.PartialJSON) {
+					send(EvToolPending{Calls: pending.calls()})
+				}
 			}
 		case anthropic.ContentBlockStartEvent:
 			if e.ContentBlock.Type == "tool_use" {
 				send(EvStatus{Text: "calling " + e.ContentBlock.Name})
+				pending.start(e.Index, e.ContentBlock.ID, e.ContentBlock.Name)
+				send(EvToolPending{Calls: pending.calls()})
 			}
 		}
 	}

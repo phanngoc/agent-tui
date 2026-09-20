@@ -392,3 +392,38 @@ func identByte(c byte) bool { return identStart(c) || isDigit(c) }
 func isUpperStart(w string) bool {
 	return len(w) > 1 && w[0] >= 'A' && w[0] <= 'Z'
 }
+
+// ExpandTabs replaces tabs with the spaces a terminal draws in their place, and
+// drops carriage returns.
+//
+// A tab is one character and some number of columns, and the two are not the
+// same number. Everything that lays text out in columns — a diff pane, a
+// transcript, a preview — has to agree with the terminal about how wide a line
+// is, and a line measured at one column per tab and drawn at four overflows
+// into whatever is beside it. Expanding once, early, is what keeps that
+// arithmetic honest; it is the same thing the renderer above does inline.
+func ExpandTabs(s string) string {
+	if !strings.ContainsAny(s, "\t\r") {
+		return s
+	}
+	var b strings.Builder
+	b.Grow(len(s) + 8)
+	col := 0
+	for _, r := range s {
+		switch r {
+		case '\t':
+			pad := TabWidth - col%TabWidth
+			for i := 0; i < pad; i++ {
+				b.WriteByte(' ')
+			}
+			col += pad
+		case '\r':
+			// A terminal would put the cursor back at the start of the line,
+			// which in a pane of stacked rows is not a thing that can happen.
+		default:
+			b.WriteRune(r)
+			col++
+		}
+	}
+	return b.String()
+}

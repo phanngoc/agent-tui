@@ -68,6 +68,8 @@ func (m *Model) composeOverlay(base string) string {
 		body = m.modelView()
 	case overlayGit:
 		body = m.gitView()
+	case overlayRename:
+		body = m.renameView()
 	case overlayTarget:
 		body = m.targetView()
 	default:
@@ -349,6 +351,9 @@ var helpGroups = []struct {
 	{"Prompt", []binding{
 		{"enter", "send message"},
 		{"tab", "complete a path, then cycle the candidates"},
+		{"@path", "point at a file; the menu opens as you type"},
+		{"ctrl+v", "attach the image on the clipboard  ·  /paste does the same"},
+		{"ctrl+u", "clear the prompt and anything attached to it"},
 		{"shift+tab", "cycle mode: plan → ask → auto → full"},
 		{"↑  ↓", "recall earlier prompts"},
 		{"!<cmd>", "run a command where this session works; the agent sees it"},
@@ -357,12 +362,17 @@ var helpGroups = []struct {
 		{"alt+enter", "newline"},
 	}},
 	{"Session", []binding{
-		{"ctrl+c", "stop the agent, or quit when idle"},
+		{"esc", "drop a selection  ·  or close what is open, stop the agent, go back"},
+		{"ctrl+c", "copy a selection  ·  or stop the agent, or quit when idle"},
+		{"drag", "select text in a pane  ·  releasing copies it"},
+		{"double-click", "select the word under the pointer"},
 		{"ctrl+t", "new session"},
 		{"alt+t", "fork this session — same history, separate branch"},
+		{"/btw", "ask beside this one, in a pane, without interrupting it"},
 		{"ctrl+r", "choose the engine (built-in, claude, codex, opencode)"},
 		{"/model", "choose the model this session runs on"},
-		{"/git", "browse the history and its diffs"},
+		{"/git", "browse the history: ↑↓ commit · tab pane · alt+↑↓ file list"},
+		{"/rename", "name this session yourself"},
 		{"ctrl+d", "work on the host, in a container, or in WSL"},
 		{"ctrl+k", "background commands, and their output"},
 		{"ctrl+w", "close session"},
@@ -380,6 +390,13 @@ var helpGroups = []struct {
 		{"ctrl+s", "save"},
 		{"ctrl+z", "undo  ·  ctrl+y redo"},
 		{"esc", "close; again to discard unsaved changes"},
+	}},
+	{"Session list", []binding{
+		{"↑  ↓", "move the cursor without switching"},
+		{"enter", "switch to the one under the cursor"},
+		{"e", "give it a name"},
+		{"n / f", "start one / fork one"},
+		{"d", "close it"},
 	}},
 	{"Files", []binding{
 		{"↑  ↓", "browse; the file under the cursor is shown as you move"},
@@ -401,9 +418,14 @@ var helpGroups = []struct {
 	{"Layout", []binding{
 		{"ctrl+o", "cycle panes (tab belongs to the prompt)"},
 		{"click", "focus any pane, including the prompt"},
-		{"ctrl+b", "toggle the session sidebar"},
-		{"ctrl+e", "toggle the preview pane"},
+		{"ctrl+b", "toggle the session sidebar  ·  or click its switch up top"},
+		{"ctrl+e", "toggle the preview pane  ·  or click its switch up top"},
+		{"alt+o", "show every tool call a turn made, not just its last few"},
+		{"alt+← →", "resize: the arrow pushes the nearest divider that way"},
+		{"drag", "or take hold of a divider with the mouse"},
 		{"w", "toggle soft wrap in the preview"},
+		{"←  →", "scroll a long line sideways  ·  0 back to column one"},
+		{"shift+wheel", "the same with the mouse"},
 		{"g / G", "top / bottom of the preview"},
 	}},
 }
@@ -603,6 +625,9 @@ func (m *Model) useTarget(t target) tea.Cmd {
 	m.grepRes = search.Result{}
 	m.status = "indexing " + t.label + "…"
 	m.notice = "session now works in " + t.label
+	// Changing filesystem is the largest move there is — it resets the
+	// engine's own conversation two lines above — so the transcript says so.
+	m.logMove(moveCommand(t), "now working in "+t.label+" at "+t.workdir, false)
 
 	return m.buildIndex()
 }

@@ -72,7 +72,7 @@ func codexArgv(c *CLI, t agent.Turn, _ *broker) []string {
 		}
 		a = append(a, "--sandbox", sandbox)
 	}
-	return append(a, t.Prompt)
+	return append(a, t.PromptText())
 }
 
 // codexDec parses `codex exec --json`.

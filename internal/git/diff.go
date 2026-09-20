@@ -3,6 +3,8 @@ package git
 import (
 	"strconv"
 	"strings"
+
+	"github.com/phanngoc/agent-tui/internal/highlight"
 )
 
 // Reading a diff is mostly a search for the part that actually changed. A
@@ -11,6 +13,11 @@ import (
 // the work a tool should have done. So a replaced line carries spans marking
 // where it differs from the line it replaced, and the renderer paints only
 // those brighter.
+
+// A line's Text is display text: tabs are expanded where it is built, because
+// the spans below are byte offsets into it and a renderer that expanded them
+// later would be pointing at the wrong characters — and because a tab measured
+// as one column and drawn as four overflows the pane it is in.
 
 // LineKind is what a diff line does.
 type LineKind int
@@ -130,26 +137,26 @@ func ParsePatch(patch string) []File {
 			if !ok {
 				continue
 			}
-			hunk = &Hunk{Header: hunkHeaderText(line)}
+			hunk = &Hunk{Header: highlight.ExpandTabs(hunkHeaderText(line))}
 
 		case hunk == nil:
 			continue
 
 		case strings.HasPrefix(line, "+"):
 			hunk.Lines = append(hunk.Lines, Line{
-				Kind: Added, New: newNum, Text: line[1:],
+				Kind: Added, New: newNum, Text: highlight.ExpandTabs(line[1:]),
 			})
 			newNum++
 		case strings.HasPrefix(line, "-"):
 			hunk.Lines = append(hunk.Lines, Line{
-				Kind: Deleted, Old: oldNum, Text: line[1:],
+				Kind: Deleted, Old: oldNum, Text: highlight.ExpandTabs(line[1:]),
 			})
 			oldNum++
 		case strings.HasPrefix(line, `\`):
 			hunk.Lines = append(hunk.Lines, Line{Kind: Meta, Text: strings.TrimSpace(line)})
 		case strings.HasPrefix(line, " "):
 			hunk.Lines = append(hunk.Lines, Line{
-				Kind: Context, Old: oldNum, New: newNum, Text: line[1:],
+				Kind: Context, Old: oldNum, New: newNum, Text: highlight.ExpandTabs(line[1:]),
 			})
 			oldNum++
 			newNum++

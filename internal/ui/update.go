@@ -6,6 +6,7 @@ import (
 	"path"
 	"strconv"
 	"strings"
+	"time"
 
 	tea "charm.land/bubbletea/v2"
 
@@ -97,11 +98,18 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case completionMsg:
 		return m, m.applyCompletionResult(msg)
 
+	case pastedMsg:
+		m.onPasted(msg)
+		return m, nil
+
 	case taskMsg:
 		return m, m.watchTasks()
 
 	case tickMsg:
-		if m.mgr.Active().Busy {
+		// Kept going while anything is running, because the clocks on screen
+		// are what the tick is for: a `!` command does not make the session
+		// busy, and its timer would sit still without this.
+		if m.ticking() {
 			return m, tick()
 		}
 		return m, nil
@@ -111,6 +119,19 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case tea.MouseMsg:
 		return m, m.onMouse(msg)
+
+	case tea.PasteMsg:
+		// Paste never reached anything that could take it: the default below
+		// forwards to the spinner and the two viewports, none of which holds
+		// text. It goes where the keyboard is.
+		return m, m.onPaste(msg)
+
+	case copyFailedMsg:
+		// The escape sequence may still have worked, so this is a notice and
+		// not a failure: it names the tool to install, which is the only way
+		// out of it on a machine that has none.
+		m.notice = "copy: " + msg.err.Error()
+		return m, nil
 	}
 
 	// Everything else (focus changes, spinner ticks) goes to the components.
@@ -159,6 +180,15 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 
 	switch key {
 	case "ctrl+c":
+		// With something selected, ctrl+c copies — which is what it means
+		// everywhere else, and the reason it is safe to put in front of
+		// quitting: the selection is dropped on the way out, so the second
+		// press does what the first one always did.
+		if text := m.selectedText(); text != "" {
+			cmd := m.copyText(text)
+			m.clearSelection()
+			return cmd
+		}
 		if m.mgr.Active().Busy {
 			m.cancelRun()
 			return nil
@@ -167,6 +197,12 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	case "ctrl+q":
 		return tea.Quit
 	case "esc":
+		// A selection goes first. It is the most local thing on the screen and
+		// the least costly to be wrong about: dropping one you wanted back
+		// costs a drag, and the rungs below this one cost a turn.
+		if m.clearSelection() {
+			return nil
+		}
 		// The task view has two levels, so esc steps out of a task's output
 		// before it closes the list.
 		if m.overlay == overlayTasks && m.taskOpen != "" {
@@ -179,6 +215,21 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		if m.finding {
 			m.stopFind()
+			return nil
+		}
+		// The side chat closes before the turn stops: it is the thing you
+		// just opened, and the one esc is most likely reaching for.
+		if m.showBtw && m.focus == focusBtw {
+			m.closeBtw()
+			return nil
+		}
+		// Stopping the agent comes before moving the focus back, because it is
+		// the thing esc is reached for while a turn is running: the panes are
+		// still there afterwards, and the tokens are not. It comes after the
+		// overlays and the in-file search, which are modes esc is expected to
+		// dismiss and which you opened yourself.
+		if m.mgr.Active().Busy {
+			m.cancelRun()
 			return nil
 		}
 		if m.focus != focusInput {
@@ -235,18 +286,34 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.mgr.Close(m.mgr.ActiveIndex())
 		return m.onSessionSwitch()
 	case "ctrl+pgdown", "alt+down":
+		// The history browser uses these to move the file summary's window, and
+		// switching sessions behind an overlay is not what they would mean
+		// while it is open.
+		if m.overlay == overlayGit {
+			break
+		}
 		m.mgr.Cycle(1)
 		return m.onSessionSwitch()
 	case "ctrl+pgup", "alt+up":
+		if m.overlay == overlayGit {
+			break
+		}
 		m.mgr.Cycle(-1)
 		return m.onSessionSwitch()
 	case "ctrl+b":
-		m.showSessions = !m.showSessions
-		m.resize(m.w, m.h)
+		m.toggleSessions()
 		return nil
 	case "ctrl+e":
-		m.showPreview = !m.showPreview
-		m.resize(m.w, m.h)
+		m.togglePreview()
+		return nil
+	case "alt+o":
+		m.toggleCalls()
+		return nil
+	case "alt+left":
+		m.nudgeWidth(-2)
+		return nil
+	case "alt+right":
+		m.nudgeWidth(2)
 		return nil
 	case "ctrl+o":
 		// Always available, because tab belongs to the prompt.
@@ -289,6 +356,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.modelKey(k.String())
 	case overlayGit:
 		return m.gitKey(k.String())
+	case overlayRename:
+		return m.renameKey(k)
 	case overlayTarget:
 		return m.targetKey(k.String())
 	case overlayTasks:
@@ -339,7 +408,7 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 
 	switch key {
 	case "tab":
-		return m.completeCmd()
+		return m.completeCmd(false)
 
 	case "up", "ctrl+p":
 		// Single-line prompts recall history, the way a shell does; a
@@ -373,7 +442,9 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 			m.pushHistory(text)
 			m.input.Reset()
 			m.chat.GotoBottom()
-			return m.runBang(line)
+			// The tick comes along to keep the command's clock moving; it
+			// stops itself once nothing is running.
+			return tea.Batch(m.runBang(line), tick())
 		}
 		if dir, ok := parseCD(text); ok {
 			m.pushHistory(text)
@@ -393,10 +464,24 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "ctrl+u":
 		m.input.Reset()
+		m.dropAttachments()
 		return nil
+	case "ctrl+v":
+		// A terminal does not deliver an image paste, so this reads the
+		// clipboard itself. Terminals that swallow ctrl+v have /paste.
+		return m.pasteImage()
 	}
 	var cmd tea.Cmd
 	m.input, cmd = m.input.Update(k)
+	// Typing through a file reference keeps its menu live. It is applied after
+	// the key rather than before, because the word to complete is the one the
+	// keystroke just made.
+	if _, ok := m.refToken(); ok {
+		return tea.Batch(cmd, m.completeCmd(true))
+	}
+	if m.compOpen {
+		m.closeCompletion()
+	}
 	return cmd
 }
 
@@ -410,6 +495,13 @@ func (m *Model) applyCompletionResult(msg completionMsg) tea.Cmd {
 	// Nothing is selected when a menu first appears, so the next Tab lands on
 	// the first candidate rather than skipping past it.
 	m.comp, m.compSel = msg.res, -1
+
+	// A menu that opened by itself only offers. Finishing the word for someone
+	// who is still typing it moves the caret out from under them.
+	if msg.auto {
+		m.compOpen = len(msg.res.Candidates) > 0
+		return nil
+	}
 
 	switch {
 	case len(msg.res.Candidates) == 0:
@@ -517,14 +609,25 @@ func (m *Model) previewKey(k tea.KeyPressMsg) tea.Cmd {
 		return nil
 	case "g", "home":
 		m.prev.GotoTop()
+		// Jumping to the top of a file means the top of the file, not the
+		// same forty columns to the right of it.
+		m.prev.SetXOffset(0)
 		m.fileLine = 1
 		return nil
 	case "G", "shift+g", "end":
 		m.prev.GotoBottom()
+		m.prev.SetXOffset(0)
 		m.fileLine = m.file.LineCount()
+		return nil
+	case "0", "^":
+		// Back to column one, the way it is spelled in a pager.
+		m.prev.SetXOffset(0)
 		return nil
 	case "w":
 		m.prev.SoftWrap = !m.prev.SoftWrap
+		// Wrapped text has no horizontal axis to be scrolled along, and an
+		// offset left over from before the toggle shifts every line of it.
+		m.prev.SetXOffset(0)
 		return nil
 	case "e":
 		return m.openEditor()
@@ -678,9 +781,17 @@ func (m *Model) setSessionRoot(abs string) tea.Cmd {
 
 	if st, err := fsys.Stat(context.Background(), abs); err != nil || !st.Dir {
 		m.notice = "not a directory: " + abs
+		// A move that did not happen is worth recording too: the path was
+		// often the agent's own suggestion, and it should learn that it was
+		// wrong rather than keep referring to a directory that is not there.
+		m.logMove("cd "+abs, "not a directory", true)
 		return nil
 	}
+	if abs == s.CWD {
+		return nil // already there; nothing moved and nothing to say
+	}
 
+	from := s.CWD
 	s.CWD = abs
 	m.mgr.Save(s)
 
@@ -690,6 +801,10 @@ func (m *Model) setSessionRoot(abs string) tea.Cmd {
 	m.setGrepResult(search.Result{})
 	m.status = "indexing…"
 	m.notice = "working in " + abs
+	// Logged after the move rather than before it, so the block is stamped
+	// with where the session ended up. The second line says where it came
+	// from, which is the one thing the command itself does not.
+	m.logMove("cd "+abs, "from "+from, false)
 	return m.buildIndex()
 }
 
@@ -743,6 +858,8 @@ func (m *Model) sessionsKey(key string) tea.Cmd {
 		if m.sessSel >= 0 && m.sessSel < len(all) {
 			return m.forkSession(all[m.sessSel])
 		}
+	case "e":
+		return m.openRename()
 	case "d", "x":
 		m.mgr.Close(m.sessSel)
 		m.sessSel = min(m.sessSel, m.mgr.Len()-1)
@@ -774,8 +891,27 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 	case agent.EvThinkingDelta:
 		s.Status = "thinking"
 
+	case agent.EvToolPending:
+		// The same calls arrive again on EvAssistant, complete. Until then
+		// these are what the transcript has, and they change on every
+		// fragment, so nothing is cached and nothing is invalidated.
+		s.Calls = e.Calls
+		if foreground {
+			m.chat.GotoBottom()
+		}
+
+	case agent.EvToolOutput:
+		if s.OutputID != e.ID {
+			s.OutputID, s.Output = e.ID, ""
+		}
+		s.Output = tailOf(s.Output+e.Text, liveOutputBytes)
+		if foreground {
+			m.chat.GotoBottom()
+		}
+
 	case agent.EvAssistant:
 		s.Partial = ""
+		s.Calls = nil
 		s.Append(e.Message)
 		if e.Message.Err != "" {
 			s.LastErr = e.Message.Err
@@ -794,10 +930,18 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 
 	case agent.EvToolStart:
 		s.Status = e.Call.Name
+		// The call that is running owns the live output and the clock. Both
+		// are dropped when it finishes, a few cases below.
+		s.OutputID, s.Output, s.RunAt = e.Call.ID, "", time.Now()
 		m.invalidateChat()
 
 	case agent.EvToolDone:
 		markTool(s, e.Call)
+		if s.OutputID == e.Call.ID {
+			// The result is on the call now, and its line says how much of it
+			// there was. Keeping the live copy would show it twice.
+			s.OutputID, s.Output, s.RunAt = "", "", time.Time{}
+		}
 		m.invalidateChat()
 		if foreground {
 			m.chat.GotoBottom()
@@ -841,6 +985,11 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 
 	case agent.EvDone:
 		s.Busy, s.Status = false, ""
+		// A turn can end anywhere — cancelled, failed, out of steps — so the
+		// half-written calls and the output of whatever was running are let go
+		// here rather than at each of the places one can stop.
+		s.Calls, s.Output, s.OutputID = nil, "", ""
+		s.Started, s.RunAt = time.Time{}, time.Time{}
 		if e.State != nil {
 			s.Live = e.State
 		}
@@ -1029,6 +1178,9 @@ func (m *Model) setFocus(f focus) {
 
 func (m *Model) cycleFocus(d int) {
 	order := []focus{focusInput, focusChat}
+	if m.btwW > 0 {
+		order = append(order, focusBtw)
+	}
 	if m.showPreview {
 		order = append(order, focusPreview)
 	}
@@ -1048,7 +1200,7 @@ func (m *Model) onSessionSwitch() tea.Cmd {
 	m.sessSel = m.mgr.ActiveIndex()
 	cmd := m.showActiveSession()
 	m.invalidateChat()
-	m.chat.GotoBottom()
+	m.showLatestTurn()
 	m.errText = m.mgr.Active().LastErr
 	return cmd
 }
@@ -1141,24 +1293,19 @@ func (m *Model) resize(w, h int) {
 		inputIn  = 3 // textarea rows
 		inputBox = inputIn + 2
 	)
-	bodyH := h - headerH - statusH - inputBox
+	bodyH := h - headerH - statusH - inputBox - m.attachRows()
 	bodyH = max(bodyH, 5)
 
-	sidebarW := 0
-	if m.showSessions && w >= 90 {
-		sidebarW = clamp(w/6, 22, 34)
-	}
-	previewW := 0
-	if m.showPreview && w-sidebarW >= 80 {
-		previewW = clamp((w-sidebarW)*45/100, 38, 90)
-	}
-	chatW := w - sidebarW - previewW
-	if chatW < 32 {
-		chatW = w - sidebarW
-		previewW = 0
-	}
+	// The sidebar claims first, then the column to its right — which holds the
+	// preview, or the side chat standing in its place — and the transcript
+	// keeps the rest. Both are bounded so the transcript never drops below
+	// paneRoom, which is why nothing needs taking back afterwards.
+	sidebarW := m.sideWidth(w)
+	btwW := m.btwWidth(w, sidebarW)
+	previewW := m.prevWidth(w, sidebarW)
+	chatW := w - sidebarW - previewW - btwW
 
-	m.chatW, m.prevW, m.sideW, m.bodyH = chatW, previewW, sidebarW, bodyH
+	m.chatW, m.prevW, m.sideW, m.btwW, m.bodyH = chatW, previewW, sidebarW, btwW, bodyH
 
 	m.chat.SetWidth(max(1, chatW-2))
 	m.chat.SetHeight(max(1, bodyH-2))
@@ -1174,6 +1321,14 @@ func (m *Model) resize(w, h int) {
 	m.finderIn.SetWidth(max(10, m.overlayWidth()-4))
 	m.grepIn.SetWidth(max(10, m.overlayWidth()-4))
 	m.findIn.SetWidth(max(10, previewW-12))
+
+	// The first layout is also the first time the restored session can be
+	// placed: before it there is no pane to measure against, and the viewport
+	// would otherwise open on the oldest message in the history.
+	if !m.placedChat {
+		m.placedChat = true
+		m.showLatestTurn()
+	}
 }
 
 func (m *Model) overlayWidth() int { return clamp(m.w*7/10, 40, 110) }
@@ -1203,4 +1358,33 @@ func (m *Model) autoApprove() {
 	if a, ok := m.reg.Get(m.mgr.Active().Engine).(interface{ SetAutoApprove(bool) }); ok {
 		a.SetAutoApprove(true)
 	}
+}
+
+// onPaste puts pasted text wherever typing would have gone.
+//
+// Copying out of the transcript is the terminal's own job — hold shift while
+// dragging and it selects rather than passing the drag to us — but what comes
+// back had nowhere to land: every text field here is a component, and a paste
+// that is not routed to one is a paste that silently disappears.
+func (m *Model) onPaste(msg tea.PasteMsg) tea.Cmd {
+	var cmd tea.Cmd
+	switch {
+	case m.edit != nil && m.focus == focusPreview && m.overlay == overlayNone:
+		m.edit.ta, cmd = m.edit.ta.Update(msg)
+	case m.overlay == overlayFinder:
+		m.finderIn, cmd = m.finderIn.Update(msg)
+		m.refreshFinder()
+	case m.overlay == overlayGrep:
+		m.grepIn, cmd = m.grepIn.Update(msg)
+	case m.overlay == overlayRename:
+		m.renameIn, cmd = m.renameIn.Update(msg)
+	case m.overlay != overlayNone:
+		// An overlay with no text in it has nothing to paste into.
+	case m.finding:
+		m.findIn, cmd = m.findIn.Update(msg)
+		m.applyFind(m.findIn.Value())
+	default:
+		m.input, cmd = m.input.Update(msg)
+	}
+	return cmd
 }

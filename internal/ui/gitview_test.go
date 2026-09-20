@@ -109,7 +109,8 @@ func TestGitNavigationLoadsTheSelectedCommit(t *testing.T) {
 
 func TestGitKeysMoveFocusAndClose(t *testing.T) {
 	m := newTestModel(t)
-	m.git = &gitState{commits: []git.Commit{{SHA: "a", Subject: "one"}}}
+	m.git = newGitState()
+	m.git.commits = []git.Commit{{SHA: "a", Subject: "one"}}
 	m.overlay = overlayGit
 
 	m.gitKey("tab")
@@ -130,11 +131,11 @@ func TestGitKeysMoveFocusAndClose(t *testing.T) {
 // is sliced by the scroll offset.
 func TestGitScrollStaysInRange(t *testing.T) {
 	m := newTestModel(t)
-	m.git = &gitState{
+	m.git = fillGit(&gitState{
 		commits: []git.Commit{{SHA: "a", Subject: "one"}},
 		body:    []string{"a", "b", "c"},
 		onDiff:  true,
-	}
+	})
 	m.overlay = overlayGit
 
 	for i := 0; i < 50; i++ {

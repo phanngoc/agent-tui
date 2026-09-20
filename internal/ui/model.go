@@ -21,6 +21,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/engine"
 	"github.com/phanngoc/agent-tui/internal/explorer"
 	"github.com/phanngoc/agent-tui/internal/fsx"
+	"github.com/phanngoc/agent-tui/internal/highlight"
 	"github.com/phanngoc/agent-tui/internal/preview"
 	"github.com/phanngoc/agent-tui/internal/search"
 	"github.com/phanngoc/agent-tui/internal/session"
@@ -37,6 +38,7 @@ const (
 	focusExplorer
 	focusPreview
 	focusSessions
+	focusBtw
 )
 
 type overlay int
@@ -53,6 +55,7 @@ const (
 	overlayTarget
 	overlayModel
 	overlayGit
+	overlayRename
 )
 
 // Model is the root Bubble Tea model.
@@ -63,12 +66,24 @@ type Model struct {
 	loader *preview.Loader
 	mgr    *session.Manager
 	reg    *engine.Registry
+	// sc colours fenced code in the transcript, using the preview's scheme.
+	sc *highlight.Scheme
 
 	w, h  int
 	ready bool
 
 	// Pane geometry, recomputed only on resize.
-	chatW, prevW, sideW, bodyH int
+	chatW, prevW, sideW, btwW, bodyH int
+	// sideSet and prevSet are widths the user chose, in columns. Zero means
+	// the pane has not been touched and keeps the width it is given.
+	sideSet, prevSet int
+	// drag is the divider the mouse is holding, if any.
+	drag dragging
+	// sel is the text the mouse has selected, in whichever pane it was made.
+	sel selection
+	// toggles are where the header drew its pane switches, so a click lands on
+	// the one that was drawn rather than near it.
+	toggles []toggleHit
 
 	focus   focus
 	overlay overlay
@@ -78,16 +93,34 @@ type Model struct {
 
 	showSessions bool
 	showPreview  bool
+	// showBtw opens the side chat's pane. The conversation in it outlives the
+	// pane: closing this hides it rather than ending it.
+	showBtw bool
 
 	chat  viewport.Model
 	prev  viewport.Model
 	input textarea.Model
 	spin  spinner.Model
 
+	// showAllCalls unfolds the tool calls a turn folded away. It is a way of
+	// reading the transcript rather than a property of any turn in it, so it
+	// applies to all of them at once.
+	showAllCalls bool
+
 	// Transcript render cache: rebuilding the whole transcript on every frame
 	// would dominate the update loop once a session gets long.
 	chatCache string
 	chatKey   string
+	// chatTurn is the line the newest exchange starts on, counted while the
+	// cache above is built, so opening a session can land there.
+	chatTurn int
+	// placedChat records that the transcript has been positioned once, so the
+	// first layout lands on the newest exchange and later resizes do not yank
+	// the reader away from what they were reading.
+	placedChat bool
+
+	// Renaming a session.
+	renameIn textinput.Model
 
 	// File picker overlay.
 	finderIn  textinput.Model
@@ -139,6 +172,11 @@ type Model struct {
 	comp     complete.Result
 	compOpen bool
 	compSel  int
+
+	// Images pasted from the clipboard, waiting to go out with the next
+	// prompt. They belong to the prompt being typed rather than to a session,
+	// which is also true of the prompt itself.
+	attach []session.Attachment
 
 	// Prompt history, oldest first, shared across sessions like a shell's.
 	history   []string
@@ -210,17 +248,25 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 
 	m := &Model{
 		cfg: cfg, st: st, idx: idx, loader: ld, mgr: mgr, reg: reg, tasks: tasks,
+		sc:           ld.Scheme(),
 		showSessions: true, showPreview: true,
 		chat:     viewport.New(),
 		prev:     viewport.New(),
 		input:    ta,
 		spin:     sp,
+		renameIn: mk("name this session…"),
 		finderIn: mk("fuzzy file name…"),
 		grepIn:   mk("search file contents…"),
 		findIn:   mk("find in file…"),
 		status:   "indexing…",
 		history:  loadHistory(),
 	}
+	// The layout is the one left behind last time. A pane you closed stays
+	// closed, and a width you set stays set: both are decisions, and asking
+	// for them again every morning is not a default, it is an interruption.
+	lay := loadLayout()
+	m.sideSet, m.prevSet = lay.Side, lay.Preview
+	m.showSessions, m.showPreview = !lay.Hide, !lay.HidePrv
 	m.histIdx = len(m.history)
 	m.chat.SoftWrap = true
 	m.prev.SoftWrap = false
@@ -318,6 +364,9 @@ type completionMsg struct {
 	seq  int
 	line string
 	res  complete.Result
+	// auto marks a lookup nobody asked for: the menu that opens while a file
+	// reference is being typed. It may offer, but it may not type for you.
+	auto bool
 }
 
 // promptCursor is the rune index of the caret within the prompt's current line.
@@ -326,8 +375,19 @@ func (m *Model) promptCursor() int {
 	return li.StartColumn + li.ColumnOffset
 }
 
+// refToken returns the file reference the caret sits in, if it is in one.
+//
+// A reference is completed as it is typed rather than only on Tab: @ is a
+// gesture borrowed from chat clients, where the list appears as soon as you
+// press the key, and a marker that did nothing until you also pressed Tab
+// would be a worse version of Tab.
+func (m *Model) refToken() (complete.Token, bool) {
+	tok := complete.TokenAt(m.input.Value(), m.promptCursor())
+	return tok, complete.IsRef(tok.Text)
+}
+
 // completeCmd looks up completions for whatever the caret is sitting on.
-func (m *Model) completeCmd() tea.Cmd {
+func (m *Model) completeCmd(auto bool) tea.Cmd {
 	line := m.input.Value()
 	cursor := m.promptCursor()
 	tok := complete.TokenAt(line, cursor)
@@ -337,7 +397,7 @@ func (m *Model) completeCmd() tea.Cmd {
 		m.compSeq++
 		seq := m.compSeq
 		res := complete.Names(slashNames(), tok)
-		return func() tea.Msg { return completionMsg{seq: seq, line: line, res: res} }
+		return func() tea.Msg { return completionMsg{seq: seq, line: line, res: res, auto: auto} }
 	}
 
 	kind := complete.KindFor(line)
@@ -355,7 +415,8 @@ func (m *Model) completeCmd() tea.Cmd {
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return completionMsg{seq: seq, line: line, res: complete.Paths(ctx, fsys, root, home, tok, kind)}
+		return completionMsg{seq: seq, line: line, auto: auto,
+			res: complete.Paths(ctx, fsys, root, home, tok, kind)}
 	}
 }
 
@@ -514,14 +575,26 @@ func (m *Model) runGrep(q string) tea.Cmd {
 
 // send starts an agent turn for the active session. Other sessions keep running
 // their own turns unaffected.
+// send starts a turn in whichever conversation the prompt is pointed at: the
+// active session, or the side chat beside it when the caret is in that pane.
 func (m *Model) send(text string) tea.Cmd {
-	s := m.mgr.Active()
+	return m.sendTo(m.promptTarget(), text)
+}
+
+// sendTo starts a turn in one session. Sessions run concurrently, so which one
+// this is matters and "the active one" is not always the answer.
+func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
+	if s == nil {
+		return nil
+	}
 	if s.Busy {
 		return nil
 	}
-	s.Append(session.Message{Role: session.RoleUser, Text: text})
+	files := m.takeAttachments(fsID(m.sessionFS(s)))
+	s.Append(session.Message{Role: session.RoleUser, Text: text, Files: files})
 	s.Busy = true
 	s.Status = "thinking"
+	s.Started = time.Now()
 	s.LastErr = ""
 	s.Partial = ""
 	m.errText = ""
@@ -548,6 +621,7 @@ func (m *Model) send(text string) tea.Cmd {
 		Mode:       sessionMode(s),
 		Model:      m.sessionModel(s),
 		FS:         fsys,
+		Files:      files,
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -856,4 +930,18 @@ func (m *Model) projectName() string {
 		name += "  ▸ " + f.Label()
 	}
 	return name
+}
+
+// promptTarget is the conversation the prompt is talking to.
+//
+// One prompt box serves both panes rather than two: a second text area would
+// double the input handling — history, completion, attachments, paste — for a
+// pane whose whole point is that it is a quick aside.
+func (m *Model) promptTarget() *session.Session {
+	if m.focus == focusBtw {
+		if side := m.sideSession(); side != nil {
+			return side
+		}
+	}
+	return m.mgr.Active()
 }

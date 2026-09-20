@@ -74,7 +74,7 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		// one.
 		a = append(a, "--permission-mode", "bypassPermissions")
 	}
-	return append(a, t.Prompt)
+	return append(a, t.PromptText())
 }
 
 // claudeDec parses Claude Code's stream-json output.

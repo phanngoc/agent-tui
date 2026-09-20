@@ -27,7 +27,8 @@ func TestTitleDerivedFromFirstUserMessage(t *testing.T) {
 func TestTitleTruncatesOnRuneBoundaries(t *testing.T) {
 	s := &Session{}
 	s.Append(Message{Role: RoleUser, Text: "sửa lỗi tìm kiếm trong dự án này cho tôi với nhé bạn ơi"})
-	if len([]rune(s.Title)) > 43 {
+	// maxTitle, plus the ellipsis it appends.
+	if len([]rune(s.Title)) > 73 {
 		t.Errorf("title too long: %q", s.Title)
 	}
 	if !json.Valid([]byte(`"` + s.Title + `"`)) {

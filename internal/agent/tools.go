@@ -160,7 +160,13 @@ func (e *Executor) Defs(mode Mode) []anthropic.ToolUnionParam {
 }
 
 // Run dispatches a tool call and returns the text handed back to the model.
-func (e *Executor) Run(ctx context.Context, name string, raw json.RawMessage) (string, bool) {
+//
+// out receives that text as it is produced, for the one tool that produces it
+// over time rather than all at once. It may be nil, and every other tool
+// ignores it.
+func (e *Executor) Run(ctx context.Context, name string, raw json.RawMessage,
+	out func(string)) (string, bool) {
+
 	switch name {
 	case "read_file":
 		return e.readFile(raw)
@@ -175,7 +181,7 @@ func (e *Executor) Run(ctx context.Context, name string, raw json.RawMessage) (s
 	case "edit_file":
 		return e.editFile(raw)
 	case "bash":
-		return e.bash(ctx, raw)
+		return e.bash(ctx, raw, out)
 	case "task_output":
 		return e.taskOutput(raw)
 	case "task_stop":
@@ -477,7 +483,7 @@ func (e *Executor) editFile(raw json.RawMessage) (string, bool) {
 	return fmt.Sprintf("edited %s (%d replacement(s))", e.rel(abs), replaced), false
 }
 
-func (e *Executor) bash(ctx context.Context, raw json.RawMessage) (string, bool) {
+func (e *Executor) bash(ctx context.Context, raw json.RawMessage, sink func(string)) (string, bool) {
 	var in struct {
 		Command    string `json:"command"`
 		TimeoutSec int    `json:"timeout_sec"`
@@ -507,10 +513,17 @@ func (e *Executor) bash(ctx context.Context, raw json.RawMessage) (string, bool)
 	if e.FS.IsLocal() {
 		cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1", "CI=1")
 	}
-	out, err := cmd.CombinedOutput()
 
 	const maxOut = 60 << 10
-	text := string(out)
+	// Both streams share one writer, which is what makes the transcript read
+	// like a terminal: a compiler's errors stay in place among its progress
+	// lines instead of arriving as a separate block after them.
+	live := &liveOutput{emit: sink, max: maxOut}
+	cmd.Stdout, cmd.Stderr = live, live
+	err := cmd.Run()
+	live.Close()
+
+	text := live.String()
 	if len(text) > maxOut {
 		text = text[:maxOut] + "\n… (output truncated)"
 	}

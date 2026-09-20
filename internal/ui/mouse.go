@@ -19,7 +19,10 @@ const (
 // file tree. Both the renderer and the mouse handler call it, so a click always
 // lands on the row that was drawn.
 func (m *Model) leftSplit() (sessH, treeH int) {
-	sessH = clamp(m.mgr.Len()*2+2, 4, m.bodyH/2)
+	// A title may wrap, so the height comes from the rows that will actually
+	// be drawn rather than from a count of sessions.
+	rows := len(m.sessionLines(max(4, m.sideW-2)))
+	sessH = clamp(rows+2, 4, m.bodyH/2)
 	return sessH, m.bodyH - sessH
 }
 
@@ -44,11 +47,14 @@ func (m *Model) paneAt(x, y int) focus {
 		}
 		return focusExplorer
 	}
-	if x < m.sideW+m.chatW {
-		return focusChat
-	}
-	if m.prevW > 0 {
-		return focusPreview
+	// The three panes to the right of the sidebar are asked where they were
+	// drawn rather than measured again here. They used to be measured here,
+	// and the arithmetic did not know about the side chat: with one open,
+	// every click in it landed in the preview.
+	for _, f := range []focus{focusChat, focusBtw, focusPreview} {
+		if left, _, w, _, ok := m.paneBox(f); ok && x >= left-1 && x < left+w+1 {
+			return f
+		}
 	}
 	return focusChat
 }
@@ -68,18 +74,22 @@ func (m *Model) treeRowAt(y int) int {
 	return idx
 }
 
-// sessionRowAt maps a screen row onto a session. Each session occupies two
-// rows: its title and the engine it runs on.
+// sessionRowAt maps a screen row onto a session. A session occupies as many
+// rows as its title wraps onto, plus the line of detail underneath.
 func (m *Model) sessionRowAt(y int) int {
 	top := headerRows + 1 // past the sessions box's top border
 	if y < top {
 		return -1
 	}
-	idx := (y - top) / 2
-	if idx >= m.mgr.Len() {
+	// Ask the same layout the pane drew, because rows are no longer a fixed
+	// height: a click on the second line of a wrapped title belongs to that
+	// session, not to the next one.
+	lines := m.sessionLines(max(4, m.sideW-2))
+	row := y - top
+	if row < 0 || row >= len(lines) {
 		return -1
 	}
-	return idx
+	return lines[row].idx
 }
 
 // onMouse routes a mouse event to whatever is under the pointer.
@@ -92,6 +102,26 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 	switch msg.(type) {
 	case tea.MouseWheelMsg:
 		return m.onWheel(e)
+	case tea.MouseMotionMsg:
+		if m.drag != dragNone {
+			m.dragTo(e.X)
+			return nil
+		}
+		// A button held down is a drag, and over a pane a drag is a selection.
+		if e.Button == tea.MouseLeft && m.sel.dragging {
+			m.extendSelect(e)
+			return nil
+		}
+		// Motion with no button held is the pointer passing over things. The
+		// only thing that reacts is the history browser's file list, whose
+		// rows are clickable and say nothing about it until they change.
+		if m.overlay == overlayGit {
+			m.hoverFile(e.X, e.Y)
+		}
+		return nil
+	case tea.MouseReleaseMsg:
+		m.drag = dragNone
+		return m.endSelect()
 	case tea.MouseClickMsg:
 		if e.Button != tea.MouseLeft {
 			return nil
@@ -104,13 +134,29 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 // onWheel scrolls the pane the pointer is over, rather than every pane at once.
 func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 	const step = 3
-	dir := 0
-	switch e.Button {
-	case tea.MouseWheelUp:
+	dir, across := 0, false
+	switch {
+	case e.Button == tea.MouseWheelUp:
 		dir = -step
-	case tea.MouseWheelDown:
+	case e.Button == tea.MouseWheelDown:
 		dir = step
+	// A trackpad swiped sideways, or a wheel tilted, or shift held over an
+	// ordinary one — three spellings of the same gesture, and the preview is
+	// the pane with something to the side to reach.
+	case e.Button == tea.MouseWheelLeft:
+		dir, across = -step, true
+	case e.Button == tea.MouseWheelRight:
+		dir, across = step, true
 	default:
+		return nil
+	}
+	if e.Mod&tea.ModShift != 0 {
+		across = true
+	}
+	if across {
+		if m.overlay == overlayNone && m.paneAt(e.X, e.Y) == focusPreview {
+			m.prev.SetXOffset(m.prev.XOffset() + dir)
+		}
 		return nil
 	}
 
@@ -120,6 +166,16 @@ func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 		} else {
 			vp.ScrollUp(-dir)
 		}
+	}
+
+	// An overlay owns the screen, so the pane underneath it is not what the
+	// pointer is over even though that is where the arithmetic would land.
+	if m.overlay == overlayGit {
+		m.gitWheel(e.X, e.Y, dir)
+		return nil
+	}
+	if m.overlay != overlayNone {
+		return nil
 	}
 
 	switch m.paneAt(e.X, e.Y) {
@@ -136,12 +192,32 @@ func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 
 // onClick focuses the pane under the pointer and acts on what was clicked.
 func (m *Model) onClick(e tea.Mouse) tea.Cmd {
-	pane := m.paneAt(e.X, e.Y)
-	if pane < 0 {
-		return nil
+	if m.overlay == overlayGit {
+		return m.gitClick(e.X, e.Y)
 	}
 	if m.overlay != overlayNone {
 		return nil // a modal owns the screen
+	}
+	// A switch in the header opens or closes a pane.
+	if pane, ok := m.switchAt(e.X, e.Y); ok {
+		if pane == focusSessions {
+			m.toggleSessions()
+		} else {
+			m.togglePreview()
+		}
+		return nil
+	}
+	// A press on a divider takes hold of it until the button comes back up.
+	// It is checked before the panes, because the column it is in belongs to
+	// one of them and focusing that pane is not what a drag is for.
+	if d := m.dividerAt(e.X, e.Y); d != dragNone {
+		m.drag = d
+		m.dragTo(e.X)
+		return nil
+	}
+	pane := m.paneAt(e.X, e.Y)
+	if pane < 0 {
+		return nil
 	}
 	m.closeCompletion()
 
@@ -181,8 +257,12 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 		m.setFocus(focusInput)
 		return nil
 
-	case focusChat, focusPreview:
+	case focusChat, focusBtw, focusPreview:
 		m.setFocus(pane)
+		// A press in a pane of text is the start of a selection. Focusing and
+		// selecting are not alternatives: you click into a pane to read it,
+		// and the drag that would have selected in the terminal arrives here.
+		m.beginSelect(e)
 		return nil
 	}
 	return nil

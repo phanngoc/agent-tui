@@ -285,8 +285,21 @@ func TestBangCDMovesTheSession(t *testing.T) {
 	if m.tree.Root() != want {
 		t.Errorf("the tree did not follow: %q", m.tree.Root())
 	}
-	if len(m.mgr.Active().Messages) != 0 {
-		t.Errorf("!cd was recorded as a command run: %+v", m.mgr.Active().Messages)
+	// It moved the session rather than running a shell, and it said so: a
+	// directory change every later path depends on is part of the conversation.
+	msgs := m.mgr.Active().Messages
+	if len(msgs) != 1 || msgs[0].Shell == nil {
+		t.Fatalf("!cd left %d messages: %+v", len(msgs), msgs)
+	}
+	run := msgs[0].Shell
+	if !run.Done || run.Exit != 0 {
+		t.Errorf("the move is recorded as unfinished or failed: %+v", run)
+	}
+	if !strings.HasPrefix(run.Command, "cd ") || !strings.Contains(run.Command, want) {
+		t.Errorf("the record does not say where it went: %q", run.Command)
+	}
+	if m.mgr.Active().Busy {
+		t.Error("!cd started a turn")
 	}
 }
 
@@ -569,4 +582,3 @@ func TestShellRunDoesNotTitleTheSession(t *testing.T) {
 		t.Error("a real prompt should still name the session")
 	}
 }
-

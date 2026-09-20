@@ -70,6 +70,11 @@ func NewLoader(sc *highlight.Scheme, maxKB, capacity int) *Loader {
 	}
 }
 
+// Scheme is the colour scheme the loader highlights with. The transcript
+// borrows it for fenced code so a snippet in a reply and the same code in the
+// preview pane are coloured by one set of rules.
+func (l *Loader) Scheme() *highlight.Scheme { return l.sc }
+
 // Load returns the highlighted file, hitting the cache when the file has not
 // changed since it was last read. fsys is where the file lives: the host, or a
 // container the session is pointed at.

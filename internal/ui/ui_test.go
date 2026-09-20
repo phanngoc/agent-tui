@@ -856,8 +856,11 @@ func TestEnginePickerRefusesUnavailable(t *testing.T) {
 
 func TestSidebarShowsTheEngine(t *testing.T) {
 	m := newTestModel(t)
-	if got := stripANSI(m.View().Content); !strings.Contains(got, "[api]") {
-		t.Errorf("sidebar does not badge the session's engine:\n%s", got)
+	got := stripANSI(m.View().Content)
+	// The engine sits on the detail line under the title, next to the turn
+	// count and how long ago the session last moved.
+	if !strings.Contains(got, "api") {
+		t.Errorf("sidebar does not name the session's engine:\n%s", got)
 	}
 }
 
@@ -1126,9 +1129,15 @@ func TestCDMovesTheSession(t *testing.T) {
 	if m.tree.Root() != want || m.idx.Root() != want {
 		t.Errorf("tree %q and index %q should both follow", m.tree.Root(), m.idx.Root())
 	}
-	// The turn must not have been sent to the agent.
-	if len(m.mgr.Active().Messages) != 0 {
-		t.Errorf("cd was sent as a prompt: %+v", m.mgr.Active().Messages)
+	// The turn must not have been sent to the agent. It is still recorded,
+	// because the agent has to know that every path after it means something
+	// else — but as a move, not as a question.
+	msgs := m.mgr.Active().Messages
+	if len(msgs) != 1 || msgs[0].Shell == nil {
+		t.Errorf("cd was sent as a prompt: %+v", msgs)
+	}
+	if m.mgr.Active().Busy {
+		t.Error("cd started a turn")
 	}
 	if m.input.Value() != "" {
 		t.Errorf("the input was not cleared: %q", m.input.Value())
