@@ -815,7 +815,9 @@ func TestEnginePickerSwitchesEngine(t *testing.T) {
 	}
 
 	s := m.mgr.Active()
-	s.ExternalID, s.Live = "stale-id", []int{1}
+	s.Engine = "api"
+	s.SetExternalID("api", "api-1")
+	s.Live = []int{1}
 	s.Append(session.Message{Role: session.RoleUser, Text: "earlier"})
 
 	m.engineKey("down")
@@ -824,13 +826,92 @@ func TestEnginePickerSwitchesEngine(t *testing.T) {
 	if s.Engine != "claude" {
 		t.Fatalf("engine = %q, want claude", s.Engine)
 	}
-	// Handing a conversation to a different agent cannot carry the old one's
-	// server-side state, so it has to be dropped rather than replayed.
-	if s.ExternalID != "" || s.Live != nil {
-		t.Errorf("stale engine state survived the switch: id=%q live=%v", s.ExternalID, s.Live)
+	// The reasoning context genuinely cannot travel — signatures and a prompt
+	// cache belong to one conversation with one server — so it goes.
+	if s.Live != nil {
+		t.Errorf("the reasoning context survived the switch: %v", s.Live)
+	}
+	// The arriving engine has never run here, so it has no id of its own.
+	if s.ExternalID != "" {
+		t.Errorf("claude was handed someone else's session id: %q", s.ExternalID)
+	}
+	// But the departing engine's id is not ours to throw away. Keeping it is
+	// what makes coming back a resume rather than a second cold start.
+	if got := s.StateFor("api").ExternalID; got != "api-1" {
+		t.Errorf("the engine that left was forgotten: %q", got)
 	}
 	if m.overlay != overlayNone {
 		t.Error("the picker stayed open after a selection")
+	}
+}
+
+// Coming back resumes. The id was kept while another engine had the session,
+// and the transcript that grew meanwhile is what the brief makes up.
+func TestSwitchingBackResumesTheEngineItLeft(t *testing.T) {
+	m := newTestModel(t)
+	m.reg = engine.NewRegistryWith(
+		engine.NewAPI(agent.New("k", &agent.Executor{}, "m", "high", 1), "m"),
+		fakeEngine{id: "claude", label: "Claude Code"},
+	)
+	s := m.mgr.Active()
+	s.Engine = "api"
+	s.SetExternalID("api", "api-1")
+	s.Append(session.Message{Role: session.RoleUser, Text: "earlier"})
+
+	m.engineSel = 1
+	m.engineKey("enter") // → claude
+	m.engineSel = 0
+	m.engineKey("enter") // → back to api
+
+	if s.Engine != "api" {
+		t.Fatalf("engine = %q, want api", s.Engine)
+	}
+	if s.ExternalID != "api-1" {
+		t.Errorf("coming back started cold: id = %q", s.ExternalID)
+	}
+}
+
+// Sequential by construction: half a turn from one engine and half from
+// another is a transcript neither of them can continue.
+func TestSwitchingWhileBusyIsRefused(t *testing.T) {
+	m := newTestModel(t)
+	m.reg = engine.NewRegistryWith(
+		engine.NewAPI(agent.New("k", &agent.Executor{}, "m", "high", 1), "m"),
+		fakeEngine{id: "claude", label: "Claude Code"},
+	)
+	s := m.mgr.Active()
+	s.Engine, s.Busy = "api", true
+	s.Append(session.Message{Role: session.RoleUser, Text: "earlier"})
+
+	m.overlay = overlayEngine
+	m.engineSel = 1
+	m.engineKey("enter")
+
+	if s.Engine != "api" {
+		t.Errorf("the session was handed over mid-turn: %q", s.Engine)
+	}
+	if m.overlay != overlayEngine {
+		t.Error("the picker closed, so the choice was lost along with the refusal")
+	}
+	if m.notice == "" {
+		t.Error("the switch was refused without saying why")
+	}
+}
+
+// A different filesystem invalidates every engine's conversation, not just the
+// one selected: an id that resumes a conversation about another machine's
+// files is worse than no id at all.
+func TestChangingFilesystemForgetsEveryEngine(t *testing.T) {
+	m := newTestModel(t)
+	s := m.mgr.Active()
+	s.Engine = "api"
+	s.SetExternalID("api", "api-1")
+	s.SetExternalID("claude", "claude-1")
+
+	s.ForgetEngines()
+
+	if len(s.Engines) != 0 || s.ExternalID != "" {
+		t.Errorf("engine state survived: %v id=%q", s.Engines, s.ExternalID)
 	}
 }
 
@@ -1864,18 +1945,42 @@ func TestForkingAnEmptySessionDoesNothing(t *testing.T) {
 func TestTurnCarriesTheForkFlagOnce(t *testing.T) {
 	m := newTestModel(t)
 	s := m.mgr.Active()
-	s.ExternalID, s.ForkPending = "sess-1", true
+	s.Engine = "api"
+	s.SetExternalID("api", "sess-1")
+	s.ForkPending = true
 	s.Append(session.Message{Role: session.RoleUser, Text: "earlier"})
 
-	// The engine reports the id of the branch it created.
+	// The engine reports the id of the branch it created. An event names the
+	// engine that produced it, because a session can be handed on while a turn
+	// is still finishing and the id belongs to whoever made it.
 	ch := make(chan agent.Event, 2)
-	m.Update(agentMsg{sess: s, ch: ch, ev: agent.EvSession{ExternalID: "sess-2"}})
+	m.Update(agentMsg{sess: s, ch: ch, eng: "api", ev: agent.EvSession{ExternalID: "sess-2"}})
 
 	if s.ForkPending {
 		t.Error("the fork should be spent once the engine reports its new session")
 	}
-	if s.ExternalID != "sess-2" {
-		t.Errorf("external id = %q, want the branch's own id", s.ExternalID)
+	if got := s.StateFor("api").ExternalID; got != "sess-2" {
+		t.Errorf("external id = %q, want the branch's own id", got)
+	}
+}
+
+// An event that arrives after the session was handed on belongs to the engine
+// that produced it, not to the one holding the session now. Filed under the
+// wrong engine, it becomes `resume <another program's id>` on the next turn.
+func TestALateEventLandsOnTheEngineThatProducedIt(t *testing.T) {
+	m := newTestModel(t)
+	s := m.mgr.Active()
+	s.Engine = "claude"
+	s.Append(session.Message{Role: session.RoleUser, Text: "earlier"})
+
+	ch := make(chan agent.Event, 2)
+	m.Update(agentMsg{sess: s, ch: ch, eng: "codex", ev: agent.EvSession{ExternalID: "codex-1"}})
+
+	if got := s.StateFor("codex").ExternalID; got != "codex-1" {
+		t.Errorf("codex remembers %q, want its own id", got)
+	}
+	if got := s.StateFor("claude").ExternalID; got != "" {
+		t.Errorf("claude was given codex's id: %q", got)
 	}
 }
 

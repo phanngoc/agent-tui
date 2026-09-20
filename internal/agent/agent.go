@@ -109,6 +109,14 @@ type Turn struct {
 	Prompt  string
 	History []session.Message
 	State   any
+	// Brief is a catch-up on what happened in this conversation while this
+	// engine was not the one running it: a rendering of the transcript, not a
+	// request.
+	//
+	// Only PromptText reads it, which is the whole point. An engine whose only
+	// channel is one string of text gets the conversation there; the built-in
+	// engine is handed History itself and must not be told twice.
+	Brief string
 	// ExternalID is the engine's own session id from a previous turn, used to
 	// resume rather than start a fresh conversation.
 	ExternalID string
@@ -140,11 +148,17 @@ type Turn struct {
 // naming a path it cannot open sends it looking for a file that is not there,
 // which is worse than not mentioning the image at all.
 func (t Turn) PromptText() string {
-	if len(t.Files) == 0 {
+	if len(t.Files) == 0 && t.Brief == "" {
 		return t.Prompt
 	}
 	remote := t.FS != nil && !t.FS.IsLocal()
 	var b strings.Builder
+	// The briefing comes first and says where it ends, so the last thing the
+	// engine reads is the thing it was actually asked.
+	if t.Brief != "" {
+		b.WriteString(t.Brief)
+		b.WriteString("\n\n")
+	}
 	b.WriteString(t.Prompt)
 	for _, f := range t.Files {
 		where := f.Path

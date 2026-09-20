@@ -476,19 +476,20 @@ func (m *Model) engineKey(key string) tea.Cmd {
 				m.notice = e.Label() + " is " + e.Detail()
 				return nil
 			}
-			s := m.mgr.Active()
-			if s.Engine != e.ID() {
-				// A conversation cannot be handed from one agent to another
-				// mid-flight: each keeps its own server-side history.
-				s.Engine = e.ID()
-				s.ExternalID = ""
-				s.Live = nil
-				if len(s.Messages) > 0 {
-					m.notice = "switched to " + e.Label() + "; it starts from a fresh context"
-				}
+			if s := m.mgr.Active(); s.Busy {
+				// Sequential by construction. Half a turn from one engine and
+				// half from another is a transcript neither of them can
+				// continue, and the engine still running would go on writing
+				// its own identity into a session it no longer holds.
+				//
+				// The run is not cancelled for the user: ending someone's
+				// ten-minute build to change a menu setting is not a decision
+				// a menu gets to make. The picker stays open, so the choice
+				// survives the wait.
+				m.notice = orDefault(s.Status, "this turn") + " is still running — esc stops it"
+				return nil
 			}
-			m.lastEngine = e.ID()
-			m.mgr.Save(s)
+			m.switchEngine(e)
 			m.overlay = overlayNone
 		}
 	}
@@ -612,8 +613,11 @@ func (m *Model) useTarget(t target) tea.Cmd {
 	s := m.mgr.Active()
 	s.Target, s.CWD = t.id, t.workdir
 	// A conversation cannot carry over to a different filesystem: the paths it
-	// has been talking about do not mean the same thing there.
-	s.ExternalID, s.Live = "", nil
+	// has been talking about do not mean the same thing there. Every engine's,
+	// not just the selected one — an id that resumes a conversation about
+	// another machine's files is worse than no id at all.
+	s.ForgetEngines()
+	s.Live = nil
 	m.mgr.Save(s)
 
 	m.overlay = overlayNone

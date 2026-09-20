@@ -2,6 +2,8 @@ package session
 
 import (
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
@@ -309,5 +311,66 @@ func TestToolSummaryHandlesCLIToolNames(t *testing.T) {
 		if strings.HasPrefix(got, "{") {
 			t.Errorf("%s fell through to raw JSON: %q", tc.name, got)
 		}
+	}
+}
+
+// A file written before engines were tracked separately has one id, and it
+// belongs to whichever engine was selected when it was written — nothing else
+// could have produced it.
+func TestOldSessionFileMigratesItsExternalID(t *testing.T) {
+	dir := t.TempDir()
+	old := `{"id":"s1","title":"t","root":"/p","engine":"claude",` +
+		`"external_id":"claude-1","created":"2026-01-01T00:00:00Z",` +
+		`"updated":"2026-01-01T00:00:00Z",` +
+		`"messages":[{"role":"user","text":"a","at":"2026-01-01T00:00:00Z"},` +
+		`{"role":"assistant","text":"b","at":"2026-01-01T00:00:00Z"}]}`
+	if err := os.MkdirAll(filepath.Join(dir, "sessions"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "sessions", "s1.json"), []byte(old), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	m := NewManager(dir, "/p", "model")
+	t.Cleanup(m.Shutdown)
+	m.Restore(5)
+
+	s := m.Active()
+	if got := s.StateFor("claude"); got.ExternalID != "claude-1" {
+		t.Errorf("claude's id did not migrate: %+v", got)
+	} else if got.Seen != len(s.Messages) {
+		t.Errorf("claude saw %d of %d messages; it ran all of them", got.Seen, len(s.Messages))
+	}
+	// Nothing else may claim it: an id read into the wrong slot resumes the
+	// wrong conversation, which is worse than a cold start.
+	if got := s.StateFor("codex").ExternalID; got != "" {
+		t.Errorf("codex was handed claude's id: %q", got)
+	}
+	// And the default the old field carried is still applied.
+	if s.CWD != "/p" {
+		t.Errorf("cwd = %q, want the root", s.CWD)
+	}
+}
+
+// Forking carries only the engine that was running. Another engine's id still
+// points at the parent's own conversation, and resuming it without a fork flag
+// would write this session's turns into the one it came from.
+func TestForkDoesNotInheritOtherEnginesIDs(t *testing.T) {
+	m := NewManager(t.TempDir(), "/p", "model")
+	t.Cleanup(m.Shutdown)
+	parent := m.New()
+	parent.Engine = "claude"
+	parent.SetExternalID("claude", "claude-1")
+	parent.SetExternalID("codex", "codex-1")
+	parent.ExternalID = "claude-1"
+	parent.Append(Message{Role: RoleUser, Text: "hi"})
+
+	child := m.Fork(parent)
+
+	if got := child.StateFor("claude").ExternalID; got != "claude-1" {
+		t.Errorf("the branch lost the engine it was running: %q", got)
+	}
+	if got := child.StateFor("codex").ExternalID; got != "" {
+		t.Errorf("the branch inherited codex's id from its parent: %q", got)
 	}
 }

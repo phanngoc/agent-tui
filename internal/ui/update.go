@@ -872,7 +872,7 @@ func (m *Model) sessionsKey(key string) tea.Cmd {
 // command that pulls the next one.
 func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 	s := msg.sess
-	next := m.pump(s, msg.ch)
+	next := m.pump(s, msg.eng, msg.ch)
 	// A background session's output must not scroll or repaint the foreground.
 	foreground := s == m.mgr.Active()
 
@@ -977,8 +977,13 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		// Persist the external agent's own id as soon as it is known, so an
 		// interrupted turn can still be resumed later. A fork reports the id of
 		// the branch it created, which is what this session continues from now.
-		if e.ExternalID != "" && (s.ExternalID != e.ExternalID || s.ForkPending) {
-			s.ExternalID = e.ExternalID
+		//
+		// It is filed under the engine that produced it, not under the one the
+		// session holds now. A turn that finishes after the session was handed
+		// on would otherwise write its id into the new engine's slot, and the
+		// next turn would try to resume another program's conversation.
+		if e.ExternalID != "" && s.StateFor(msg.eng).ExternalID != e.ExternalID {
+			s.SetExternalID(msg.eng, e.ExternalID)
 			s.ForkPending = false
 			m.mgr.Save(s)
 		}
@@ -990,9 +995,15 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		// here rather than at each of the places one can stop.
 		s.Calls, s.Output, s.OutputID = nil, "", ""
 		s.Started, s.RunAt = time.Time{}, time.Time{}
-		if e.State != nil {
+		// Live is the current engine's own reasoning context, so a turn that
+		// finished after the session moved on has nothing to hand its
+		// successor. Seen, on the other hand, is always worth recording: it is
+		// how much of the conversation that engine has been shown, and it is
+		// what the next handoff to it has to make up.
+		if e.State != nil && msg.eng == s.Engine {
 			s.Live = e.State
 		}
+		s.SetSeen(msg.eng, len(s.Messages))
 		if e.Err != nil && !errors.Is(e.Err, context.Canceled) {
 			s.LastErr = e.Err.Error()
 			if foreground {

@@ -75,9 +75,7 @@ func (m *Manager) Restore(limit int) {
 		if json.Unmarshal(b, &s) != nil || s.Root != m.root || len(s.Messages) == 0 {
 			continue
 		}
-		if s.CWD == "" {
-			s.CWD = s.Root
-		}
+		s.normalise()
 		loaded = append(loaded, &s)
 	}
 	sort.Slice(loaded, func(i, j int) bool { return loaded[i].Updated.After(loaded[j].Updated) })
@@ -336,8 +334,18 @@ func (m *Manager) Fork(src *Session) *Session {
 
 	// The engine's own conversation is branched on the next turn; until then
 	// the copied transcript is all there is.
+	//
+	// Only the engine that was running is carried over. Another engine's id in
+	// here still points at the parent's own conversation, and resuming it
+	// without a fork flag would write this session's turns into the one it
+	// came from.
 	s.ExternalID = src.ExternalID
 	s.ForkPending = src.ExternalID != ""
+	if src.ExternalID != "" {
+		s.Engines = map[string]EngineState{
+			src.Engine: {ExternalID: src.ExternalID, Seen: len(s.Messages)},
+		}
+	}
 	s.Updated = time.Now()
 	m.Save(s)
 	return s

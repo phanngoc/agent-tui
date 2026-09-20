@@ -329,6 +329,11 @@ type agentMsg struct {
 	sess *session.Session
 	ch   chan agent.Event
 	ev   agent.Event
+	// eng is the engine that produced this event, which is not always the
+	// session's engine any more: a turn can finish after the session has been
+	// handed to another one, and an id or a reasoning context belongs to
+	// whoever made it rather than to whoever holds the session now.
+	eng string
 }
 
 // agentGoneMsg means one session's agent channel closed.
@@ -528,13 +533,13 @@ func (m *Model) loadFile(rel string, line int, takeFocus bool) tea.Cmd {
 
 // pump delivers the next event from one session's agent, re-arming itself each
 // time. The session travels with the message, so concurrent runs stay separate.
-func (m *Model) pump(s *session.Session, ch chan agent.Event) tea.Cmd {
+func (m *Model) pump(s *session.Session, eng string, ch chan agent.Event) tea.Cmd {
 	return func() tea.Msg {
 		ev, ok := <-ch
 		if !ok {
 			return agentGoneMsg{sess: s}
 		}
-		return agentMsg{sess: s, ch: ch, ev: ev}
+		return agentMsg{sess: s, ch: ch, ev: ev, eng: eng}
 	}
 }
 
@@ -611,11 +616,16 @@ func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
 	if setter, ok := eng.(interface{ SetFS(vfs.FS) }); ok {
 		setter.SetFS(fsys)
 	}
+	st := s.StateFor(eng.ID())
 	turn := agent.Turn{
-		Prompt:     text,
+		Prompt: text,
+		// Brief is the gap between what this engine has seen and where the
+		// conversation now is. The built-in engine never reads it — it is
+		// handed the transcript itself — so only a CLI pays for one.
+		Brief:      m.handoffBrief(s, eng.ID()),
 		History:    append([]session.Message(nil), s.Messages...),
 		State:      s.Live,
-		ExternalID: s.ExternalID,
+		ExternalID: st.ExternalID,
 		Fork:       s.ForkPending,
 		Root:       m.sessionCWD(s),
 		Mode:       sessionMode(s),
@@ -634,7 +644,7 @@ func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
 	go eng.Run(ctx, turn, ch)
 
 	m.invalidateChat()
-	return tea.Batch(m.pump(s, ch), m.spin.Tick, tick())
+	return tea.Batch(m.pump(s, eng.ID(), ch), m.spin.Tick, tick())
 }
 
 func tick() tea.Cmd {

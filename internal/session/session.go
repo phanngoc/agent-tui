@@ -172,6 +172,91 @@ type ShellRun struct {
 }
 
 // Session is a single conversation thread.
+// EngineState is what one engine left behind in this session.
+type EngineState struct {
+	// ExternalID is that engine's own session id, so coming back to it resumes
+	// its conversation instead of starting a second one beside it.
+	ExternalID string `json:"external_id,omitempty"`
+	// Seen is how many messages this transcript had when that engine last
+	// finished a turn. Everything after it happened while another engine held
+	// the session, and it is exactly what a handoff has to catch it up on.
+	//
+	// It is why an id on its own is not enough. Resuming an engine after a
+	// detour gives you one that remembers the first half of the conversation,
+	// has never heard of the second, and will not say so.
+	Seen int `json:"seen,omitempty"`
+}
+
+// StateFor is what engine remembers about this session.
+func (s *Session) StateFor(engine string) EngineState { return s.Engines[engine] }
+
+// SetExternalID records an engine's own session id.
+//
+// It is keyed by the engine that produced it rather than by the session's
+// current engine: a turn can finish after the session has been handed on, and
+// the id belongs to whoever made it.
+func (s *Session) SetExternalID(engine, id string) {
+	if engine == "" || id == "" {
+		return
+	}
+	st := s.engineSlot(engine)
+	st.ExternalID = id
+	s.Engines[engine] = st
+	if engine == s.Engine {
+		s.ExternalID = id
+	}
+	s.Dirty = true
+}
+
+// SetSeen records how much of the transcript an engine has been given.
+func (s *Session) SetSeen(engine string, n int) {
+	if engine == "" {
+		return
+	}
+	st := s.engineSlot(engine)
+	if n > st.Seen {
+		st.Seen = n
+		s.Engines[engine] = st
+		s.Dirty = true
+	}
+}
+
+// ForgetEngines drops every engine's server-side conversation.
+//
+// For when the ground moved under all of them at once — a different filesystem
+// is a different project, and an id that resumes a conversation about other
+// files is worse than no id at all.
+func (s *Session) ForgetEngines() {
+	s.Engines, s.ExternalID = nil, ""
+	s.Dirty = true
+}
+
+func (s *Session) engineSlot(engine string) EngineState {
+	if s.Engines == nil {
+		s.Engines = make(map[string]EngineState, 2)
+	}
+	return s.Engines[engine]
+}
+
+// normalise fills in what an older session file does not carry.
+//
+// A file written before engines were tracked separately has one id, and it
+// belongs to whichever engine was selected when it was written — nothing else
+// could have produced it. Seen is the whole transcript, because that engine ran
+// all of it. Nothing is written back: the file is migrated the next time it is
+// saved anyway, and an id read into the wrong slot would resume the wrong
+// conversation, which is worse than a cold start.
+func (s *Session) normalise() {
+	if s.CWD == "" {
+		s.CWD = s.Root
+	}
+	if s.Engines == nil && s.Engine != "" && s.ExternalID != "" {
+		s.Engines = map[string]EngineState{
+			s.Engine: {ExternalID: s.ExternalID, Seen: len(s.Messages)},
+		}
+	}
+}
+
 type Session struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
@@ -181,9 +266,20 @@ type Session struct {
 	// Engine is the backend that runs this session's turns: "api" for the
 	// built-in Anthropic client, or the id of an external CLI.
 	Engine string `json:"engine,omitempty"`
-	// ExternalID is the CLI's own session identifier, kept so a restored
-	// session can resume the CLI's conversation instead of starting over.
+	// ExternalID is the CLI's own session identifier for whichever engine is
+	// selected now. Engines below is the same thing for every engine that has
+	// ever run here; this one is kept because sessions written before that
+	// existed carry only it.
 	ExternalID string `json:"external_id,omitempty"`
+	// Engines is what each engine remembers about this session, by engine id.
+	//
+	// It is not a property of the conversation but of an engine's turn at
+	// holding it, which is why it could not stay a single field: switching
+	// engine used to destroy the id, so coming back started cold a second
+	// time. An engine's own conversation lives on its own server and cannot be
+	// read, merged or handed over — only resumed — so the one thing this can
+	// do is remember where to resume from.
+	Engines map[string]EngineState `json:"engines,omitempty"`
 	// ForkPending marks a session that was branched off another one but has
 	// not run a turn yet. The next turn forks the engine's own conversation, so
 	// the context carries over without disturbing the session it came from.
