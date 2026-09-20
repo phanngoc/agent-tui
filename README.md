@@ -49,6 +49,39 @@ Each CLI's events are normalised into the same transcript, so a tool call looks
 the same whoever made it, and each session keeps the CLI's own session id so a
 turn can be resumed later.
 
+**A session can be handed from one agent to another, mid-conversation.** It
+used to be impossible and the picker said so — each engine keeps its own
+history on its own server, and there is no way to read one out or write one in.
+That is still true, and it was never the whole story: the transcript on this
+side is complete, and it is the thing both engines are talking about.
+
+So a session remembers, per engine, that engine's own session id *and how far
+it had got*. An id alone would not do — resuming Claude Code after Codex ran
+ten turns gives you an agent that remembers the first half, has never heard of
+the second, and will not say so. With both, a handoff is one operation: bring
+the engine about to run from what it last saw up to where the conversation now
+is. The built-in engine is handed the transcript itself; the three CLIs, whose
+only channel is one string of text, are given the same gap as a briefing.
+
+| | |
+|---|---|
+| back to an engine that ran here | it resumes its own session |
+| …and someone else spoke meanwhile | it resumes, and is caught up on what it missed |
+| an engine that has never run here | it gets a summary of the conversation |
+
+The briefing renders tool calls as the one line the transcript already shows
+them as, never their JSON — those are eleven times the size of the conversation
+around them — and it is capped at 6 KB, because it travels as a single argv
+entry and on Windows the whole command line has to fit `CreateProcessW`'s
+32,767 characters, which a session aimed at WSL spends twice over.
+
+What cannot travel is said rather than papered over: thinking signatures and
+the prompt cache belong to one conversation with one server, so the reasoning
+context is dropped and rebuilt from the record. The switch itself is refused
+while a turn is running — sequential by construction — and it leaves a mark in
+the transcript, the way `cd` does, because it is the same kind of event: after
+it, the thing answering is not the thing that answered before.
+
 **Claude Code approvals really are intercepted.** Claude Code routes permission
 prompts to an MCP tool; agent-tui re-executes itself as that tool
 (`--permission-broker`), which forwards each request over a unix socket to the
@@ -361,6 +394,29 @@ path for the same reason, and the image itself still goes.
 Attached images show in the prompt box before you send and in the transcript
 after, and `ctrl+u` drops the prompt and its attachments together.
 
+## Finding an old conversation
+
+`/recall <text>` searches every conversation you have had, in every project.
+
+The transcript is the only record here that is complete, durable and neutral
+between engines — so it is the only thing worth searching, and searching it
+must not mean opening each one as a session. `/recall` reads a narrow
+projection of every file in the store: the header and the prose, which is eight
+per cent of the bytes. Tool results are the other eighty-five, and they are
+file dumps and JSON; the answer to "where did I ask about this" is in what was
+said.
+
+A hit is an address — a conversation and a message in it — so opening one loads
+that conversation, whatever project it belongs to, and lands on the message the
+match was found in. Coming from elsewhere retargets the file tree and the
+index, which takes a moment, so it says so rather than looking like a glitch.
+
+Everything is read once when the overlay opens and searched from memory as you
+type. There is no index on disk: it would be a second source of truth for the
+data `docs/mô-hình-vận-hành.md` §11 proposes to restructure, and a cache that
+outlived the overlay would have to be invalidated against files another
+instance of this program writes — for eleven milliseconds of gain.
+
 ## Reading the history
 
 `/git` opens the history: commits down the left, the selected commit's diff
@@ -584,6 +640,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/engine [name]` | choose the agent: `api`, `claude`, `codex`, `opencode` |
 | `/target [name]` | work on the host, in a container, or in WSL |
 | `/btw [question]` | ask beside this conversation, in a pane of its own |
+| `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |
 | `/files` `/search [text]` | open the file finder or content search |

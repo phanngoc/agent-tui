@@ -56,6 +56,7 @@ const (
 	overlayModel
 	overlayGit
 	overlayRename
+	overlayRecall
 )
 
 // Model is the root Bubble Tea model.
@@ -109,7 +110,28 @@ type Model struct {
 
 	// Transcript render cache: rebuilding the whole transcript on every frame
 	// would dominate the update loop once a session gets long.
+	// Cross-session search. corpus is the snapshot taken when the overlay
+	// opened; it dies with the overlay, because a cache that outlived it would
+	// have to be invalidated against files another instance of this program
+	// writes, for eleven milliseconds of gain.
+	recallIn      textinput.Model
+	recallRes     convoResult
+	recallRows    []convoRow
+	recallSel     int
+	recallTop     int
+	recallCase    bool
+	recallRegex   bool
+	recallBusy    bool
+	recallSeq     int
+	recallStop    context.CancelFunc
+	corpus        []session.Entry
+	recallPending string // typed before the corpus landed
+
 	chatCache string
+	// chatStarts[i] is the line message i begins on in chatCache, so a search
+	// hit can be opened where it was found rather than at the newest turn. It
+	// belongs to whichever conversation the cache was last built for.
+	chatStarts []int
 	chatKey   string
 	// chatTurn is the line the newest exchange starts on, counted while the
 	// cache above is built, so opening a session can land there.
@@ -257,6 +279,7 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 		renameIn: mk("name this session…"),
 		finderIn: mk("fuzzy file name…"),
 		grepIn:   mk("search file contents…"),
+		recallIn: mk("search every conversation…"),
 		findIn:   mk("find in file…"),
 		status:   "indexing…",
 		history:  loadHistory(),

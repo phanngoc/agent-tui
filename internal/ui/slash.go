@@ -115,6 +115,10 @@ var slashCmds = []slashCmd{
 		}
 		return nil
 	}},
+	{"recall", "[text]", "search every conversation, in every project",
+		func(m *Model, arg string) tea.Cmd {
+			return m.openRecall(arg)
+		}},
 	{"tasks", "", "background commands, and their output", func(m *Model, _ string) tea.Cmd {
 		m.overlay = overlayTasks
 		m.taskSel, m.taskOpen = 0, ""

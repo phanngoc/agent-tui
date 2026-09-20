@@ -160,3 +160,74 @@ func TestShellRunCountsAsTheNewestExchange(t *testing.T) {
 		t.Errorf("the newest `!` run should be on screen:\n%s", out)
 	}
 }
+
+// A search hit is an address — a conversation and a message in it — so the
+// transcript has to know where each message begins. The count is already being
+// kept as the lines are written; this pins that it is kept correctly.
+func TestEachMessageKnowsWhereItStarts(t *testing.T) {
+	m := newTestModel(t)
+	s := m.mgr.Active()
+	for i := 0; i < 8; i++ {
+		s.Append(session.Message{Role: session.RoleUser, Text: "câu hỏi " + strconv.Itoa(i)})
+		s.Append(session.Message{Role: session.RoleAssistant, Text: "trả lời " + strconv.Itoa(i)})
+	}
+	m.invalidateChat()
+
+	h := m.renderHead(80)
+	lines := strings.Split(h.text, "\n")
+	if len(h.starts) != len(s.Messages) {
+		t.Fatalf("%d starts for %d messages", len(h.starts), len(s.Messages))
+	}
+	for i := range s.Messages {
+		at := h.starts[i]
+		if at < 0 || at >= len(lines) {
+			t.Fatalf("message %d starts at line %d of %d", i, at, len(lines))
+		}
+		// The block for a message opens with its own tag row.
+		want := "you"
+		if s.Messages[i].Role == session.RoleAssistant {
+			want = "agent"
+		}
+		if got := stripANSI(lines[at]); !strings.Contains(got, want) {
+			t.Errorf("message %d starts at %q, want the %s row", i, got, want)
+		}
+	}
+	// And the newest exchange is not a second opinion about where things are.
+	last := 0
+	for i := range s.Messages {
+		if s.Messages[i].Role == session.RoleUser {
+			last = i
+		}
+	}
+	if h.turn != h.starts[last] {
+		t.Errorf("turn = %d, but the last question starts at %d", h.turn, h.starts[last])
+	}
+}
+
+// And the transcript can be scrolled to one.
+func TestShowMessageLandsOnIt(t *testing.T) {
+	m := newTestModel(t)
+	s := m.mgr.Active()
+	for i := 0; i < 20; i++ {
+		s.Append(session.Message{Role: session.RoleUser, Text: "hỏi " + strconv.Itoa(i)})
+		s.Append(session.Message{Role: session.RoleAssistant,
+			Text: strings.Repeat("đáp "+strconv.Itoa(i)+" ", 20)})
+	}
+	m.invalidateChat()
+	m.View()
+
+	m.showMessage(6)
+	if got := m.chat.YOffset(); got != m.chatStarts[6] {
+		t.Errorf("the transcript is at line %d, want %d", got, m.chatStarts[6])
+	}
+	// Out of range falls back to the newest turn rather than to nowhere. The
+	// viewport clamps an offset past the end, so the comparison is against
+	// where landing on the newest turn actually puts it.
+	m.showLatestTurn()
+	want := m.chat.YOffset()
+	m.showMessage(0)
+	m.showMessage(9999)
+	if got := m.chat.YOffset(); got != want {
+		t.Errorf("an impossible message scrolled to %d, want the newest turn at %d", got, want)
+	}
+}

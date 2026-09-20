@@ -27,7 +27,8 @@ func (m *Model) transcript(width int) string {
 		strconv.Itoa(width) + "|" + toolStateKey(s) + "|" +
 		strconv.FormatBool(m.showAllCalls) + "|" + clockKey(s)
 	if key != m.chatKey {
-		m.chatCache, m.chatTurn = m.renderHead(width)
+		h := m.renderHead(width)
+		m.chatCache, m.chatStarts, m.chatTurn = h.text, h.starts, h.turn
 		m.chatKey = key
 	}
 	if s.Partial == "" && s.LastErr == "" && len(s.Calls) == 0 && s.Output == "" {
@@ -80,6 +81,26 @@ func (m *Model) showLatestTurn() {
 	m.chat.SetYOffset(m.chatTurn)
 }
 
+// showMessage scrolls the transcript so message i starts at the top of the
+// pane — the same argument showLatestTurn makes, at message granularity: what
+// you want on screen is the whole of the thing you came for, from its first
+// line.
+//
+// The order here is load-bearing. The offset is read from chatStarts, which
+// belongs to whichever conversation the cache was last built for, so the
+// content has to be rebuilt for this one first. Setting an offset from the
+// previous session's map scrolls the right conversation to the wrong place,
+// which looks plausible and is completely wrong.
+func (m *Model) showMessage(i int) {
+	width := max(10, m.chatW-2)
+	m.chat.SetContent(m.transcript(width))
+	if i >= 0 && i < len(m.chatStarts) {
+		m.chat.SetYOffset(m.chatStarts[i])
+		return
+	}
+	m.chat.SetYOffset(m.chatTurn)
+}
+
 // renderHead renders every committed message. Its result only changes when a
 // turn completes or a tool call finishes.
 //
@@ -87,14 +108,26 @@ func (m *Model) showLatestTurn() {
 // user said, question or `!` command alike. The count is kept as the lines are
 // written rather than measured afterwards, so a long session costs one pass
 // rather than one per message.
-func (m *Model) renderHead(width int) (string, int) {
+func (m *Model) renderHead(width int) head {
 	return m.renderHeadOf(m.mgr.Active(), width)
+}
+
+// head is a rendered transcript plus where each message begins in it.
+type head struct {
+	text string
+	// starts[i] is the line message i begins on, recorded in the same pass
+	// that writes the text. The count is already being kept; measuring it
+	// afterwards would mean rendering the conversation twice.
+	starts []int
+	// turn is the line the newest exchange starts on — starts[the last user
+	// message] — kept as a field so one place decides what "newest" means.
+	turn int
 }
 
 // renderHeadOf is renderHead for a named conversation. The side chat is drawn
 // in the same frame as the main one, so which session is being rendered has to
 // be said rather than assumed.
-func (m *Model) renderHeadOf(s *session.Session, width int) (string, int) {
+func (m *Model) renderHeadOf(s *session.Session, width int) head {
 	var b strings.Builder
 	b.Grow(1024 + len(s.Messages)*160)
 
@@ -106,20 +139,23 @@ func (m *Model) renderHeadOf(s *session.Session, width int) (string, int) {
 	// once rather than message by message.
 	plans := planCalls(s.Messages, callsShown, m.showAllCalls)
 
-	lines, turn := 0, 0
+	h := head{starts: make([]int, len(s.Messages))}
+	lines := 0
 	for i := range s.Messages {
 		if i > 0 && plans[i].head {
 			b.WriteByte('\n')
 			lines++
 		}
+		h.starts[i] = lines
 		if s.Messages[i].Role == session.RoleUser {
-			turn = lines
+			h.turn = lines
 		}
 		at := b.Len()
 		m.renderMessage(&b, &s.Messages[i], width, plans[i])
 		lines += strings.Count(b.String()[at:], "\n")
 	}
-	return b.String(), turn
+	h.text = b.String()
+	return h
 }
 
 // toolStateKey changes whenever a tool call flips from running to done, so the

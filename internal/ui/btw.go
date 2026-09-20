@@ -124,6 +124,5 @@ func (m *Model) btwPane(width int) string {
 	// was given, and it is already on screen in the pane beside this one.
 	view := *side
 	view.Messages = side.Messages[min(side.SideFrom, len(side.Messages)):]
-	body, _ := m.renderHeadOf(&view, max(10, width))
-	return body
+	return m.renderHeadOf(&view, max(10, width)).text
 }

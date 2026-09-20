@@ -70,6 +70,8 @@ func (m *Model) composeOverlay(base string) string {
 		body = m.gitView()
 	case overlayRename:
 		body = m.renameView()
+	case overlayRecall:
+		body = m.recallView()
 	case overlayTarget:
 		body = m.targetView()
 	default:
@@ -369,6 +371,7 @@ var helpGroups = []struct {
 		{"ctrl+t", "new session"},
 		{"alt+t", "fork this session — same history, separate branch"},
 		{"/btw", "ask beside this one, in a pane, without interrupting it"},
+		{"/recall", "search every conversation, in every project"},
 		{"ctrl+r", "choose the engine (built-in, claude, codex, opencode)"},
 		{"/model", "choose the model this session runs on"},
 		{"/git", "browse the history: ↑↓ commit · tab pane · alt+↑↓ file list"},

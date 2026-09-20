@@ -126,6 +126,14 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// text. It goes where the keyboard is.
 		return m, m.onPaste(msg)
 
+	case recallMsg:
+		// A corpus read that finished after the overlay moved on is not this
+		// overlay's, and applying it would show another search's conversations.
+		if msg.seq == m.recallSeq && m.overlay == overlayRecall {
+			m.setCorpus(msg)
+		}
+		return m, nil
+
 	case copyFailedMsg:
 		// The escape sequence may still have worked, so this is a notice and
 		// not a failure: it names the tool to install, which is the only way
@@ -358,6 +366,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.gitKey(k.String())
 	case overlayRename:
 		return m.renameKey(k)
+	case overlayRecall:
+		return m.recallKey(k)
 	case overlayTarget:
 		return m.targetKey(k.String())
 	case overlayTasks:
@@ -1175,6 +1185,7 @@ func (m *Model) closeOverlay() {
 	m.overlay = overlayNone
 	m.taskOpen = ""
 	m.finderIn.Blur()
+	m.recallIn.Blur()
 	m.grepIn.Blur()
 }
 
@@ -1208,10 +1219,22 @@ func (m *Model) cycleFocus(d int) {
 }
 
 func (m *Model) onSessionSwitch() tea.Cmd {
+	return m.onSessionSwitchAt(-1)
+}
+
+// onSessionSwitchAt is onSessionSwitch landing on a named message rather than
+// on the newest turn, for a search hit that knows which one it was found in.
+// A negative index means the newest turn, which is what switching normally
+// wants.
+func (m *Model) onSessionSwitchAt(msg int) tea.Cmd {
 	m.sessSel = m.mgr.ActiveIndex()
 	cmd := m.showActiveSession()
 	m.invalidateChat()
-	m.showLatestTurn()
+	if msg < 0 {
+		m.showLatestTurn()
+	} else {
+		m.showMessage(msg)
+	}
 	m.errText = m.mgr.Active().LastErr
 	return cmd
 }
@@ -1331,6 +1354,7 @@ func (m *Model) resize(w, h int) {
 
 	m.finderIn.SetWidth(max(10, m.overlayWidth()-4))
 	m.grepIn.SetWidth(max(10, m.overlayWidth()-4))
+	m.recallIn.SetWidth(max(10, m.overlayWidth()-4))
 	m.findIn.SetWidth(max(10, previewW-12))
 
 	// The first layout is also the first time the restored session can be
@@ -1385,6 +1409,9 @@ func (m *Model) onPaste(msg tea.PasteMsg) tea.Cmd {
 	case m.overlay == overlayFinder:
 		m.finderIn, cmd = m.finderIn.Update(msg)
 		m.refreshFinder()
+	case m.overlay == overlayRecall:
+		m.recallIn, cmd = m.recallIn.Update(msg)
+		m.runRecall(m.recallIn.Value())
 	case m.overlay == overlayGrep:
 		m.grepIn, cmd = m.grepIn.Update(msg)
 	case m.overlay == overlayRename:
