@@ -81,8 +81,13 @@ func profilePath() string {
 func (e *apiEngine) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	hist, ok := t.State.([]anthropic.MessageParam)
 	if !ok {
-		hist = agent.Replay(t.History)
+		// History already ends with this turn's prompt, so replaying it is the
+		// whole conversation. Appending the prompt again would send it twice.
+		e.ag.Run(ctx, agent.Replay(t.History), t.Mode, t.Model, out)
+		return
 	}
-	hist = append(hist, anthropic.NewUserMessage(anthropic.NewTextBlock(t.Prompt)))
+	if blocks := agent.UserBlocks(t.Prompt, t.Files); len(blocks) > 0 {
+		hist = append(hist, anthropic.NewUserMessage(blocks...))
+	}
 	e.ag.Run(ctx, hist, t.Mode, t.Model, out)
 }

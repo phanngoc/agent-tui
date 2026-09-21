@@ -66,27 +66,13 @@ func Run(ctx context.Context, root string, files []string, o Options) Result {
 		return Result{}
 	}
 
-	var re *regexp.Regexp
-	if o.Regex {
-		expr := o.Query
-		if !o.CaseSensitive {
-			expr = "(?i)" + expr
-		}
-		var err error
-		re, err = regexp.Compile(expr)
-		if err != nil {
-			return Result{Err: err}
-		}
+	// The query is compiled once here rather than per file, and the same
+	// compiled value is what searching a conversation uses — so smart case and
+	// the literal/regex split have one implementation, not two.
+	mt, err := Compile(o)
+	if err != nil {
+		return Result{Err: err}
 	}
-
-	// Smart case: a query with an uppercase letter is treated as case
-	// sensitive, the way ripgrep and Sublime both behave.
-	if !o.CaseSensitive && !o.Regex && strings.ToLower(o.Query) != o.Query {
-		o.CaseSensitive = true
-	}
-
-	pat := []byte(o.Query)
-	lowPat := asciiLowerCopy(pat)
 
 	var (
 		mu       sync.Mutex
@@ -102,7 +88,9 @@ func Run(ctx context.Context, root string, files []string, o Options) Result {
 
 	worker := func() {
 		defer wg.Done()
-		var lowBuf []byte
+		// Its own scratch buffer: the compiled query is shared, the workspace
+		// it lowers a file into is not.
+		mine := mt.clone()
 		for rel := range jobs {
 			if stopped.Load() || ctx.Err() != nil {
 				return
@@ -121,19 +109,7 @@ func Run(ctx context.Context, root string, files []string, o Options) Result {
 				continue
 			}
 
-			var local []Match
-			if re != nil {
-				local = scanRegex(rel, buf, re)
-			} else if o.CaseSensitive {
-				local = scanLiteral(rel, buf, buf, pat)
-			} else {
-				if cap(lowBuf) < len(buf) {
-					lowBuf = make([]byte, len(buf))
-				}
-				lowBuf = lowBuf[:len(buf)]
-				asciiLowerInto(lowBuf, buf)
-				local = scanLiteral(rel, buf, lowBuf, lowPat)
-			}
+			local := mine.Scan(rel, buf)
 			if len(local) == 0 {
 				continue
 			}

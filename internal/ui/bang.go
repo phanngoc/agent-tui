@@ -280,6 +280,7 @@ func (m *Model) startBang(line string) tea.Cmd {
 	fsys := m.sessionFS(s)
 	dir := m.sessionCWD(s)
 
+	started := time.Now()
 	s.Append(session.Message{
 		Role: session.RoleUser,
 		Text: line,
@@ -287,13 +288,14 @@ func (m *Model) startBang(line string) tea.Cmd {
 			Command: line,
 			Where:   fsys.Label(),
 			Dir:     dir,
+			Started: started,
 		},
 	})
 	m.mgr.Save(s)
 	m.invalidateChat()
+	s.Running++
 
 	index := len(s.Messages) - 1
-	started := time.Now()
 
 	return func() tea.Msg {
 		ctx, cancel := context.WithTimeout(context.Background(), bangTimeout)
@@ -328,6 +330,7 @@ func (m *Model) applyBangDone(msg bangDoneMsg) {
 	if s == nil || msg.index >= len(s.Messages) {
 		return
 	}
+	s.Running = max(0, s.Running-1)
 	run := s.Messages[msg.index].Shell
 	if run == nil {
 		return
@@ -379,4 +382,65 @@ func tailLines(s string, max int) string {
 		s = s[i+1:]
 	}
 	return "… (earlier output dropped)\n" + s
+}
+
+// ---- recording a move ------------------------------------------------------
+
+// logMove records a line that moved the session instead of running anything.
+//
+// `!cd ..`, `!wsl`, `!exit` and the tree's own `r` all change where every path
+// after them resolves, and until now they changed it silently: the transcript
+// jumped from a command run in one directory to a command run in another with
+// nothing in between to say why. That is a gap for whoever scrolls back, and a
+// worse one for the agent, which is handed the transcript and has no other way
+// to learn that the ground moved under it.
+//
+// It is written as the command it was, so it reads in the transcript exactly
+// like the `!` commands around it.
+func (m *Model) logMove(command, result string, failed bool) {
+	s := m.mgr.Active()
+	run := &session.ShellRun{
+		Command: command,
+		Where:   m.sessionFS(s).Label(),
+		Dir:     m.sessionCWD(s),
+		Output:  result,
+		Done:    true,
+	}
+	if failed {
+		run.Exit = 1
+	}
+	s.Append(session.Message{
+		Role:  session.RoleUser,
+		Text:  moveContext(run),
+		Shell: run,
+	})
+	m.mgr.Save(s)
+	m.invalidateChat()
+}
+
+// moveContext is what the agent reads for a move. It says where the session
+// ended up rather than what the command printed, because that is the part that
+// changes what every later path means.
+func moveContext(run *session.ShellRun) string {
+	var b strings.Builder
+	b.WriteString("I moved this session:\n\n$ " + run.Command + "\n")
+	if run.Output != "" {
+		b.WriteString("\n" + run.Output + "\n")
+	}
+	return b.String()
+}
+
+// moveCommand is the line a target change would have been typed as, so the
+// transcript shows something you could have written rather than a description
+// of a menu you clicked.
+func moveCommand(t target) string {
+	switch {
+	case t.id == "host":
+		return "exit"
+	case strings.HasPrefix(t.id, "wsl:"):
+		return "wsl -d " + t.label
+	case strings.HasPrefix(t.id, "docker:"):
+		return "docker exec -it " + t.label + " sh"
+	}
+	return "cd " + t.workdir
 }

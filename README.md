@@ -49,6 +49,39 @@ Each CLI's events are normalised into the same transcript, so a tool call looks
 the same whoever made it, and each session keeps the CLI's own session id so a
 turn can be resumed later.
 
+**A session can be handed from one agent to another, mid-conversation.** It
+used to be impossible and the picker said so — each engine keeps its own
+history on its own server, and there is no way to read one out or write one in.
+That is still true, and it was never the whole story: the transcript on this
+side is complete, and it is the thing both engines are talking about.
+
+So a session remembers, per engine, that engine's own session id *and how far
+it had got*. An id alone would not do — resuming Claude Code after Codex ran
+ten turns gives you an agent that remembers the first half, has never heard of
+the second, and will not say so. With both, a handoff is one operation: bring
+the engine about to run from what it last saw up to where the conversation now
+is. The built-in engine is handed the transcript itself; the three CLIs, whose
+only channel is one string of text, are given the same gap as a briefing.
+
+| | |
+|---|---|
+| back to an engine that ran here | it resumes its own session |
+| …and someone else spoke meanwhile | it resumes, and is caught up on what it missed |
+| an engine that has never run here | it gets a summary of the conversation |
+
+The briefing renders tool calls as the one line the transcript already shows
+them as, never their JSON — those are eleven times the size of the conversation
+around them — and it is capped at 6 KB, because it travels as a single argv
+entry and on Windows the whole command line has to fit `CreateProcessW`'s
+32,767 characters, which a session aimed at WSL spends twice over.
+
+What cannot travel is said rather than papered over: thinking signatures and
+the prompt cache belong to one conversation with one server, so the reasoning
+context is dropped and rebuilt from the record. The switch itself is refused
+while a turn is running — sequential by construction — and it leaves a mark in
+the transcript, the way `cd` does, because it is the same kind of event: after
+it, the thing answering is not the thing that answered before.
+
 **Claude Code approvals really are intercepted.** Claude Code routes permission
 prompts to an MCP tool; agent-tui re-executes itself as that tool
 (`--permission-broker`), which forwards each request over a unix socket to the
@@ -72,12 +105,88 @@ inside a WSL distribution.
 `-C` / `--dir` the CLI is given.
 
 **Transcript** — every turn is a block: who spoke, when, and the tool calls the
-agent made, each with its status and how long it took. Failed and denied calls
-show the first lines of their output inline.
+agent made, each with its status, what came back, and how long it took. Failed
+and denied calls show the first lines of their output inline.
+
+One turn is one block however many round trips it took. The agent answers,
+calls a tool, answers again — each of those is a message, and heading every one
+of them turned a turn that read eight files into eight blocks of a single line
+each. The heading goes on the first; the rest continue it, down the same rail:
+
+```
+▎ you    15:41
+▎ tìm resolvePfid
+
+▎ agent  15:41
+▎  … 15 earlier calls  ·  alt+o shows them
+▎  ✓ Bash  cd ~/workspace && grep -n "名寄せ" docs/*.md   93 lines  120ms
+▎  ✓ Bash  sed -n '1299,1400p' src/…/onboarding.service.ts  102 lines  80ms
+▎ Nó ở onboarding.service.ts:1299.
+```
+
+An edit shows what it changed — the lines it removed and the lines it put
+there, taken from the call's own arguments, tinted like any other diff. "edited
+(1 replacement)" is the same report whether the right line was changed or the
+wrong one, and the wrong one is the case worth catching.
+
+A turn keeps its last five calls and folds the rest into that one line. The
+folded ones already did their work: you watched them go past while the turn was
+running, which is what they are for, and what they leave behind afterwards is a
+wall between the question and the answer to it. Nothing is thrown away — `alt+o`
+shows every call in every turn, and again puts them back.
+
+An answer is markdown, and a terminal has no renderer for it, so the transcript
+renders it rather than printing it. Headings become coloured rules, tables
+become aligned columns with the header underlined, fenced code becomes an
+indented block through the same highlighter the preview pane uses, and
+emphasis, links, quotes and lists become the terminal's own equivalents. Half a
+document renders too — the streaming tail is re-rendered on every delta, so an
+unclosed fence shows the code it has so far instead of swallowing the rest.
+What *you* typed is never reinterpreted: your asterisks are yours.
+
+Opening a session — at startup or by switching into it — lands on the newest
+exchange: the last thing you said, with the answer to it below. The bottom of a
+long reply is the least useful line in it, and the top of a history you read
+yesterday is not much better.
+
+Everything that is running says how long it has been running: the turn in the
+status bar, the call in the transcript, a `!` command under its own line. A
+turn that has been thinking for seven minutes and one that has been thinking
+for seven seconds read the same without it, and only one of them is worth
+interrupting. The clock is coarse on purpose — `7m 52s`, not `472.318s` — and
+a finished call goes back to reporting what it took.
+
+A turn is something you watch rather than wait for. A tool call appears while
+the model is still writing it, so a path fills in character by character and a
+turn spent composing a large file to write looks like what it is; a running
+command's output is forwarded as it prints, so a test run tells you which test
+failed at the moment it fails; and a finished call says what came back, not
+only that it returned:
+
+```
+  ✓ read_file  internal/ui/chat.go   lines 1-40 of 249    8ms
+  ✓ edit_file  internal/ui/chat.go   edited (1 replacement(s))
+  ⋯ bash       go test ./internal/
+    ok   internal/agent   3.0s
+    --- FAIL: TestFoo
+```
+
+This is the built-in engine only. The CLIs report a tool call when it is
+finished and nothing before that, so there is nothing in between for agent-tui
+to forward.
 
 **Preview** — a file viewer with line numbers, syntax highlighting, in-file
 search with match highlighting, soft-wrap on demand, and an editor: `e` turns
 the pane you are reading into a writable buffer.
+
+Long lines are clipped rather than wrapped, because code is columnar and
+wrapping destroys the indentation that makes it readable — so `←` and `→`
+(or `h` and `l`, or shift with the wheel) move sideways along them, `0` returns
+to column one, and the title says which column the pane starts at while it is
+not the first. The title fits itself rather than being cut off by its frame:
+the directory gives up the room, because the file name is what says which file
+this is and the column is what changes. `w` wraps instead, and clears the offset with it: wrapped text
+has no horizontal axis to be scrolled along.
 
 In-file search draws its own highlights rather than using the viewport's.
 Bubbles' `SetHighlights` walks the ANSI-stripped content to advance a byte
@@ -87,6 +196,72 @@ it — searching for `foo` highlighted `Sta` three lines away. Matches are
 therefore tracked per line in display columns and spliced into the styled line
 at render time, so there is no cross-line offset arithmetic to get wrong. It reloads itself when
 the agent edits the file you are looking at.
+
+**Prompt** — the frame around it carries where the session stands, the way a
+shell prompt does: the filesystem when it is not this machine's, then the
+directory with home written as `~`. A session moves — `!cd`, `!wsl`, `r` in the
+tree — and the answer to "where is this about to run" belongs next to the thing
+you are about to run. A path too long for the frame loses its beginning, not
+its end: half the directories in a repository end the same way once the front
+is gone.
+
+```
+╭─ Ubuntu-24.04  ~/workspace/sbi-fpaas-be/src/modules ────────────────────╮
+│❯ ask anything…                                                          │
+╰─────────────────────────────────────────────────────────────────────────╯
+```
+
+**The layout is yours.** The widths used to be two formulas — a sixth of the
+terminal for the sidebar, forty-five percent of the rest for the preview — which
+is a reasonable guess and wrong for whatever you are actually doing: reading a
+long answer wants the transcript wide, comparing two files wants the preview
+wide, and neither is a sixth of anything.
+
+| | |
+|---|---|
+| drag a divider | take hold of the line between two panes and move it |
+| | (the two border columns, and no further: the column after one is the first column of a pane's text, and a press there belongs to the word under it) |
+| `alt+←` `alt+→` | the arrow pushes the nearest divider that way |
+| `ctrl+b` `ctrl+e` | open or close the sidebar and the preview |
+| the switches | `▪ sessions  ▪ preview` in the header, click to toggle |
+
+**The column to the right of the transcript holds one pane, not two.** The
+preview is in it, and a side chat opened with `/btw` stands in its place. They
+were made to sit side by side first, and four panes on a terminal is three
+columns of forty with nothing readable in any of them; the two are also the
+same kind of thing — something you consult beside the conversation — and you
+are never consulting both at once.
+
+So the aside borrows the column and gives it back when it closes, at the width
+it had. Nothing has to remember whether the preview was open, because it was
+never closed: it is standing aside. `ctrl+e` asks for it back, which asks the
+aside to step out, and the conversation in it is kept either way. One divider
+sizes the column whichever pane is standing in it.
+
+The switches are in the header rather than on the panes because a closed pane
+has no title bar to click: an × that can only close is half a switch, and the
+other half would be a key you have to remember. Widths are kept in columns, not
+as a fraction of the window — you size the sidebar to the longest path in the
+project, and that length has nothing to do with how wide the terminal is — and
+they are saved, along with which panes you closed, in
+`$XDG_DATA_HOME/agent-tui/layout.json`.
+
+**Side chat** — `/btw` opens a pane beside the transcript and asks there.
+
+A long turn is exactly when a question occurs to you, and the two places to put
+it were both wrong: into the turn, where it waits and then lands in the context
+of everything after it, or into a new session, where the agent knows nothing
+about what you are both looking at. So `/btw` forks the conversation and puts
+the branch in its own pane — a real session, running at the same time, because
+sessions here already do.
+
+The pane shows the aside and not the context it inherited: the agent is given
+all of it, which is the point, but you have it already in the pane next to it.
+The main transcript never learns the aside happened. One prompt serves both
+panes and talks to whichever has the caret; `esc` closes the pane and keeps the
+conversation, so reopening finds the same one. It is not in the session list —
+it belongs to a conversation rather than standing beside them — and closing
+that conversation takes it too.
 
 **Sessions** — conversations run concurrently. Starting a turn in one session
 does not block the others; a session that needs approval pulls itself to the
@@ -168,6 +343,120 @@ what they say. `cd` in a subshell moves a directory that dies with the
 subshell; a bare `wsl` asks for a login shell, and there is no terminal to give
 it. Both are requests to move the session, so they move it.
 
+A move is recorded like the command it was. `!cd`, `!wsl`, `!exit`, `/cd` and
+the tree's own `r` all change where every path after them resolves, and each
+leaves a block in the transcript saying where the session went and where it
+came from. Without it the transcript jumps from a command run in one directory
+to a command run in another with nothing in between — a gap for whoever scrolls
+back, and a worse one for the agent, which is handed the transcript and has no
+other way to learn that the ground moved under it. A `cd` to somewhere that is
+not there is recorded too, with a failing status: that path was usually the
+agent's own suggestion.
+
+## Pointing at a file, and pasting a picture
+
+`@` names a file. The menu opens on the key and narrows as you keep typing, and
+what lands in the prompt keeps the marker:
+
+```
+❯ tại sao @internal/ui/chat.go lại cache hai nửa riêng?
+```
+
+The reference is sent as written. Every engine here can open a file, so the
+path is all the agent needs — nothing is inlined behind your back, and a
+reference to a 4000-line file costs four words of prompt.
+
+`ctrl+v` attaches the image on the clipboard; `/paste` does the same, for the
+terminals that keep `ctrl+v` for themselves. A terminal cannot deliver an image
+paste — an image on the clipboard is not part of one, which is why the key
+appears to do nothing everywhere else — so the image is read from the operating
+system directly: PowerShell on Windows and from inside WSL, `wl-paste` or
+`xclip` on Linux, `pngpaste` on a Mac.
+
+What happens to it then depends on what the engine can receive. The built-in
+engine sends the image itself, so the model looks at it. A CLI engine is handed
+a path and opens the file for itself — which means the file has to exist on its
+side of whatever boundary the session is working across:
+
+| Session works | What happens | What the CLI is told |
+|---|---|---|
+| on the host | nothing; it is already there | where it was saved |
+| in WSL | nothing; the drive is mounted in there | the same file as `/mnt/c/…` |
+| in a container | the bytes are written across | `/tmp/agent-tui/<session>/…` |
+
+The copy goes through the session's own filesystem — a `docker exec … cat >`,
+the same path every other write takes — so nothing here knows about Docker in
+particular. If it fails, the paste says so: the built-in engine still sends the
+image, but a CLI is about to be told nothing about it, which is worth knowing
+before the turn rather than after. Repointing a session after pasting drops the
+path for the same reason, and the image itself still goes.
+
+Attached images show in the prompt box before you send and in the transcript
+after, and `ctrl+u` drops the prompt and its attachments together.
+
+## Finding an old conversation
+
+`/recall <text>` searches every conversation you have had, in every project.
+
+The transcript is the only record here that is complete, durable and neutral
+between engines — so it is the only thing worth searching, and searching it
+must not mean opening each one as a session. `/recall` reads a narrow
+projection of every file in the store: the header and the prose, which is eight
+per cent of the bytes. Tool results are the other eighty-five, and they are
+file dumps and JSON; the answer to "where did I ask about this" is in what was
+said.
+
+A hit is an address — a conversation and a message in it — so opening one loads
+that conversation, whatever project it belongs to, and lands on the message the
+match was found in. Coming from elsewhere retargets the file tree and the
+index, which takes a moment, so it says so rather than looking like a glitch.
+
+Everything is read once when the overlay opens and searched from memory as you
+type. There is no index on disk: it would be a second source of truth for the
+data `docs/mô-hình-vận-hành.md` §11 proposes to restructure, and a cache that
+outlived the overlay would have to be invalidated against files another
+instance of this program writes — for eleven milliseconds of gain.
+
+## Reading the history
+
+`/git` opens the history: commits down the left, the selected commit's diff
+down the right, after Sublime Merge. It reads through the session's filesystem,
+so a session pointed at WSL or a container browses that repository rather than
+a same-named one on the host.
+
+| | |
+|---|---|
+| `↑` `↓` | move, which loads the diff |
+| `tab` `shift+tab` | move between the two panes |
+| `[` `]` | previous / next file in the diff |
+| `alt+↑` `alt+↓` | scroll the file summary when it holds more than it shows |
+| `f` | show every file at once instead, which gives up the pinning |
+| `pgup` `pgdn` | a page of whichever pane has the keyboard |
+| `g` `G` | top, bottom |
+| wheel, click | scroll the pane under the pointer; click a commit to select it |
+| click a file | jump to that file's patch; the pointer underlines what it is over |
+| `r` `esc` | reload, close |
+
+The diff opens with what the commit did to the repository — `43 files changed
++896 -152` — then the first eight files with their counts flushed right into a
+column you can run your eye down, then the patch. That summary is pinned: the
+patch scrolls under it, so clicking a file lands you in its diff with the list
+of the others still there to click next. It is a window rather than the whole
+list — fifty names would be fifty rows of a pane that is meant to be showing a
+patch — and `alt+↑` and `alt+↓` move the window, with a line at each end saying
+how many are past it. `f` gives up the pinning and shows them all at once, for
+when reading the list is the point. A commit that touches forty
+files would otherwise open on forty lines of names, with the thing they
+summarise pushed off the bottom; `f` shows the rest. Changed rows are tinted
+end to end, gutter included, so a run of additions has a shape you can measure
+without reading it.
+
+A commit takes two rows — the subject, then who and when — which is what makes
+one distinguishable from the next at a glance, and is also what the column and
+its scrolling both count in. A page is a page of commits, the selection keeps a
+commit of context past it, and the diff stops with its last line at the bottom
+rather than scrolling on into empty space.
+
 ## Host, container, or WSL
 
 `ctrl+d` points a session at the host, at any running container, or at a WSL
@@ -227,7 +516,9 @@ installed **over there** for a session targeting it to use it.
 |---|---|
 | `enter` / `alt+enter` | send / newline |
 | `!<cmd>` | run a command where this session works |
-| `ctrl+c` | stop the agent, or quit when idle |
+| `esc` | drop a selection — or close what is open, or stop the agent, or go back to the prompt |
+| `ctrl+c` | copy a selection — or stop the agent, or quit when idle |
+| drag / double-click | select text in a pane; releasing copies it |
 | `ctrl+p` | fuzzy-find a file |
 | `ctrl+f` / `ctrl+g` | search file contents, or find in the open file |
 | `/`, `n`, `N` | find in file, next hit, previous hit |
@@ -305,6 +596,13 @@ boundary doing its job.
 Plan mode is enforced by withholding the tools rather than by asking the model
 to hold back: a tool that is never offered cannot be called.
 
+`esc` does whatever there is to get out of, nearest first: a task's output,
+then an overlay, then an in-file search, then a running turn, then the focus.
+Stopping comes before moving the focus because one of them is recoverable and
+the other is a turn you are paying for; it comes after the overlays because
+those are modes you opened yourself and expect `esc` to dismiss. While a turn
+runs, the status bar says so.
+
 ## When the agent needs you
 
 **It can ask.** The built-in agent has an `ask_user` tool: when the answer
@@ -341,6 +639,10 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/model [name]` | choose the model: `opus`, `sonnet`, `haiku`, `fable` |
 | `/engine [name]` | choose the agent: `api`, `claude`, `codex`, `opencode` |
 | `/target [name]` | work on the host, in a container, or in WSL |
+| `/btw [question]` | ask beside this conversation, in a pane of its own |
+| `/recall [text]` | search every conversation, in every project |
+| `/git` | browse the history and its diffs |
+| `/paste` | attach the image on the clipboard |
 | `/files` `/search [text]` | open the file finder or content search |
 | `/tasks` | background commands and their output |
 | `/help` `/quit` | |
@@ -382,6 +684,78 @@ retry it.
 
 Sessions persist to `$XDG_DATA_HOME/agent-tui/sessions/` and are restored per
 project root on the next start.
+
+## Copy and paste
+
+**Drag to select, release to copy.** Asking for the mouse takes the terminal's
+own drag-to-select away — the drag arrives here instead, and the terminal has
+nothing left to select with. Shift is the usual way back, and it is a
+convention rather than a guarantee; telling someone to hold a modifier to reach
+what their mouse could already do is not an answer. So the selection is ours:
+
+| | |
+|---|---|
+| drag across a pane | select what it crosses; past the edge scrolls |
+| release | it goes on the clipboard, and the status line says so |
+| double-click | the word under the pointer — a path, an identifier, a hash |
+| `ctrl+c` | copies the selection, and drops it, so a second press stops the turn as it always did |
+| `esc` | drops the selection |
+
+It works in the transcript, the side chat and the preview. The clipboard is
+written twice over: through whatever tool the machine has — `Set-Clipboard`,
+`pbcopy`, `wl-copy`, `xclip` — and through the terminal's own escape sequence,
+which is what works over ssh where no local tool can reach the clipboard you
+are actually looking at.
+
+A selection is drawn as an overlay on top of a pane that has already been
+rendered, rather than as part of its content. The transcript is cached and
+rebuilt only when the conversation changes; a selection changes on every frame
+of a drag. Keeping them apart means the selection knows nothing about
+markdown, diffs or syntax — it colours cells — and the cache is left alone.
+Its coordinates are rows the pane drew rather than lines of its content,
+because the transcript soft-wraps: one message is many rows, and the row is the
+only thing the renderer and the mouse both know.
+
+**Pasting** lands wherever typing would have — the prompt, a search box, an
+open buffer — which it did not before: every text field here is a component,
+and a paste that is not routed to one disappears without a word.
+
+`ctrl+v` is for images instead, which no terminal can paste; see above.
+
+## Colours
+
+Monokai, softened. The background is its warm grey rather than a near-black,
+and the foreground comes down to meet it, which puts body text at about 9:1
+instead of 14:1. What makes a screen hard to sit in front of is not the ratio
+but the range: near-white on near-black measures beautifully and reads like a
+lamp.
+
+There are three greys and they have three jobs. **Fg** is emphasis and chrome —
+a heading, a bolded phrase, a pane title. **Text** is the prose those sit in,
+and it is a step below, because reading an answer should not be reading at the
+brightest thing on the screen; what is brightest should be the part the answer
+is pointing at. **Dim** is what stands beside the prose, a timestamp or a path.
+The order is asserted, not just the ratios: a later edit cannot quietly make
+body text the loudest thing again.
+
+Everything that renders text clears WCAG AA (4.5:1) and the three tones read
+continuously clear AAA (7:1), asserted in `internal/theme`'s tests along with a
+ceiling — a palette can be wrong by being too bright as easily as by being too
+dim, and the one this replaced was wrong in the first way after being fixed
+from the second. The syntax colours sit at AA on purpose: Monokai's pink
+keyword is 3.9:1 on its own background, and dragging it to AAA turns it pastel
+and stops it being Monokai.
+
+| | |
+|---|---|
+| background | `#272822` |
+| text | body `#cac7bc` · emphasis `#e4e1d6` · dim `#bab7a8` · faint `#979383` |
+| keyword | `#ff6188` |
+| string | `#e6db74` |
+| type, accent | `#66d9ef` |
+| function, added | `#a6e22e` |
+| number | `#bd9cff` |
+| comment | `#9a9484` |
 
 ## How it stays fast
 
@@ -469,9 +843,21 @@ text rather than single keys.
   instead of recomputed per hit, case-insensitive matching folds into a
   length-preserving scratch buffer so byte offsets stay exact, and the work is
   spread over one goroutine per CPU.
+- **The cache lets go once a second, and only while a clock is running.** A
+  running call's line lives in the cached half, so its clock would otherwise be
+  drawn once, at zero, and stay there. A session with nothing running never
+  redraws at all.
 - **The transcript caches its committed half separately from the streaming
   tail.** A text delta arrives every few milliseconds; re-wrapping the whole
-  session on each one would dominate the update loop.
+  session on each one would dominate the update loop. A running command's
+  output goes in that tail for the same reason, which is also why it is drawn
+  under the turn rather than under the line of the call it belongs to: putting
+  it inside the cached half would rebuild the whole transcript every time a
+  build printed a line.
+- **A command's output is forwarded in whole lines, at most a few times a
+  second.** A progress bar redrawing itself with carriage returns would
+  otherwise be thousands of events, and half a line of a stack trace is not
+  worth a frame.
 
 ## Layout
 
@@ -480,6 +866,7 @@ cmd/agent-tui      entry point, flags, and --permission-broker mode
 internal/agent     event vocabulary, Engine interface, built-in Claude loop
 internal/engine    engine registry, the three CLI adapters, approval broker
 internal/explorer  lazy file tree, hybrid watcher, Docker/WSL detection
+internal/clipboard the system clipboard, which is the only place an image is
 internal/ignore    .gitignore matching, shared by every filesystem
 internal/vfs       the filesystem abstraction: host, docker exec, wsl.exe
 internal/fsx       background file indexer and .gitignore matching
@@ -487,7 +874,8 @@ internal/highlight one-pass syntax highlighter
 internal/preview   file loading, binary detection, LRU of highlighted files
 internal/search    parallel content search
 internal/session   conversation model and on-disk persistence
-internal/ui        Bubble Tea model, panes, overlays, the file editor
+internal/ui        Bubble Tea model, panes, overlays, the file editor,
+                   the transcript's markdown renderer
 ```
 
 ## Tests

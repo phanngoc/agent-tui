@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -16,7 +17,13 @@ import (
 func (m *Model) View() tea.View {
 	var v tea.View
 	v.AltScreen = true
-	v.MouseMode = tea.MouseModeCellMotion
+	// All motion rather than only motion with a button held: the history
+	// browser's file rows underline as the pointer crosses them, which is the
+	// only thing on a terminal that says a row can be clicked.
+	//
+	// Asking for the mouse at all takes the terminal's own drag-to-select
+	// away, which is why there is a selection of our own in selection.go.
+	v.MouseMode = tea.MouseModeAllMotion
 	v.WindowTitle = "agent-tui · " + m.projectName()
 	v.BackgroundColor = m.st.P.Bg
 
@@ -68,7 +75,17 @@ func (m *Model) header() string {
 			sb.WriteString(m.st.TabOff.Render(label))
 		}
 	}
-	return clipLine(sb.String(), m.w)
+
+	// The pane switches sit at the right end, where they stay put as the tab
+	// strip grows. They are laid out from the column they will be drawn in, so
+	// a click lands on the switch rather than near it.
+	left := clipLine(sb.String(), m.w)
+	gap := m.w - lipgloss.Width(left) - m.switchesWidth()
+	if gap < 1 {
+		m.toggles = m.toggles[:0]
+		return left
+	}
+	return left + strings.Repeat(" ", gap) + m.paneSwitches(m.w-m.switchesWidth())
 }
 
 // panes lays out the three side-by-side columns.
@@ -84,10 +101,17 @@ func (m *Model) panes() string {
 		chatTitle = s.Status
 	}
 	m.chat.SetContent(m.transcript(max(10, m.chatW-2)))
-	cols = append(cols, m.pane(m.chat.View(), chatTitle, m.chatW, m.bodyH, m.focus == focusChat))
+	chatBody := m.paintSelection(m.chat.View(), focusChat, m.chatW-2)
+	cols = append(cols, m.pane(chatBody, chatTitle, m.chatW, m.bodyH, m.focus == focusChat))
 
+	if m.btwW > 0 {
+		body := m.paintSelection(m.btwPane(m.btwW-2), focusBtw, m.btwW-2)
+		cols = append(cols, m.pane(body, m.btwTitle(), m.btwW, m.bodyH,
+			m.focus == focusBtw))
+	}
 	if m.prevW > 0 {
-		cols = append(cols, m.pane(m.previewPane(), m.previewTitle(), m.prevW, m.bodyH, m.focus == focusPreview))
+		body := m.paintSelection(m.previewPane(), focusPreview, m.prevW-2)
+		cols = append(cols, m.pane(body, m.previewTitle(), m.prevW, m.bodyH, m.focus == focusPreview))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 }
@@ -190,10 +214,15 @@ func (m *Model) pane(content, title string, w, h int, active bool) string {
 	box := style.Width(w).Height(max(3, h)).Render(clipBlock(content, inner, h-2))
 	lines := strings.Split(box, "\n")
 	if len(lines) > 0 {
-		lines[0] = injectTitle(lines[0], ts.Render(" "+truncate(title, max(4, inner-6))+" "))
+		lines[0] = injectTitle(lines[0], ts.Render(" "+truncate(title, titleRoom(w))+" "))
 	}
 	return strings.Join(lines, "\n")
 }
+
+// titleRoom is how much of a title a pane of this width will draw. A title
+// that knows the number can decide for itself what to give up; one that does
+// not has its end cut off, and the end is where the part that changes lives.
+func titleRoom(w int) int { return max(4, w-2-6) }
 
 // injectTitle overwrites the start of a top border run with a label.
 func injectTitle(border, label string) string {
@@ -212,25 +241,54 @@ func injectTitle(border, label string) string {
 	return head + label + tail
 }
 
+// previewTitle names the file and says what is true of the view of it.
+//
+// It fits itself rather than letting the pane cut its end off. What is at the
+// end is what changes — the column the view starts at, whether the buffer is
+// dirty — and what is at the start is a directory you already know you are in.
+// So the path gives up its head, keeping the file name, and the rest stays.
 func (m *Model) previewTitle() string {
+	room := titleRoom(m.prevW)
+
 	if m.edit != nil {
-		t := m.edit.rel + "  editing"
+		suffix := "  editing"
 		if m.edit.Dirty() {
-			t += " ●"
+			suffix += " ●"
 		}
-		return t
+		return fitTitle(m.edit.rel, suffix, room)
 	}
 	if m.file == nil {
 		return "preview"
 	}
-	t := m.file.Rel
-	if m.file.Lang != "" {
-		t += "  " + m.file.Lang
+	// Say when the pane is not showing column one. Long lines are clipped
+	// rather than wrapped, so without this the only sign that a line continues
+	// is that it stops making sense at the right-hand edge.
+	suffix := ""
+	if x := m.prev.XOffset(); x > 0 {
+		suffix += "  col " + strconv.Itoa(x+1)
 	}
 	if m.file.Truncated {
-		t += "  (truncated)"
+		suffix += "  (truncated)"
 	}
-	return t
+	// The language is the first thing dropped when the pane is narrow: it is
+	// the one part of the title you can also tell from the file name, and the
+	// file name is the part that says which file this is. So it is kept only
+	// while the name still fits whole beside it.
+	want := max(minName, lipgloss.Width(vfs.Base(m.file.Rel)))
+	if lang := m.file.Lang; lang != "" &&
+		room-lipgloss.Width(suffix)-lipgloss.Width(lang)-2 >= want {
+		suffix = "  " + lang + suffix
+	}
+	return fitTitle(m.file.Rel, suffix, room)
+}
+
+// minName is the least of a path worth keeping: below it a title says a file
+// is open without saying which.
+const minName = 12
+
+// fitTitle keeps the suffix whole and takes the room out of the path's head.
+func fitTitle(path, suffix string, room int) string {
+	return truncateLeft(path, max(minName, room-lipgloss.Width(suffix))) + suffix
 }
 
 func (m *Model) previewPane() string {
@@ -256,51 +314,56 @@ func (m *Model) previewPane() string {
 	return body
 }
 
-func (m *Model) sessionsPane() string {
-	var b strings.Builder
-	active := m.mgr.ActiveIndex()
-	for i, s := range m.mgr.All() {
-		if i >= m.bodyH-2 {
-			break
-		}
-		mark := "  "
-		style := m.st.Dim
-		switch {
-		case i == active:
-			mark, style = m.st.Accent.Render("▸ "), m.st.Bold
-		case m.focus == focusSessions && i == m.sessSel:
-			mark = m.st.Faint.Render("· ")
-		}
-		label := truncate(s.Label(), max(6, m.sideW-6))
-		row := mark + style.Render(label)
-		if s.Busy {
-			row = mark + m.spin.View() + " " + style.Render(truncate(s.Label(), max(4, m.sideW-8)))
-		}
-		if m.focus == focusSessions && i == m.sessSel {
-			row = m.st.SelRow.Render(padRight(stripANSI(row), m.sideW-2))
-		}
-		b.WriteString(row)
-		b.WriteByte('\n')
+func (m *Model) inputBox() string {
+	style, ts := m.st.Pane, m.st.Title
+	if m.focus == focusInput {
+		style, ts = m.st.PaneActive, m.st.TitleOn
+	}
+	body := m.input.View()
+	if m.attachRows() > 0 {
+		body = m.attachBar() + "\n" + body
+	}
 
-		// The engine is part of a session's identity: the same prompt behaves
-		// differently depending on which agent answers it.
-		if e := m.reg.Get(s.Engine); e != nil {
-			b.WriteString("   " + m.st.Faint.Render(truncate("["+e.ID()+"]", max(4, m.sideW-5))))
-			b.WriteByte('\n')
-		}
+	// Where the session stands goes on the frame rather than on a line of its
+	// own. A shell puts it next to the caret because that is where you are
+	// looking when you type; the caret here is a textarea whose prompt repeats
+	// on every row, so the border is the nearest place that says it once.
+	box := style.Width(max(3, m.w)).Render(body)
+	lines := strings.Split(box, "\n")
+	if len(lines) > 0 {
+		inner := max(1, m.w-2)
+		lines[0] = injectTitle(lines[0],
+			ts.Render(" "+truncateLeft(m.promptPath(), max(4, inner-6))+" "))
 	}
-	if m.mgr.Len() == 0 {
-		b.WriteString(m.st.Faint.Render("  none"))
-	}
-	return b.String()
+	return strings.Join(lines, "\n")
 }
 
-func (m *Model) inputBox() string {
-	style := m.st.Pane
-	if m.focus == focusInput {
-		style = m.st.PaneActive
+// promptPath is where the session stands, written the way a shell prompt
+// writes it: the home directory as ~, and the filesystem named when it is not
+// this machine's, because `~/workspace` means two different places depending
+// on which side of WSL you are on.
+func (m *Model) promptPath() string {
+	s := m.mgr.Active()
+	fsys := m.sessionFS(s)
+	dir := m.sessionCWD(s)
+
+	home := ""
+	if fsys.IsLocal() {
+		home, _ = os.UserHomeDir()
+	} else {
+		home = fsys.DefaultDir()
 	}
-	return style.Width(max(3, m.w)).Render(m.input.View())
+	if home != "" && home != "/" && vfs.Within(home, dir) {
+		if rel := vfs.Rel(home, dir); rel != "" && rel != "." {
+			dir = "~/" + filepath.ToSlash(rel)
+		} else {
+			dir = "~"
+		}
+	}
+	if !fsys.IsLocal() {
+		return fsys.Label() + "  " + dir
+	}
+	return dir
 }
 
 func (m *Model) statusBar() string {
@@ -308,7 +371,17 @@ func (m *Model) statusBar() string {
 	left := make([]string, 0, 6)
 
 	if s.Busy {
-		left = append(left, m.spin.View()+" "+m.st.Accent.Render(orDefault(s.Status, "working")))
+		// The way out is named while there is something to get out of. A turn
+		// that has gone wrong is watched rather than stopped when the key that
+		// stops it is not written anywhere on the screen.
+		// How long it has been at it. A turn that has been thinking for seven
+		// minutes and one that has been thinking for seven seconds read the
+		// same without it, and only one of them is worth interrupting.
+		line := m.spin.View() + " " + m.st.Accent.Render(orDefault(s.Status, "working"))
+		if el := running(s.Started); el != "" {
+			line += m.st.Dim.Render("  " + el)
+		}
+		left = append(left, line+m.st.Faint.Render("  esc to stop"))
 	} else if m.errText != "" {
 		left = append(left, m.st.Bad.Render("✗ "+truncate(m.errText, max(20, m.w/2))))
 	} else if m.notice != "" {
@@ -441,6 +514,8 @@ func (m *Model) cursor() *tea.Cursor {
 		return offsetCursor(m.finderIn.Cursor(), m.overlayX+overlayTextX, m.overlayY+overlayInputY)
 	case overlayGrep:
 		return offsetCursor(m.grepIn.Cursor(), m.overlayX+overlayTextX, m.overlayY+overlayInputY)
+	case overlayRecall:
+		return offsetCursor(m.recallIn.Cursor(), m.overlayX+overlayTextX, m.overlayY+overlayInputY)
 	case overlayNone:
 	default:
 		return nil // pickers and prompts take keys, not text

@@ -40,6 +40,23 @@ type Result struct {
 	Common string
 }
 
+// Ref is the marker that turns a word in the prompt into a file reference.
+// It is kept in the prompt that is sent: "@internal/ui/chat.go" tells the agent
+// which file is meant, and it can open it with the tools it already has.
+const Ref = "@"
+
+// IsRef reports whether word is a file reference being typed.
+func IsRef(word string) bool { return strings.HasPrefix(word, Ref) }
+
+// TrimRef splits the marker off a word, returning the path and the marker to
+// put back. A word that is not a reference comes back unchanged.
+func TrimRef(word string) (path, marker string) {
+	if !IsRef(word) {
+		return word, ""
+	}
+	return word[len(Ref):], Ref
+}
+
 // Unambiguous reports whether there is exactly one way to finish the word.
 func (r Result) Unambiguous() bool { return len(r.Candidates) == 1 }
 
@@ -131,7 +148,9 @@ func Paths(ctx context.Context, fsys vfs.FS, root, home string, tok Token, kind 
 		return res
 	}
 
-	word := tok.Text
+	// A reference completes as a path with the marker held aside and put back
+	// on every candidate, so @ behaves exactly like typing a path does.
+	word, ref := TrimRef(tok.Text)
 	if home != "" && strings.HasPrefix(word, "~") {
 		word = home + strings.TrimPrefix(word, "~")
 	}
@@ -175,7 +194,7 @@ func Paths(ctx context.Context, fsys vfs.FS, root, home string, tok Token, kind 
 			text += "/"
 		}
 		res.Candidates = append(res.Candidates, Candidate{
-			Insert:  quote(text, tok.Quote),
+			Insert:  ref + quote(text, tok.Quote),
 			Display: e.Name + dirSuffix(e.Dir),
 			Dir:     e.Dir,
 		})

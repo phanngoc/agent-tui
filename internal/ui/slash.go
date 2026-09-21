@@ -37,6 +37,19 @@ var slashCmds = []slashCmd{
 		m.notice = "session closed"
 		return cmd
 	}},
+	// Terminals differ on whether ctrl+v ever reaches an application — many
+	// bind it to their own paste — so the same thing has a name as well.
+	{"paste", "", "attach the image on the clipboard", func(m *Model, _ string) tea.Cmd {
+		return m.pasteImage()
+	}},
+	{"btw", "[question]", "ask beside this conversation, without interrupting it",
+		func(m *Model, arg string) tea.Cmd {
+			if m.showBtw && arg == "" {
+				m.closeBtw()
+				return nil
+			}
+			return m.openBtw(arg)
+		}},
 	{"cd", "<dir>", "move this session to another directory", func(m *Model, arg string) tea.Cmd {
 		if arg == "" {
 			arg = "~"
@@ -67,6 +80,13 @@ var slashCmds = []slashCmd{
 		}
 		return m.setModelByName(arg)
 	}},
+	{"rename", "[name]", "name this session", func(m *Model, arg string) tea.Cmd {
+		if arg == "" {
+			return m.openRename()
+		}
+		m.setSessionName(arg)
+		return nil
+	}},
 	{"git", "", "browse the history and its diffs", func(m *Model, _ string) tea.Cmd {
 		return m.openGit()
 	}},
@@ -95,6 +115,10 @@ var slashCmds = []slashCmd{
 		}
 		return nil
 	}},
+	{"recall", "[text]", "search every conversation, in every project",
+		func(m *Model, arg string) tea.Cmd {
+			return m.openRecall(arg)
+		}},
 	{"tasks", "", "background commands, and their output", func(m *Model, _ string) tea.Cmd {
 		m.overlay = overlayTasks
 		m.taskSel, m.taskOpen = 0, ""

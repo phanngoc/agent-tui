@@ -323,6 +323,56 @@ func TestPromptIsAlwaysLast(t *testing.T) {
 	}
 }
 
+// A handoff brief rides in the same argument as the prompt, so the prompt has
+// to stay at the end of it — and of the argv.
+func TestABriefedTurnStillEndsWithThePrompt(t *testing.T) {
+	turn := agent.Turn{Prompt: "do it", Brief: "<handoff>\nearlier\n</handoff>", Mode: agent.ModeAuto}
+	for _, tc := range []struct {
+		name string
+		argv []string
+	}{
+		{"codex", codexArgv(newCodex("/p"), turn, nil)},
+		{"claude", claudeArgv(newClaude("/p"), turn, nil)},
+		{"opencode", opencodeArgv(newOpenCode("/p"), turn, nil)},
+	} {
+		last := tc.argv[len(tc.argv)-1]
+		if !strings.HasSuffix(last, "do it") {
+			t.Errorf("%s: the prompt is not at the end of the last argument: %q", tc.name, last)
+		}
+		if !strings.Contains(last, "<handoff>") {
+			t.Errorf("%s: the brief did not reach the engine: %q", tc.name, last)
+		}
+	}
+}
+
+// The brief travels as one argv entry, and on Windows the whole command line
+// has to fit CreateProcessW's 32,767 characters — which a session aimed at WSL
+// spends twice over, because the argv is re-quoted into one `bash -lc` string.
+// Past that the process does not degrade, it fails to start, with an error
+// about nothing the reader did.
+func TestArgvSurvivesAMaximalBrief(t *testing.T) {
+	turn := agent.Turn{
+		Prompt:     strings.Repeat("một câu hỏi rất dài. ", 40),
+		Brief:      strings.Repeat("x", session.BriefLimit),
+		ExternalID: "a-fairly-long-external-session-identifier-0123456789",
+		Model:      "claude-opus-5",
+		Mode:       agent.ModeAuto,
+	}
+	for _, tc := range []struct {
+		name string
+		argv []string
+	}{
+		{"codex", codexArgv(newCodex("/some/deep/project/root"), turn, nil)},
+		{"claude", claudeArgv(newClaude("/some/deep/project/root"), turn, nil)},
+		{"opencode", opencodeArgv(newOpenCode("/some/deep/project/root"), turn, nil)},
+	} {
+		// Half the budget, because WSL re-quotes the whole line into another.
+		if n := len(strings.Join(tc.argv, " ")); n > 15000 {
+			t.Errorf("%s: the command line is %d characters, past what WSL leaves room for", tc.name, n)
+		}
+	}
+}
+
 func hasFlag(argv []string, flag string) bool {
 	for _, a := range argv {
 		if a == flag {

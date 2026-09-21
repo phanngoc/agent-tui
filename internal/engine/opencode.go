@@ -37,7 +37,7 @@ func opencodeArgv(c *CLI, t agent.Turn, _ *broker) []string {
 			a = append(a, "--fork")
 		}
 	}
-	return append(a, t.Prompt)
+	return append(a, t.PromptText())
 }
 
 // opencodeDec parses `opencode run --format json`.
