@@ -227,3 +227,66 @@ func TestTheSpinnerWearsTheWorkingColour(t *testing.T) {
 		t.Errorf("the spinner is %q and the working label is %q", code(got), code(want))
 	}
 }
+
+// The tab strip speaks the same vocabulary as the list. A session blocked in a
+// background tab used to be invisible up there: the strip knew only "busy".
+func TestTheTabStripShowsWhatWantsYou(t *testing.T) {
+	m := newTestModel(t)
+	s := talking(m, "scan")
+	m.approvals = append(m.approvals, pendingApproval{sess: s, ev: agent.EvApproval{}})
+
+	if got := stripANSI(m.tabMark(s, false)); got != stateBlocked.glyph() {
+		t.Errorf("a blocked session shows %q in the strip", got)
+	}
+	s.LastErr = ""
+	m.approvals = nil
+	s.Unseen = true
+	if got := stripANSI(m.tabMark(s, false)); got != stateUnseen.glyph() {
+		t.Errorf("a finished-elsewhere session shows %q in the strip", got)
+	}
+}
+
+// And says nothing when there is nothing to say. Every state marked would be a
+// row of ticks across the top, which is wallpaper rather than a glance.
+func TestTheTabStripIsQuietWhenNothingWantsYou(t *testing.T) {
+	m := newTestModel(t)
+	idle := talking(m, "đã xong và đã xem")
+	empty := m.mgr.New()
+
+	if got := m.tabMark(idle, false); got != "" {
+		t.Errorf("an idle session marked the strip with %q", stripANSI(got))
+	}
+	if got := m.tabMark(empty, false); got != "" {
+		t.Errorf("an empty session marked the strip with %q", stripANSI(got))
+	}
+}
+
+// On the active tab the shape stays and the colour goes: the tab is already
+// inverted, and a state colour on that background fights the highlight.
+func TestTheActiveTabKeepsTheShapeAndDropsTheColour(t *testing.T) {
+	m := newTestModel(t)
+	s := talking(m, "failed here")
+	s.LastErr = "boom"
+
+	// It holds for the spinner too, which is the one that used to keep its
+	// yellow on an inverted tab.
+	s.Busy = true
+	if got := m.tabMark(s, true); strings.Contains(got, "\x1b") {
+		t.Errorf("the active tab's spinner carries its own colour: %q", got)
+	}
+	if got := m.tabMark(s, false); !strings.Contains(got, "\x1b") {
+		t.Error("an inactive tab's spinner lost its colour")
+	}
+	s.Busy = false
+
+	on, off := m.tabMark(s, true), m.tabMark(s, false)
+	if stripANSI(on) != stripANSI(off) {
+		t.Errorf("the shape changed with the tab: %q vs %q", stripANSI(on), stripANSI(off))
+	}
+	if strings.Contains(on, "\x1b") {
+		t.Errorf("the active tab's mark carries its own colour: %q", on)
+	}
+	if !strings.Contains(off, "\x1b") {
+		t.Error("an inactive tab's mark lost its colour, which is where colour is worth having")
+	}
+}

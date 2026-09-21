@@ -131,6 +131,37 @@ func (m *Model) stateMark(s *session.Session) string {
 	return m.stateStyle(st).Render(st.glyph())
 }
 
+// tabMark is the state glyph for the header strip, or nothing.
+//
+// Nothing, for a conversation that is merely finished or merely empty. The
+// sidebar shows every state because it is a list you read; the tab strip is
+// chrome you glance at, and a row of ticks across the top is not a glance, it
+// is wallpaper. A mark up there appears only when something wants you — which
+// is what makes it worth seeing out of the corner of an eye.
+//
+// On the active tab the mark keeps its shape and loses its colour: the tab is
+// already inverted, so a state colour on that background fights the highlight
+// instead of adding to it, and you are looking at that conversation anyway.
+func (m *Model) tabMark(s *session.Session, active bool) string {
+	st := m.sessionState(s)
+	switch st {
+	case stateWorking:
+		if active {
+			// The spinner is a shape that moves, which is the whole of what
+			// it has to say; its colour on an inverted tab is the clash this
+			// rule exists to avoid.
+			return stripANSI(m.spin.View())
+		}
+		return m.spin.View()
+	case stateBlocked, stateFailed, stateUnseen:
+		if active {
+			return st.glyph()
+		}
+		return m.stateStyle(st).Render(st.glyph())
+	}
+	return ""
+}
+
 // markUnseen records that a turn ended on a conversation nobody was looking
 // at. It is the state that makes a list of conversations worth having: the
 // answer arrived, and it arrived somewhere you were not.

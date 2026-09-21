@@ -65,9 +65,9 @@ func (m *Model) header() string {
 			sb.WriteString(m.st.Faint.Render(" +" + strconv.Itoa(len(sessions)-i)))
 			break
 		}
-		label := truncate(s.Label(), 18)
-		if s.Busy {
-			label = m.spin.View() + " " + label
+		label := truncate(s.Label(), 16)
+		if mark := m.tabMark(s, i == active); mark != "" {
+			label = mark + " " + label
 		}
 		if i == active {
 			sb.WriteString(m.st.TabOn.Render(label))

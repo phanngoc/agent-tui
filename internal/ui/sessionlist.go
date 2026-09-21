@@ -71,7 +71,7 @@ func (m *Model) sessionLines(width int) []sessionLine {
 			out = append(out, sessionLine{idx: i, text: m.rowBg(row, width, i == active, selected)})
 		}
 		out = append(out, sessionLine{
-			idx: i,
+			idx:  i,
 			text: m.rowBg("  "+m.sessionMeta(s, width-2), width, i == active, selected),
 		})
 	}
