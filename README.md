@@ -394,6 +394,14 @@ path for the same reason, and the image itself still goes.
 Attached images show in the prompt box before you send and in the transcript
 after, and `ctrl+u` drops the prompt and its attachments together.
 
+**The command being waited on is written out in full.** A finished call stays
+one line — it is history, and the summary is the part of it worth keeping,
+which is why the calls fold at all. The one still running is not history: it
+is the thing you are waiting on, and `echo "=== das…` does not say what for,
+because the part that was cut is exactly the part that would have said. So it
+wraps underneath, with an elbow to say the lines below belong to the line
+above, capped at six lines and saying how many it dropped.
+
 ## Finding an old conversation
 
 `/recall <text>` searches every conversation you have had, in every project.

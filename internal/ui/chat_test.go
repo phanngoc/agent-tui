@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"encoding/json"
 	"strconv"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"github.com/charmbracelet/x/ansi"
 
 	"github.com/phanngoc/agent-tui/internal/session"
 )
@@ -229,5 +231,85 @@ func TestShowMessageLandsOnIt(t *testing.T) {
 	m.showMessage(9999)
 	if got := m.chat.YOffset(); got != want {
 		t.Errorf("an impossible message scrolled to %d, want the newest turn at %d", got, want)
+	}
+}
+
+// bashCall builds a shell call with the given command.
+func bashCall(cmd string, done bool) session.ToolCall {
+	in, _ := json.Marshal(map[string]string{"command": cmd})
+	t := session.ToolCall{ID: "t", Name: "Bash", Input: in, Done: done}
+	if done {
+		t.Result = "ok"
+	}
+	return t
+}
+
+func drawTool(m *Model, t session.ToolCall, width int) string {
+	var b strings.Builder
+	m.renderTool(&b, t, width)
+	return b.String()
+}
+
+// The command being waited on is written out in full. Cutting it removes
+// exactly the part that would have said what is being waited for.
+func TestARunningCommandIsWrittenInFull(t *testing.T) {
+	m := newTestModel(t)
+	cmd := `NS=fpaas-2038 && kubectl exec -i deployment/workspace-backend -n $NS ` +
+		`-- python3 - < /tmp/scratchpad/apply-pr-review-workflows.py`
+
+	out := stripANSI(drawTool(m, bashCall(cmd, false), 74))
+	// Every word of it survives, wherever the wrap put it.
+	flat := strings.Join(strings.Fields(out), " ")
+	for _, word := range strings.Fields(cmd) {
+		if !strings.Contains(flat, word) {
+			t.Errorf("the command lost %q:\n%s", word, out)
+		}
+	}
+	if strings.Contains(out, "…") {
+		t.Errorf("the command was cut anyway:\n%s", out)
+	}
+	if !strings.Contains(out, "⎿") {
+		t.Errorf("nothing marks the lines below as belonging to the call:\n%s", out)
+	}
+}
+
+// And a finished one stays a single line, because it is history and the
+// summary is the part worth keeping.
+func TestAFinishedCommandStaysOneLine(t *testing.T) {
+	m := newTestModel(t)
+	cmd := strings.Repeat("echo một lệnh khá dài && ", 8)
+
+	out := drawTool(m, bashCall(cmd, true), 74)
+	if n := strings.Count(out, "\n"); n != 1 {
+		t.Errorf("a finished call took %d lines:\n%s", n, stripANSI(out))
+	}
+}
+
+// Wrapped or not, it stays inside the pane.
+func TestARunningCommandFitsThePane(t *testing.T) {
+	m := newTestModel(t)
+	cmd := "kubectl " + strings.Repeat("--một-cờ-rất-dài=giá-trị ", 12)
+
+	for _, w := range []int{30, 48, 74, 120} {
+		for i, l := range strings.Split(drawTool(m, bashCall(cmd, false), w), "\n") {
+			if got := ansi.StringWidth(l); got > w {
+				t.Errorf("width %d: line %d is %d columns", w, i, got)
+			}
+		}
+	}
+}
+
+// One call may not fill the pane it is being watched in, and what it drops it
+// says out loud.
+func TestAVeryLongCommandIsCappedAndSaysSo(t *testing.T) {
+	m := newTestModel(t)
+	cmd := strings.Repeat("một-đoạn-dài-của-lệnh ", 200)
+
+	out := stripANSI(drawTool(m, bashCall(cmd, false), 60))
+	if n := strings.Count(out, "\n"); n > toolBodyRows+2 {
+		t.Errorf("a running call took %d lines:\n%s", n, out)
+	}
+	if !strings.Contains(out, "more line") {
+		t.Errorf("it cut the command without saying how much:\n%s", out)
 	}
 }

@@ -277,6 +277,45 @@ func (m *Model) renderFiles(b *strings.Builder, files []session.Attachment, rail
 
 // renderTool draws one tool call as a compact single line plus, for failures,
 // the first few lines of output.
+// toolBodyRows is how many lines a running command may take before it is cut.
+// Enough for a real one — a kubectl exec with a heredoc runs to four or five —
+// and not so many that one call fills the pane it is being watched in.
+const toolBodyRows = 6
+
+// writeToolBody writes a command out in full under the call that is running
+// it, wrapped to the pane and marked as a continuation of the line above.
+func (m *Model) writeToolBody(b *strings.Builder, bar, text string, width int) {
+	const indent = "     "
+	room := max(12, width-lipgloss.Width(stripANSI(bar))-len(indent)-2)
+
+	// ansi.Wrap, not the word-wrapping kind: it breaks a word longer than the
+	// pane rather than letting it run past the edge, which for a command is
+	// the ordinary case — a path or a --flag=value is one word and is
+	// routinely wider than a transcript with the sidebar open. Slashes and
+	// equals signs join the hyphen as places it may break, so a path comes
+	// apart where a reader would have broken it anyway.
+	lines := strings.Split(ansi.Wrap(highlight.ExpandTabs(text), room, " /=:,"), "\n")
+	for i, l := range lines {
+		if i == toolBodyRows {
+			b.WriteString(bar + indent + "  " + m.st.Faint.Render(
+				"… "+plural(len(lines)-toolBodyRows, "more line")) + "\n")
+			break
+		}
+		mark := "  "
+		if i == 0 {
+			mark = "⎿ "
+		}
+		// The wrap breaks *after* the space it broke on, so a line can come
+		// back one column over the limit carrying a space nobody can see.
+		// Trimming it is right on its own account — trailing blanks on a
+		// wrapped line are never wanted — and the clip after it is the
+		// backstop, because a row that does not fit is how this pane has
+		// gone wrong every previous time.
+		l = truncate(strings.TrimRight(l, " "), room)
+		b.WriteString(bar + indent + m.st.Faint.Render(mark) + m.st.Dim.Render(l) + "\n")
+	}
+}
+
 func (m *Model) renderTool(b *strings.Builder, t session.ToolCall, width int) {
 	icon, style := "⋯", m.st.Dim
 	switch {
@@ -317,8 +356,25 @@ func (m *Model) renderTool(b *strings.Builder, t session.ToolCall, width int) {
 	// one.
 	bar := m.st.AgentBar.Render("▎")
 	head := bar + "  " + style.Render(icon) + " " + m.st.ToolTag.Render(t.Name)
+	sum := t.Summary()
+
+	// A finished call is one line. It is history, and the summary is the part
+	// of it worth keeping — which is the whole reason the calls fold at all.
+	//
+	// The one still running is not history. It is the thing being waited on,
+	// and `echo "=== das…` does not say what is being waited for: the part
+	// that was cut is exactly the part that would have said. So it is written
+	// out underneath in full, wrapped, with an elbow to say the lines below
+	// belong to the line above.
+	if !t.Done && sum != "" {
+		b.WriteString(clipLine(head+tail, width))
+		b.WriteByte('\n')
+		m.writeToolBody(b, bar, sum, width)
+		return
+	}
+
 	line := head + tail
-	if sum := t.Summary(); sum != "" {
+	if sum != "" {
 		room := width - lipgloss.Width(head) - lipgloss.Width(tail) - 2
 		line = head + "  " + m.st.Dim.Render(truncate(sum, max(8, room))) + tail
 	}
