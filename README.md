@@ -750,6 +750,14 @@ answer arrived somewhere you were not. It is runtime only, because what it
 records is whether you have looked since it happened, and a new process has
 not.
 
+The tab strip at the top speaks the same vocabulary, but only when there is
+something to say: `blocked`, `working` and `done` get their mark up there, and
+`idle` and `new` get nothing. The sidebar shows every state because it is a
+list you read; the strip is chrome you glance at, and a row of ticks across the
+top is not a glance, it is wallpaper. On the active tab the mark keeps its
+shape and loses its colour — that tab is already inverted, and you are looking
+at it anyway.
+
 The glyph column says what a conversation is doing; the row's background says
 where you are standing. Those used to share the column — the spinner overwrote
 the active mark, so a session that was both lost the one that said where you
