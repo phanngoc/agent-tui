@@ -157,10 +157,38 @@ func (m *Manager) Len() int {
 // Select focuses a session by index, ignoring out-of-range values.
 func (m *Manager) Select(i int) {
 	m.mu.Lock()
-	if i >= 0 && i < len(m.sessions) {
+	if i >= 0 && i < len(m.sessions) && m.sessions[i].SideOf == "" {
 		m.active = i
 	}
 	m.mu.Unlock()
+}
+
+// settle moves the cursor off a side chat, and must be called with the lock
+// held.
+//
+// The invariant it keeps is worth stating plainly: whatever is active is
+// something the session list shows. An aside belongs to the conversation it
+// hangs off and is deliberately absent from every list of conversations, so a
+// cursor resting on one points at a session nothing draws — the transcript
+// fills with it, its title says what it is doing, and every row of the list
+// says idle. A screen that contradicts itself, from one integer.
+func (m *Manager) settle() {
+	if m.active >= 0 && m.active < len(m.sessions) && m.sessions[m.active].SideOf == "" {
+		return
+	}
+	for i := m.active; i < len(m.sessions); i++ {
+		if m.sessions[i].SideOf == "" {
+			m.active = i
+			return
+		}
+	}
+	for i := min(m.active, len(m.sessions)-1); i >= 0; i-- {
+		if m.sessions[i].SideOf == "" {
+			m.active = i
+			return
+		}
+	}
+	m.active = 0
 }
 
 // Cycle steps to the next conversation, skipping the side chats: they are
@@ -218,6 +246,9 @@ func (m *Manager) Close(i int) {
 	if m.active < 0 {
 		m.active = 0
 	}
+	// Closing renumbers everything, and the index it lands on is only an
+	// index: it can come to rest on an aside, which no list draws.
+	m.settle()
 	empty := len(m.sessions) == 0
 	m.mu.Unlock()
 

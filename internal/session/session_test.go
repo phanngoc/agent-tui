@@ -374,3 +374,45 @@ func TestForkDoesNotInheritOtherEnginesIDs(t *testing.T) {
 		t.Errorf("the branch inherited codex's id from its parent: %q", got)
 	}
 }
+
+// Whatever is active is something the session list shows.
+//
+// An aside is deliberately absent from every list of conversations, so a
+// cursor resting on one points at a session nothing draws: the transcript
+// fills with it and says what it is doing, while every row of the list says
+// idle. A screen that contradicts itself, from one integer.
+func TestTheActiveSessionIsAlwaysOneTheListShows(t *testing.T) {
+	m := NewManager(t.TempDir(), "/p", "model")
+	t.Cleanup(m.Shutdown)
+
+	parent := m.New()
+	parent.Append(Message{Role: RoleUser, Text: "hỏi"})
+	aside := m.Fork(parent)
+	aside.SideOf, aside.SideFrom = parent.ID, len(aside.Messages)
+	other := m.New()
+	other.Append(Message{Role: RoleUser, Text: "khác"})
+
+	at := func() int {
+		for i, s := range m.All() {
+			if s == aside {
+				return i
+			}
+		}
+		return -1
+	}
+
+	// Selecting one directly does not take.
+	m.Select(at())
+	if m.Active() == aside {
+		t.Error("Select moved the cursor onto an aside")
+	}
+
+	// Nor does closing whatever happened to sit beside it.
+	for m.Len() > 1 {
+		before := m.Len()
+		m.Close(m.ActiveIndex())
+		if m.Active().SideOf != "" {
+			t.Fatalf("closing left the cursor on an aside (%d sessions before)", before)
+		}
+	}
+}
