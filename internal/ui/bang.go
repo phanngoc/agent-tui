@@ -292,7 +292,7 @@ func (m *Model) startBang(line string) tea.Cmd {
 		},
 	})
 	m.mgr.Save(s)
-	m.invalidateChat()
+	m.grew(s)
 	s.Running++
 
 	index := len(s.Messages) - 1
@@ -343,7 +343,7 @@ func (m *Model) applyBangDone(msg bangDoneMsg) {
 	s.Messages[msg.index].Text = bangContext(run)
 	s.Dirty = true
 	m.mgr.Save(s)
-	m.invalidateChat()
+	m.grew(s)
 }
 
 // bangContext is what the agent sees for a finished command.
@@ -415,7 +415,7 @@ func (m *Model) logMove(command, result string, failed bool) {
 		Shell: run,
 	})
 	m.mgr.Save(s)
-	m.invalidateChat()
+	m.grew(s)
 }
 
 // moveContext is what the agent reads for a move. It says where the session

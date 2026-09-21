@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 
@@ -288,5 +289,86 @@ func TestTheActiveTabKeepsTheShapeAndDropsTheColour(t *testing.T) {
 	}
 	if !strings.Contains(off, "\x1b") {
 		t.Error("an inactive tab's mark lost its colour, which is where colour is worth having")
+	}
+}
+
+// The strip and the sidebar are two views of the same conversations, so they
+// have to agree about what is in the list. A side chat used to appear in the
+// strip and nowhere else: a busy aside put a spinner up there with no row
+// underneath it to match, which reads as the list having lost track.
+func TestTheStripAndTheListAgreeAboutSideChats(t *testing.T) {
+	m := newTestModel(t)
+	withHistory(m)
+	m.openBtw("")
+	side := m.sideSession()
+	if side == nil {
+		t.Fatal("no side chat to test with")
+	}
+	side.Busy = true
+	side.Title = "cái aside"
+
+	if got := stripANSI(m.header()); strings.Contains(got, "cái aside") {
+		t.Errorf("the aside has a tab of its own:\n%s", got)
+	}
+	for _, l := range m.sessionLines(30) {
+		if m.mgr.All()[l.idx] == side {
+			t.Error("the aside has a row of its own")
+		}
+	}
+	// It is not invisible, though: it says what it is doing where it lives.
+	if got := m.btwTitle(); !strings.Contains(got, stateWorking.word()) &&
+		!strings.Contains(got, orDefault(side.Status, "working")) {
+		t.Errorf("the aside's pane does not say it is running: %q", got)
+	}
+}
+
+// A command run with ! is a line in the conversation, so the pane follows it
+// down. It used to rewrite the transcript and leave the reader wherever they
+// already were, which for a session with any history is above the thing that
+// just happened.
+func TestRunningACommandFollowsTheTranscript(t *testing.T) {
+	m := newTestModel(t)
+	s := m.mgr.Active()
+	for i := 0; i < 40; i++ {
+		s.Append(session.Message{Role: session.RoleUser, Text: "dòng cũ " + strconv.Itoa(i)})
+	}
+	m.invalidateChat()
+	m.View()
+	m.chat.GotoTop()
+	if m.chat.YOffset() != 0 {
+		t.Fatalf("the pane would not go to the top: %d", m.chat.YOffset())
+	}
+
+	s.Append(session.Message{Role: session.RoleUser, Text: "mới", Shell: &session.ShellRun{
+		Command: "cd ..", Done: true,
+	}})
+	m.grew(s)
+	m.View()
+
+	if m.chat.YOffset() == 0 {
+		t.Error("the transcript grew and the pane stayed at the top")
+	}
+	if !m.chat.AtBottom() {
+		t.Errorf("the pane did not follow the new line down: offset %d", m.chat.YOffset())
+	}
+}
+
+// But it does not drag a pane the reader is not looking at.
+func TestGrowingAnotherConversationDoesNotScrollThisOne(t *testing.T) {
+	m := newTestModel(t)
+	here := m.mgr.Active()
+	for i := 0; i < 40; i++ {
+		here.Append(session.Message{Role: session.RoleUser, Text: "dòng " + strconv.Itoa(i)})
+	}
+	m.invalidateChat()
+	m.View()
+	m.chat.GotoTop()
+
+	there := talking(m, "ở nơi khác")
+	m.mgr.Select(m.indexOf(here))
+	m.grew(there)
+
+	if m.chat.YOffset() != 0 {
+		t.Errorf("another conversation growing moved this pane to %d", m.chat.YOffset())
 	}
 }

@@ -53,23 +53,40 @@ func (m *Model) View() tea.View {
 // header is the session tab strip.
 func (m *Model) header() string {
 	sessions := m.mgr.All()
-	active := m.mgr.ActiveIndex()
+	active := m.mgr.Active()
 
 	var sb strings.Builder
 	sb.WriteString(m.st.Accent.Render(" ▪ "))
 	sb.WriteString(m.st.Bold.Render(m.projectName()))
 	sb.WriteString("  ")
 
-	for i, s := range sessions {
-		if i > 4 {
-			sb.WriteString(m.st.Faint.Render(" +" + strconv.Itoa(len(sessions)-i)))
+	listed := 0
+	for _, s := range sessions {
+		if s.SideOf == "" {
+			listed++
+		}
+	}
+
+	shown := 0
+	for _, s := range sessions {
+		// Side chats are skipped here for the same reason the sidebar skips
+		// them: an aside belongs to the conversation it hangs off rather than
+		// standing beside it. They used to appear here and nowhere else, so a
+		// busy aside put a spinner in the strip with no row under it to
+		// match — two views of the same list, disagreeing.
+		if s.SideOf != "" {
+			continue
+		}
+		if shown > 4 {
+			sb.WriteString(m.st.Faint.Render(" +" + strconv.Itoa(listed-shown)))
 			break
 		}
+		shown++
 		label := truncate(s.Label(), 16)
-		if mark := m.tabMark(s, i == active); mark != "" {
+		if mark := m.tabMark(s, s == active); mark != "" {
 			label = mark + " " + label
 		}
-		if i == active {
+		if s == active {
 			sb.WriteString(m.st.TabOn.Render(label))
 		} else {
 			sb.WriteString(m.st.TabOff.Render(label))

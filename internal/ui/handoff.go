@@ -106,7 +106,7 @@ func (m *Model) logHandoff(from, to agent.Engine) {
 		Text:  handoffContext(from, to),
 		Shell: run,
 	})
-	m.invalidateChat()
+	m.grew(s)
 }
 
 // handoffContext is what the transcript shows and what the next engine reads.

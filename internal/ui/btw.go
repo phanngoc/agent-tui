@@ -101,13 +101,22 @@ func (m *Model) indexOf(want *session.Session) int {
 // btwTitle names the pane and says what the side chat is doing.
 func (m *Model) btwTitle() string {
 	side := m.sideSession()
-	switch {
-	case side == nil:
+	if side == nil {
 		return "btw"
-	case side.Busy:
-		return "btw  " + orDefault(side.Status, "working")
 	}
-	return "btw"
+	// The aside is not in the session list or the tab strip — it belongs to
+	// the conversation beside it rather than standing among them — so this
+	// title is the only place its state is said, and it says it the same way
+	// they would.
+	st := m.sessionState(side)
+	if st == stateIdle || st == stateEmpty {
+		return "btw"
+	}
+	word := st.word()
+	if st == stateWorking && side.Status != "" {
+		word = side.Status
+	}
+	return "btw  " + st.glyph() + " " + word
 }
 
 // btwPane renders the side chat. It is not cached the way the main transcript

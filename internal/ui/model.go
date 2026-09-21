@@ -132,7 +132,7 @@ type Model struct {
 	// hit can be opened where it was found rather than at the newest turn. It
 	// belongs to whichever conversation the cache was last built for.
 	chatStarts []int
-	chatKey   string
+	chatKey    string
 	// chatTurn is the line the newest exchange starts on, counted while the
 	// cache above is built, so opening a session can land there.
 	chatTurn int
@@ -678,6 +678,33 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) invalidateChat() { m.chatKey = "" }
+
+// grew says the transcript gained a line, so the cache is stale and the pane
+// should follow it down.
+//
+// Every path that appends to a conversation has to do both, and three of them
+// did only the first: a command run with `!` rewrote the transcript and left
+// the reader looking at wherever they already were, which for a session with
+// any history at all is above the thing that just happened. The scroll is
+// skipped for a conversation that is not on screen, because moving a pane the
+// reader is not looking at is not following anything.
+func (m *Model) grew(s *session.Session) {
+	m.invalidateChat()
+	if s != m.mgr.Active() {
+		return
+	}
+	// The content first, then the offset. The transcript is normally handed
+	// to the viewport while drawing, one frame later than this, so going to
+	// the bottom now would go to the bottom of the shorter text it still
+	// holds — and land above the line that was just added.
+	//
+	// The streaming paths get away with not doing this because another event
+	// is along in a moment to correct them. A command run with `!` appends
+	// once and nothing follows it, which is why this is the path where it
+	// showed.
+	m.chat.SetContent(m.transcript(max(10, m.chatW-2)))
+	m.chat.GotoBottom()
+}
 
 // cancelRun stops the active session's turn and drops any approval it was
 // waiting on. Runs in other sessions are left alone.
