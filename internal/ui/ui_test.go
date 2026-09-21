@@ -46,7 +46,7 @@ func newTestModel(t *testing.T) *Model {
 
 	cfg := config.Default()
 	cfg.Root = root
-	st := theme.New(theme.Dark)
+	st := theme.New(theme.ByName(cfg.Theme))
 	sc := highlight.NewScheme(st.P.Fg, st.P.Keyword, st.P.Type, st.P.String,
 		st.P.Number, st.P.Comment, st.P.Func, st.P.Punct)
 
@@ -1300,7 +1300,7 @@ func TestDashGoesUpFromAnywhere(t *testing.T) {
 // Fixing the palette did not fix this, because these styles never came from the
 // palette at all.
 func TestInputStylesAlwaysSetAForeground(t *testing.T) {
-	st := theme.New(theme.Dark)
+	st := theme.New(theme.ByName(""))
 
 	ta := textareaStyles(st)
 	for name, style := range map[string]lipgloss.Style{
@@ -1346,7 +1346,7 @@ func TestInputStylesAlwaysSetAForeground(t *testing.T) {
 // constructed: three of the four inputs were built with bare defaults.
 func TestEveryInputIsStyled(t *testing.T) {
 	m := newTestModel(t)
-	want := theme.Dark.Fg
+	want := m.st.P.Fg
 
 	inputs := map[string]lipgloss.Style{
 		"prompt":       m.input.Styles().Focused.Text,

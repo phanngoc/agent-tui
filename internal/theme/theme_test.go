@@ -42,8 +42,28 @@ func contrast(fg, bg color.Color) float64 {
 // syntax palette held to AAA has to be pastel, which is how the last one
 // ended up bright enough to be tiring. Below AA is where it goes wrong, and
 // that is the line this test exists to hold.
+// palettes is every theme that ships. A guarantee that held for one of them
+// and not the others would not be a guarantee, so each test runs over all.
+func palettes(t *testing.T) map[string]Palette {
+	t.Helper()
+	out := make(map[string]Palette, len(Names))
+	for _, n := range Names {
+		out[n] = ByName(n)
+	}
+	if len(out) != len(Names) {
+		t.Fatalf("ByName collapsed %v into %d palettes", Names, len(out))
+	}
+	return out
+}
+
 func TestPaletteIsReadable(t *testing.T) {
-	p := Dark
+	for name, p := range palettes(t) {
+		t.Run(name, func(t *testing.T) { assertReadable(t, p) })
+	}
+}
+
+func assertReadable(t *testing.T, p Palette) {
+	t.Helper()
 	cases := []struct {
 		name string
 		fg   color.Color
@@ -78,7 +98,13 @@ func TestPaletteIsReadable(t *testing.T) {
 // TestDiffRowsAreReadable pins the tint on a changed row. It is a second
 // background for text to sit on, so it gets measured like the first one.
 func TestDiffRowsAreReadable(t *testing.T) {
-	p := Dark
+	for name, p := range palettes(t) {
+		t.Run(name, func(t *testing.T) { assertRowsReadable(t, p) })
+	}
+}
+
+func assertRowsReadable(t *testing.T, p Palette) {
+	t.Helper()
 	for _, c := range []struct {
 		name   string
 		fg, bg color.Color
@@ -112,7 +138,13 @@ func TestDiffRowsAreReadable(t *testing.T) {
 // the range as much as by the bottom: near-white on near-black measures
 // beautifully and is a lamp.
 func TestNothingIsGlaring(t *testing.T) {
-	p := Dark
+	for name, p := range palettes(t) {
+		t.Run(name, func(t *testing.T) { assertNotGlaring(t, p) })
+	}
+}
+
+func assertNotGlaring(t *testing.T, p Palette) {
+	t.Helper()
 	if got := contrast(p.Fg, p.Bg); got > 12 {
 		t.Errorf("the brightest tone is %.2f:1 against the background, a lamp to read by", got)
 	}
@@ -134,7 +166,13 @@ func TestNothingIsGlaring(t *testing.T) {
 // TestSelectedRowIsReadable checks the one place text sits on something other
 // than the window background.
 func TestSelectedRowIsReadable(t *testing.T) {
-	p := Dark
+	for name, p := range palettes(t) {
+		t.Run(name, func(t *testing.T) { assertSelectionReadable(t, p) })
+	}
+}
+
+func assertSelectionReadable(t *testing.T, p Palette) {
+	t.Helper()
 	if got := contrast(p.Fg, p.Border); got < 4.5 {
 		t.Errorf("selected-row text is %.2f:1 against its highlight, want at least 4.5:1", got)
 	}
@@ -147,7 +185,14 @@ func TestSelectedRowIsReadable(t *testing.T) {
 // a style with no foreground inherits the terminal's default, which on a dark
 // theme can be all but invisible.
 func TestEveryTextStyleSetsAForeground(t *testing.T) {
-	s := New(Dark)
+	for name := range palettes(t) {
+		t.Run(name, func(t *testing.T) { assertForegrounds(t, ByName(name)) })
+	}
+}
+
+func assertForegrounds(t *testing.T, p Palette) {
+	t.Helper()
+	s := New(p)
 	for name, style := range map[string]interface{ GetForeground() color.Color }{
 		"App":          &s.App,
 		"Body":         &s.Body,
@@ -188,5 +233,40 @@ func TestEveryTextStyleSetsAForeground(t *testing.T) {
 		if style.GetForeground() == nil {
 			t.Errorf("style %s has no foreground; it would fall back to the terminal default", name)
 		}
+	}
+}
+
+// TestTheRowBackgroundsAreTellableApart pins what the session list leans on.
+//
+// Three backgrounds do three jobs: the window, the conversation the prompt is
+// talking to, and the row the cursor is over. If any two of them look alike
+// the list stops answering "where am I" — and the glyph column cannot help,
+// because it is busy saying what each conversation is doing.
+func TestTheRowBackgroundsAreTellableApart(t *testing.T) {
+	for name, p := range palettes(t) {
+		t.Run(name, func(t *testing.T) {
+			for _, c := range []struct {
+				what    string
+				a, b    color.Color
+				atLeast float64
+			}{
+				{"the active row against the window", p.Row, p.Bg, 1.10},
+				{"the cursor against the active row", p.Sel, p.Row, 1.10},
+				{"the cursor against the window", p.Sel, p.Bg, 1.25},
+			} {
+				if got := contrast(c.a, c.b); got < c.atLeast {
+					t.Errorf("%s is %.3f:1, too close to tell apart", c.what, got)
+				}
+			}
+			// And text stays readable on both of them.
+			for _, bg := range []struct {
+				what string
+				c    color.Color
+			}{{"the active row", p.Row}, {"the cursor", p.Sel}} {
+				if got := contrast(p.Fg, bg.c); got < 4.5 {
+					t.Errorf("text on %s is %.2f:1, want at least 4.5:1", bg.what, got)
+				}
+			}
+		})
 	}
 }

@@ -25,6 +25,11 @@ type Palette struct {
 	// background to be unmistakable, near enough that a screenful of selected
 	// text is not a lamp.
 	Sel color.Color
+	// Row is behind the conversation the prompt is talking to. It is a second
+	// background beside Sel, because the two answer different questions —
+	// which conversation is active, and which one the cursor is over — and
+	// they are often not the same row.
+	Row color.Color
 	// AddBg and DelBg tint a whole changed row in a diff. A block of added
 	// lines then has a shape you can take in without reading it, which is what
 	// skimming a patch actually is.
@@ -61,6 +66,7 @@ var Dark = Palette{
 	Faint:    lipgloss.Color("#979383"),
 	Accent:   lipgloss.Color("#66d9ef"),
 	Sel:      lipgloss.Color("#4b5162"),
+	Row:      lipgloss.Color("#32332b"),
 	Good:     lipgloss.Color("#a6e22e"),
 	Warn:     lipgloss.Color("#e6db74"),
 	Bad:      lipgloss.Color("#ff6188"),
@@ -77,6 +83,60 @@ var Dark = Palette{
 	Func:    lipgloss.Color("#a6e22e"),
 	Punct:   lipgloss.Color("#c8c5b6"),
 }
+
+// Herdr is the palette herdr wears, and the default here.
+//
+// It is Catppuccin Mocha, which is what herdr ships as its dark theme, with
+// the same roles kept apart: one background for the sidebar, a second for the
+// row the prompt is talking to, a third for the row the cursor is over. Those
+// three being distinct is what lets the glyph column say what a conversation
+// is doing without also having to say where you are standing.
+//
+// It measures like the Monokai one below — every colour that renders text
+// clears AA, the three that are read continuously clear AAA, and nothing
+// reaches the ceiling — which is the point of keeping the tests palette-blind:
+// a theme is a set of colours, not a licence.
+var Herdr = Palette{
+	Bg:       lipgloss.Color("#1e1e2e"), // base
+	BgAlt:    lipgloss.Color("#181825"), // mantle, the sidebar
+	Border:   lipgloss.Color("#45475a"), // surface1
+	BorderOn: lipgloss.Color("#89b4fa"),
+	Fg:       lipgloss.Color("#cdd6f4"), // text
+	Text:     lipgloss.Color("#bac2de"), // subtext1
+	Dim:      lipgloss.Color("#a6adc8"), // subtext0
+	Faint:    lipgloss.Color("#9399b2"), // overlay2
+	Accent:   lipgloss.Color("#89b4fa"), // blue
+	Good:     lipgloss.Color("#a6e3a1"), // green
+	Warn:     lipgloss.Color("#f9e2af"), // yellow
+	Bad:      lipgloss.Color("#f38ba8"), // red
+	Sel:      lipgloss.Color("#45475a"), // surface1, the cursor
+	Row:      lipgloss.Color("#313244"), // surface0, the active conversation
+	AddBg:    lipgloss.Color("#26332c"),
+	DelBg:    lipgloss.Color("#3a2530"),
+
+	Keyword: lipgloss.Color("#cba6f7"), // mauve
+	Type:    lipgloss.Color("#f9e2af"), // yellow
+	String:  lipgloss.Color("#a6e3a1"), // green
+	Number:  lipgloss.Color("#fab387"), // peach
+	Comment: lipgloss.Color("#9399b2"), // overlay2
+	Func:    lipgloss.Color("#89b4fa"), // blue
+	Punct:   lipgloss.Color("#bac2de"), // subtext1
+}
+
+// ByName picks a palette. An unknown name falls back to the default rather
+// than failing to start: a typo in a config file is not worth a dead terminal,
+// and the name is echoed back in the status line anyway.
+func ByName(name string) Palette {
+	switch name {
+	case "monokai":
+		return Dark
+	}
+	return Herdr
+}
+
+// Names are the palettes ByName knows, for the config reference and for
+// anything that offers a choice.
+var Names = []string{"herdr", "monokai"}
 
 // Styles are pre-rendered lipgloss styles used across the UI.
 type Styles struct {
@@ -127,7 +187,8 @@ type Styles struct {
 	MdQuote, MdQuoteBar, MdRule, MdMark lipgloss.Style
 	MdTableHead                         lipgloss.Style
 
-	Overlay lipgloss.Style
+	ActiveRow lipgloss.Style
+	Overlay   lipgloss.Style
 	// Select is text the mouse has selected. It is a background rather than a
 	// tint: a selection that let the syntax show through would have to be dark
 	// enough not to fight it, which is dark enough not to be seen.
@@ -219,6 +280,7 @@ func New(p Palette) *Styles {
 	s.MdTableHead = base.Foreground(p.Accent).Bold(true)
 
 	s.Overlay = base.Border(lipgloss.RoundedBorder()).BorderForeground(p.Accent).Background(p.BgAlt)
+	s.ActiveRow = base.Background(p.Row)
 	s.Select = base.Foreground(p.Fg).Background(p.Sel)
 	s.SelRow = base.Foreground(p.Fg).Background(p.Border)
 	s.SelRowDim = base.Foreground(p.Dim)

@@ -20,6 +20,10 @@ type Config struct {
 	// Engine picks the backend that answers prompts: the built-in Anthropic
 	// client, or an installed CLI.
 	Engine string `json:"engine"` // api|claude|codex|opencode
+	// Theme names the palette. An unknown name falls back to the default
+	// rather than failing to start: a typo in a config file is not worth a
+	// dead terminal.
+	Theme string `json:"theme"` // herdr|monokai
 	// Mode is how much a new session's agent may do: plan|ask|auto|full.
 	// Auto is the default: confirming every edit is what makes an agent
 	// tedious, and the mode is always on screen so it is never a surprise.

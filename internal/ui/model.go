@@ -256,7 +256,10 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 	// uncomposed.
 	ta.SetVirtualCursor(false)
 
-	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.Accent))
+	// Warn, not Accent: the spinner is the working state's shape, and the word
+	// beside it is in the working state's colour. A glyph and a label that
+	// disagree about what colour a state is are two signals, not one.
+	sp := spinner.New(spinner.WithSpinner(spinner.MiniDot), spinner.WithStyle(st.Warn))
 
 	inStyles := textinputStyles(st)
 	mk := func(ph string) textinput.Model {
