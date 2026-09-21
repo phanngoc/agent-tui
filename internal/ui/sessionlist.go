@@ -51,40 +51,61 @@ func (m *Model) sessionLines(width int) []sessionLine {
 		}
 		selected := m.focus == focusSessions && i == m.sessSel
 
-		mark, style := "  ", m.st.Dim
-		switch {
-		case i == active:
-			mark, style = m.st.Accent.Render("▸ "), m.st.Bold
-		case selected:
-			mark = m.st.Faint.Render("· ")
-		}
-		if s.Busy {
-			mark = m.spin.View() + " "
+		// The glyph column says what the conversation is doing; where you are
+		// standing is the row's background. They used to share the column, and
+		// a session that was both active and running lost the mark that said
+		// where you were.
+		mark := m.stateMark(s)
+		style := m.st.Dim
+		if i == active {
+			style = m.st.Bold
 		}
 
 		head := wrapTitle(s.Label(), width-2, titleLines)
 		for j, part := range head {
-			prefix := mark
+			prefix := mark + " "
 			if j > 0 {
 				prefix = "  "
 			}
 			row := prefix + style.Render(part)
-			if selected {
-				row = m.st.SelRow.Render(padRight(stripANSI(row), width))
-			}
-			out = append(out, sessionLine{idx: i, text: row})
+			out = append(out, sessionLine{idx: i, text: m.rowBg(row, width, i == active, selected)})
 		}
 		out = append(out, sessionLine{
-			idx:  i,
-			text: "  " + m.st.Faint.Render(truncate(m.sessionMeta(s), width-2)),
+			idx: i,
+			text: m.rowBg("  "+m.sessionMeta(s, width-2), width, i == active, selected),
 		})
 	}
 	return out
 }
 
-// sessionMeta is the line under a title: the things that distinguish two
-// sessions with similar names.
-func (m *Model) sessionMeta(s *session.Session) string {
+// rowBg tints a row for where the reader is standing.
+//
+// Two backgrounds rather than one, because they answer two questions that are
+// often different: which conversation the prompt is talking to, and which one
+// the cursor is over while you look for another. The selection is the stronger
+// of the two, since it is the one that moves.
+func (m *Model) rowBg(row string, width int, active, selected bool) string {
+	switch {
+	case selected:
+		return m.st.SelRow.Render(padRight(stripANSI(row), width))
+	case active:
+		return m.st.ActiveRow.Render(padRight(row, width))
+	}
+	return row
+}
+
+// sessionMeta is the line under a title: what it is doing, and the things that
+// distinguish two sessions with similar names.
+//
+// The state leads, in the state's own colour, because it is the reason to look
+// at this line at all. It is the third time the state is said — shape, colour,
+// word — which is the point: a glyph nobody has learned yet is a decoration.
+func (m *Model) sessionMeta(s *session.Session, width int) string {
+	st := m.sessionState(s)
+	word := st.word()
+	if st == stateWorking && s.Status != "" {
+		word = s.Status
+	}
 	parts := make([]string, 0, 3)
 	if e := m.reg.Get(s.Engine); e != nil {
 		parts = append(parts, e.ID())
@@ -92,12 +113,22 @@ func (m *Model) sessionMeta(s *session.Session) string {
 	if n := turnCount(s); n > 0 {
 		parts = append(parts, strconv.Itoa(n)+"↵")
 	}
-	if s.Busy {
-		parts = append(parts, orDefault(s.Status, "working"))
-	} else if !s.Updated.IsZero() {
+	if st != stateWorking && st != stateBlocked && !s.Updated.IsZero() {
 		parts = append(parts, relTime(s.Updated))
 	}
-	return strings.Join(parts, " · ")
+
+	// The state is measured after it has been cut, not before. Measuring the
+	// word it might have been leaves a negative amount of room, which clamps
+	// to a minimum and puts the line over the edge by exactly that minimum.
+	word = truncate(word, width)
+	out := m.stateStyle(st).Render(word)
+
+	const gap = 2
+	room := width - lipgloss.Width(word) - gap
+	if tail := strings.Join(parts, " · "); tail != "" && room >= 4 {
+		out += m.st.Faint.Render(strings.Repeat(" ", gap) + truncate(tail, room))
+	}
+	return out
 }
 
 // turnCount counts what the user actually asked, which tracks how far a

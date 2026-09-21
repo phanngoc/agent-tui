@@ -326,6 +326,12 @@ type Session struct {
 	// make it busy — you can go on asking while one runs — but their clocks
 	// still have to be redrawn, and this is what says there is one to redraw.
 	Running int `json:"-"`
+	// Unseen marks a conversation whose turn finished while the reader was
+	// looking at a different one. It is the state that makes a list of
+	// conversations worth having — the answer arrived somewhere you were not —
+	// and it is runtime only: what it records is whether you have looked since
+	// it happened, and a new process has not.
+	Unseen bool `json:"-"`
 	// RunAt is when the tool now running started. The finished ones say how
 	// long they took; the one you are waiting on is the one you want it from.
 	RunAt   time.Time `json:"-"`

@@ -12,7 +12,7 @@ import (
 )
 
 func mdFixture() (*theme.Styles, *highlight.Scheme) {
-	st := theme.New(theme.Dark)
+	st := theme.New(theme.ByName(""))
 	sc := highlight.NewScheme(st.P.Fg, st.P.Keyword, st.P.Type, st.P.String,
 		st.P.Number, st.P.Comment, st.P.Func, st.P.Punct)
 	return st, sc

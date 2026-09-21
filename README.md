@@ -674,6 +674,7 @@ retry it.
   "effort": "high",
   "engine": "api",
   "mode": "auto",
+  "theme": "herdr",
   "max_tokens": 32000,
   "max_file_kb": 2048,
   "index_limit": 200000,
@@ -722,9 +723,54 @@ and a paste that is not routed to one disappears without a word.
 
 `ctrl+v` is for images instead, which no terminal can paste; see above.
 
+## What each conversation is doing
+
+The session list marks every conversation with its state, in three ways at
+once — a shape, a colour, and the word itself:
+
+| | | |
+|---|---|---|
+| `◉` | **blocked** | it is waiting on you to approve something or answer a question |
+| `⠋` | **working** | a turn, or a `!` command, is running |
+| `●` | **done** | a turn finished while you were looking at a different one |
+| `✓` | **idle** | finished, and you have seen it |
+| `✗` | **failed** | the last turn ended badly |
+| `○` | **new** | nothing said yet |
+
+Three ways because one is not enough. The idea is borrowed from
+[herdr](https://github.com/herdrdev/herdr), and so is the reason: its sidebar
+first drew these as coloured dots and had to be changed, because blocked,
+working and done were all a filled dot and to a colourblind reader those three
+collapse into one. So every state gets its own shape, the colour is what it
+means *on top of* that, and the word underneath says it a third time — a glyph
+nobody has learned yet is a decoration.
+
+**done** is the state that makes a list of conversations worth having: the
+answer arrived somewhere you were not. It is runtime only, because what it
+records is whether you have looked since it happened, and a new process has
+not.
+
+The glyph column says what a conversation is doing; the row's background says
+where you are standing. Those used to share the column — the spinner overwrote
+the active mark, so a session that was both lost the one that said where you
+were. There are now two backgrounds: one for the conversation the prompt is
+talking to, one for the row the cursor is over, because they are often not the
+same row.
+
 ## Colours
 
-Monokai, softened. The background is its warm grey rather than a near-black,
+Two palettes, set with `"theme"` in the config: `herdr` (the default) and
+`monokai`. An unknown name falls back to the default rather than failing to
+start — a typo in a config file is not worth a dead terminal.
+
+**herdr** is Catppuccin Mocha, which is what
+[herdr](https://herdr.dev/docs/configuration/) ships as its dark theme, with
+the same roles kept apart: `#1e1e2e` for the window, `#181825` for the
+sidebar, `#313244` for the active conversation and `#45475a` for the cursor.
+Those being distinct is what lets the glyph column say what a conversation is
+doing without also having to say where you are.
+
+**monokai**, softened. The background is its warm grey rather than a near-black,
 and the foreground comes down to meet it, which puts body text at about 9:1
 instead of 14:1. What makes a screen hard to sit in front of is not the ratio
 but the range: near-white on near-black measures beautifully and reads like a

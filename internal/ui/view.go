@@ -377,7 +377,7 @@ func (m *Model) statusBar() string {
 		// How long it has been at it. A turn that has been thinking for seven
 		// minutes and one that has been thinking for seven seconds read the
 		// same without it, and only one of them is worth interrupting.
-		line := m.spin.View() + " " + m.st.Accent.Render(orDefault(s.Status, "working"))
+		line := m.spin.View() + " " + m.st.Warn.Render(orDefault(s.Status, "working"))
 		if el := running(s.Started); el != "" {
 			line += m.st.Dim.Render("  " + el)
 		}

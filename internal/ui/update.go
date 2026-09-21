@@ -1000,6 +1000,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 
 	case agent.EvDone:
 		s.Busy, s.Status = false, ""
+		m.markUnseen(s)
 		// A turn can end anywhere — cancelled, failed, out of steps — so the
 		// half-written calls and the output of whatever was running are let go
 		// here rather than at each of the places one can stop.
@@ -1228,6 +1229,8 @@ func (m *Model) onSessionSwitch() tea.Cmd {
 // wants.
 func (m *Model) onSessionSwitchAt(msg int) tea.Cmd {
 	m.sessSel = m.mgr.ActiveIndex()
+	// Looking at it is what "seen" means.
+	m.mgr.Active().Unseen = false
 	cmd := m.showActiveSession()
 	m.invalidateChat()
 	if msg < 0 {
