@@ -28,6 +28,9 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		"--include-partial-messages",
 		"--verbose",
 	}
+	if t.Model != "" {
+		a = append(a, "--model", t.Model)
+	}
 	if t.ExternalID != "" {
 		a = append(a, "--resume", t.ExternalID)
 		if t.Fork {
@@ -60,9 +63,18 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 	case t.Mode == agent.ModeFull:
 		a = append(a, "--dangerously-skip-permissions")
 	default:
-		a = append(a, "--permission-mode", "acceptEdits")
+		// Auto, with nobody to answer a prompt.
+		//
+		// Every other mode Claude Code offers still routes a shell command to a
+		// permission prompt, and under -p there is no prompt to route it to:
+		// measured against 2.1.272, acceptEdits, auto and dontAsk all refuse
+		// `git --version` outright, and the turn comes back explaining that it
+		// is waiting for an approval the session can never show. Auto says it
+		// runs commands, so the only setting that keeps that promise is this
+		// one.
+		a = append(a, "--permission-mode", "bypassPermissions")
 	}
-	return append(a, t.Prompt)
+	return append(a, t.PromptText())
 }
 
 // claudeDec parses Claude Code's stream-json output.

@@ -64,6 +64,14 @@ func (m *Model) composeOverlay(base string) string {
 		body = m.helpView()
 	case overlayEngine:
 		body = m.engineView()
+	case overlayModel:
+		body = m.modelView()
+	case overlayGit:
+		body = m.gitView()
+	case overlayRename:
+		body = m.renameView()
+	case overlayRecall:
+		body = m.recallView()
 	case overlayTarget:
 		body = m.targetView()
 	default:
@@ -345,17 +353,30 @@ var helpGroups = []struct {
 	{"Prompt", []binding{
 		{"enter", "send message"},
 		{"tab", "complete a path, then cycle the candidates"},
+		{"@path", "point at a file; the menu opens as you type"},
+		{"ctrl+v", "attach the image on the clipboard  ·  /paste does the same"},
+		{"ctrl+u", "clear the prompt and anything attached to it"},
 		{"shift+tab", "cycle mode: plan → ask → auto → full"},
 		{"↑  ↓", "recall earlier prompts"},
+		{"!<cmd>", "run a command where this session works; the agent sees it"},
+		{"!wsl", "move this session into WSL  ·  !exit comes back"},
 		{"cd <dir>", "move this session to another directory"},
 		{"alt+enter", "newline"},
 	}},
 	{"Session", []binding{
-		{"ctrl+c", "stop the agent, or quit when idle"},
+		{"esc", "drop a selection  ·  or close what is open, stop the agent, go back"},
+		{"ctrl+c", "copy a selection  ·  or stop the agent, or quit when idle"},
+		{"drag", "select text in a pane  ·  releasing copies it"},
+		{"double-click", "select the word under the pointer"},
 		{"ctrl+t", "new session"},
 		{"alt+t", "fork this session — same history, separate branch"},
+		{"/btw", "ask beside this one, in a pane, without interrupting it"},
+		{"/recall", "search every conversation, in every project"},
 		{"ctrl+r", "choose the engine (built-in, claude, codex, opencode)"},
-		{"ctrl+d", "work on the host or inside a container"},
+		{"/model", "choose the model this session runs on"},
+		{"/git", "browse the history: ↑↓ commit · tab pane · alt+↑↓ file list"},
+		{"/rename", "name this session yourself"},
+		{"ctrl+d", "work on the host, in a container, or in WSL"},
 		{"ctrl+k", "background commands, and their output"},
 		{"ctrl+w", "close session"},
 		{"alt+1…9", "jump to session"},
@@ -372,6 +393,13 @@ var helpGroups = []struct {
 		{"ctrl+s", "save"},
 		{"ctrl+z", "undo  ·  ctrl+y redo"},
 		{"esc", "close; again to discard unsaved changes"},
+	}},
+	{"Session list", []binding{
+		{"↑  ↓", "move the cursor without switching"},
+		{"enter", "switch to the one under the cursor"},
+		{"e", "give it a name"},
+		{"n / f", "start one / fork one"},
+		{"d", "close it"},
 	}},
 	{"Files", []binding{
 		{"↑  ↓", "browse; the file under the cursor is shown as you move"},
@@ -393,9 +421,14 @@ var helpGroups = []struct {
 	{"Layout", []binding{
 		{"ctrl+o", "cycle panes (tab belongs to the prompt)"},
 		{"click", "focus any pane, including the prompt"},
-		{"ctrl+b", "toggle the session sidebar"},
-		{"ctrl+e", "toggle the preview pane"},
+		{"ctrl+b", "toggle the session sidebar  ·  or click its switch up top"},
+		{"ctrl+e", "toggle the preview pane  ·  or click its switch up top"},
+		{"alt+o", "show every tool call a turn made, not just its last few"},
+		{"alt+← →", "resize: the arrow pushes the nearest divider that way"},
+		{"drag", "or take hold of a divider with the mouse"},
 		{"w", "toggle soft wrap in the preview"},
+		{"←  →", "scroll a long line sideways  ·  0 back to column one"},
+		{"shift+wheel", "the same with the mouse"},
 		{"g / G", "top / bottom of the preview"},
 	}},
 }
@@ -446,19 +479,20 @@ func (m *Model) engineKey(key string) tea.Cmd {
 				m.notice = e.Label() + " is " + e.Detail()
 				return nil
 			}
-			s := m.mgr.Active()
-			if s.Engine != e.ID() {
-				// A conversation cannot be handed from one agent to another
-				// mid-flight: each keeps its own server-side history.
-				s.Engine = e.ID()
-				s.ExternalID = ""
-				s.Live = nil
-				if len(s.Messages) > 0 {
-					m.notice = "switched to " + e.Label() + "; it starts from a fresh context"
-				}
+			if s := m.mgr.Active(); s.Busy {
+				// Sequential by construction. Half a turn from one engine and
+				// half from another is a transcript neither of them can
+				// continue, and the engine still running would go on writing
+				// its own identity into a session it no longer holds.
+				//
+				// The run is not cancelled for the user: ending someone's
+				// ten-minute build to change a menu setting is not a decision
+				// a menu gets to make. The picker stays open, so the choice
+				// survives the wait.
+				m.notice = orDefault(s.Status, "this turn") + " is still running — esc stops it"
+				return nil
 			}
-			m.lastEngine = e.ID()
-			m.mgr.Save(s)
+			m.switchEngine(e)
 			m.overlay = overlayNone
 		}
 	}
@@ -493,9 +527,14 @@ func (m *Model) engineView() string {
 
 // ---- filesystem target picker ----------------------------------------------
 
-// refreshTargets lists the host plus every running container. Enumerating
-// containers shells out, so it happens when the picker opens rather than on
-// every frame.
+// refreshTargets lists the host, every running container, and every registered
+// WSL distribution. Enumerating both shells out, so it happens when the picker
+// opens rather than on every frame.
+//
+// A distribution is listed without being started and without its home being
+// probed, because either would mean booting every registered distribution just
+// to draw a menu. Its row therefore carries no working directory; choosing it
+// goes through enterWSL, which resolves one once there is a reason to.
 func (m *Model) refreshTargets() {
 	list := []target{{
 		id: "host", label: "host", fs: m.hostFS,
@@ -507,6 +546,15 @@ func (m *Model) refreshTargets() {
 		list = append(list, target{
 			id: fs.ID(), label: c.Name, fs: fs,
 			detail: c.Image + "  " + c.Workdir, workdir: c.Workdir,
+		})
+	}
+	for _, d := range vfs.Distros(context.Background()) {
+		detail := "wsl  " + strings.ToLower(d.State)
+		if d.Default {
+			detail += "  (default)"
+		}
+		list = append(list, target{
+			id: "wsl:" + d.Name, label: d.Name, detail: detail, distro: d.Name,
 		})
 	}
 	m.targets = list
@@ -538,9 +586,19 @@ func (m *Model) targetKey(key string) tea.Cmd {
 		if m.targetSel >= len(m.targets) {
 			return nil
 		}
-		return m.useTarget(m.targets[m.targetSel])
+		return m.chooseTarget(m.targets[m.targetSel])
 	}
 	return nil
+}
+
+// chooseTarget switches to a picked row, starting a WSL distribution first
+// when that is what was picked.
+func (m *Model) chooseTarget(t target) tea.Cmd {
+	if t.fs == nil {
+		m.overlay = overlayNone
+		return m.enterWSL(t.distro)
+	}
+	return m.useTarget(t)
 }
 
 // useTarget repoints the active session at a filesystem: the tree, the preview,
@@ -558,8 +616,11 @@ func (m *Model) useTarget(t target) tea.Cmd {
 	s := m.mgr.Active()
 	s.Target, s.CWD = t.id, t.workdir
 	// A conversation cannot carry over to a different filesystem: the paths it
-	// has been talking about do not mean the same thing there.
-	s.ExternalID, s.Live = "", nil
+	// has been talking about do not mean the same thing there. Every engine's,
+	// not just the selected one — an id that resumes a conversation about
+	// another machine's files is worse than no id at all.
+	s.ForgetEngines()
+	s.Live = nil
 	m.mgr.Save(s)
 
 	m.overlay = overlayNone
@@ -571,6 +632,9 @@ func (m *Model) useTarget(t target) tea.Cmd {
 	m.grepRes = search.Result{}
 	m.status = "indexing " + t.label + "…"
 	m.notice = "session now works in " + t.label
+	// Changing filesystem is the largest move there is — it resets the
+	// engine's own conversation two lines above — so the transcript says so.
+	m.logMove(moveCommand(t), "now working in "+t.label+" at "+t.workdir, false)
 
 	return m.buildIndex()
 }

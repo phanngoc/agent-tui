@@ -1,4 +1,10 @@
 BIN     := bin/agent-tui
+# Windows will not execute a file without an .exe extension: PowerShell and cmd
+# both refuse to resolve it, silently, so a build that omits it produces a
+# binary that appears to do nothing at all.
+ifeq ($(OS),Windows_NT)
+BIN     := bin/agent-tui.exe
+endif
 PKG     := ./cmd/agent-tui
 GOFLAGS := -trimpath
 LDFLAGS := -s -w

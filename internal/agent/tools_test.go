@@ -6,6 +6,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -39,7 +40,26 @@ func run(t *testing.T, e *Executor, name string, in any) (string, bool) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return e.Run(context.Background(), name, raw)
+	return e.Run(context.Background(), name, raw, nil)
+}
+
+// runLive is run with a watcher attached, for the tools that report as they go.
+func runLive(t *testing.T, e *Executor, name string, in any) (string, bool, []string) {
+	t.Helper()
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var mu sync.Mutex
+	var chunks []string
+	text, isErr := e.Run(context.Background(), name, raw, func(c string) {
+		mu.Lock()
+		defer mu.Unlock()
+		chunks = append(chunks, c)
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	return text, isErr, append([]string(nil), chunks...)
 }
 
 func TestPathEscapeRefused(t *testing.T) {

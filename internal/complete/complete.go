@@ -40,6 +40,23 @@ type Result struct {
 	Common string
 }
 
+// Ref is the marker that turns a word in the prompt into a file reference.
+// It is kept in the prompt that is sent: "@internal/ui/chat.go" tells the agent
+// which file is meant, and it can open it with the tools it already has.
+const Ref = "@"
+
+// IsRef reports whether word is a file reference being typed.
+func IsRef(word string) bool { return strings.HasPrefix(word, Ref) }
+
+// TrimRef splits the marker off a word, returning the path and the marker to
+// put back. A word that is not a reference comes back unchanged.
+func TrimRef(word string) (path, marker string) {
+	if !IsRef(word) {
+		return word, ""
+	}
+	return word[len(Ref):], Ref
+}
+
 // Unambiguous reports whether there is exactly one way to finish the word.
 func (r Result) Unambiguous() bool { return len(r.Candidates) == 1 }
 
@@ -108,9 +125,11 @@ const (
 )
 
 // KindFor decides what the line is asking for. A line that starts with cd can
-// only mean a directory.
+// only mean a directory, whether it was typed as a bare cd or behind the `!`
+// that runs a command.
 func KindFor(line string) Kind {
 	trimmed := strings.TrimLeft(line, " \t")
+	trimmed = strings.TrimLeft(strings.TrimPrefix(trimmed, "!"), " \t")
 	if trimmed == "cd" || strings.HasPrefix(trimmed, "cd ") || strings.HasPrefix(trimmed, "cd\t") {
 		return DirsOnly
 	}
@@ -129,25 +148,29 @@ func Paths(ctx context.Context, fsys vfs.FS, root, home string, tok Token, kind 
 		return res
 	}
 
-	word := tok.Text
+	// A reference completes as a path with the marker held aside and put back
+	// on every candidate, so @ behaves exactly like typing a path does.
+	word, ref := TrimRef(tok.Text)
 	if home != "" && strings.HasPrefix(word, "~") {
 		word = home + strings.TrimPrefix(word, "~")
 	}
 
-	// Split the word into the directory to list and the prefix to match.
+	// Split the word into the directory to list and the prefix to match. Either
+	// separator ends a component: expanding ~ on Windows yields a native path,
+	// while what the user typed after it is still whatever they typed.
 	dir, prefix := "", word
-	if i := strings.LastIndexByte(word, '/'); i >= 0 {
+	if i := strings.LastIndexAny(word, `/\`); i >= 0 {
 		dir, prefix = word[:i+1], word[i+1:]
 	}
 
 	listing := dir
 	switch {
-	case strings.HasPrefix(dir, "/"):
+	case vfs.IsAbs(dir):
 		// absolute, use as-is
 	case dir == "":
 		listing = root
 	default:
-		listing = vfs.Join(root, strings.TrimSuffix(dir, "/"))
+		listing = vfs.Join(root, strings.TrimRight(dir, `/\`))
 	}
 
 	entries, err := fsys.ReadDir(ctx, listing)
@@ -171,7 +194,7 @@ func Paths(ctx context.Context, fsys vfs.FS, root, home string, tok Token, kind 
 			text += "/"
 		}
 		res.Candidates = append(res.Candidates, Candidate{
-			Insert:  quote(text, tok.Quote),
+			Insert:  ref + quote(text, tok.Quote),
 			Display: e.Name + dirSuffix(e.Dir),
 			Dir:     e.Dir,
 		})

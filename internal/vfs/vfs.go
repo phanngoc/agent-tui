@@ -10,7 +10,6 @@ package vfs
 import (
 	"context"
 	"os/exec"
-	"strings"
 )
 
 // DirEntry is one child of a directory.
@@ -112,91 +111,4 @@ func ReadDirs(ctx context.Context, f FS, dirs []string) map[string][]DirEntry {
 		out[d] = entries
 	}
 	return out
-}
-
-// Join concatenates path elements in the filesystem's own namespace. Container
-// paths are always slash-separated regardless of the host's OS, and host paths
-// on the platforms this runs on are too.
-func Join(base string, parts ...string) string {
-	out := strings.TrimSuffix(base, "/")
-	for _, p := range parts {
-		p = strings.Trim(p, "/")
-		if p == "" {
-			continue
-		}
-		out += "/" + p
-	}
-	if out == "" {
-		return "/"
-	}
-	return out
-}
-
-// Rel makes p relative to root, or returns p unchanged when it is outside.
-func Rel(root, p string) string {
-	root = strings.TrimSuffix(root, "/")
-	switch {
-	case p == root:
-		return ""
-	case strings.HasPrefix(p, root+"/"):
-		return p[len(root)+1:]
-	default:
-		return p
-	}
-}
-
-// Base is the final element of a path.
-func Base(p string) string {
-	p = strings.TrimSuffix(p, "/")
-	if i := strings.LastIndexByte(p, '/'); i >= 0 {
-		return p[i+1:]
-	}
-	if p == "" {
-		return "/"
-	}
-	return p
-}
-
-// Dir is everything but the final element.
-func Dir(p string) string {
-	p = strings.TrimSuffix(p, "/")
-	if i := strings.LastIndexByte(p, '/'); i > 0 {
-		return p[:i]
-	}
-	return "/"
-}
-
-// Within reports whether p resolves inside root.
-//
-// A relative path is relative to the root by definition, so it counts as
-// inside; anything that climbs out with .. does not.
-func Within(root, p string) bool {
-	root = strings.TrimSuffix(root, "/")
-	if root == "" || p == "" {
-		return false
-	}
-	if !strings.HasPrefix(p, "/") {
-		return !strings.Contains(p, "..")
-	}
-	clean := CleanPath(p)
-	return clean == root || strings.HasPrefix(clean, root+"/")
-}
-
-// CleanPath resolves . and .. without touching the filesystem, so a symlinked
-// directory is compared as written rather than as resolved.
-func CleanPath(p string) string {
-	parts := strings.Split(p, "/")
-	out := make([]string, 0, len(parts))
-	for _, part := range parts {
-		switch part {
-		case "", ".":
-		case "..":
-			if len(out) > 0 {
-				out = out[:len(out)-1]
-			}
-		default:
-			out = append(out, part)
-		}
-	}
-	return "/" + strings.Join(out, "/")
 }

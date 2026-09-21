@@ -76,7 +76,7 @@ func run() error {
 		mode = agent.ModeFull
 	}
 
-	styles := theme.New(theme.Dark)
+	styles := theme.New(theme.ByName(cfg.Theme))
 	scheme := highlight.NewScheme(
 		styles.P.Fg, styles.P.Keyword, styles.P.Type, styles.P.String,
 		styles.P.Number, styles.P.Comment, styles.P.Func, styles.P.Punct,

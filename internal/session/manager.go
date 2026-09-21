@@ -75,9 +75,7 @@ func (m *Manager) Restore(limit int) {
 		if json.Unmarshal(b, &s) != nil || s.Root != m.root || len(s.Messages) == 0 {
 			continue
 		}
-		if s.CWD == "" {
-			s.CWD = s.Root
-		}
+		s.normalise()
 		loaded = append(loaded, &s)
 	}
 	sort.Slice(loaded, func(i, j int) bool { return loaded[i].Updated.After(loaded[j].Updated) })
@@ -129,6 +127,18 @@ func (m *Manager) ActiveIndex() int {
 	return m.active
 }
 
+// SideOf returns the side chat belonging to a session, if it has one.
+func (m *Manager) SideOf(id string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		if s.SideOf == id {
+			return s
+		}
+	}
+	return nil
+}
+
 // All returns a snapshot of the session list.
 func (m *Manager) All() []*Session {
 	m.mu.RLock()
@@ -153,12 +163,26 @@ func (m *Manager) Select(i int) {
 	m.mu.Unlock()
 }
 
+// Cycle steps to the next conversation, skipping the side chats: they are
+// reached through the conversation they hang off, not by cycling past them.
 func (m *Manager) Cycle(delta int) {
 	m.mu.Lock()
-	if n := len(m.sessions); n > 0 {
-		m.active = ((m.active+delta)%n + n) % n
+	defer m.mu.Unlock()
+	n := len(m.sessions)
+	if n == 0 || delta == 0 {
+		return
 	}
-	m.mu.Unlock()
+	step := 1
+	if delta < 0 {
+		step = -1
+	}
+	for i, at := 0, m.active; i < n; i++ {
+		at = ((at+step)%n + n) % n
+		if m.sessions[at].SideOf == "" {
+			m.active = at
+			return
+		}
+	}
 }
 
 // Close removes the session at i. The last remaining session is replaced by a
@@ -170,7 +194,24 @@ func (m *Manager) Close(i int) {
 		return
 	}
 	victim := m.sessions[i]
-	m.sessions = append(m.sessions[:i], m.sessions[i+1:]...)
+	// A side chat belongs to the conversation it hangs off, so it goes with
+	// it. Left behind it would be a session nothing lists and nothing can
+	// reach, which is a leak with a name.
+	keep := m.sessions[:0]
+	var orphans []*Session
+	for j, s := range m.sessions {
+		switch {
+		case j == i:
+		case s.SideOf == victim.ID:
+			orphans = append(orphans, s)
+		default:
+			keep = append(keep, s)
+		}
+	}
+	m.sessions = keep
+	if i < len(m.sessions)+1 && m.active > i {
+		m.active--
+	}
 	if m.active >= len(m.sessions) {
 		m.active = len(m.sessions) - 1
 	}
@@ -182,6 +223,9 @@ func (m *Manager) Close(i int) {
 
 	if len(victim.Messages) == 0 {
 		_ = os.Remove(m.path(victim))
+	}
+	for _, o := range orphans {
+		_ = os.Remove(m.path(o))
 	}
 	if empty {
 		m.New()
@@ -290,8 +334,18 @@ func (m *Manager) Fork(src *Session) *Session {
 
 	// The engine's own conversation is branched on the next turn; until then
 	// the copied transcript is all there is.
+	//
+	// Only the engine that was running is carried over. Another engine's id in
+	// here still points at the parent's own conversation, and resuming it
+	// without a fork flag would write this session's turns into the one it
+	// came from.
 	s.ExternalID = src.ExternalID
 	s.ForkPending = src.ExternalID != ""
+	if src.ExternalID != "" {
+		s.Engines = map[string]EngineState{
+			src.Engine: {ExternalID: src.ExternalID, Seen: len(s.Messages)},
+		}
+	}
 	s.Updated = time.Now()
 	m.Save(s)
 	return s

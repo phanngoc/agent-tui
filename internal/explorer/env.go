@@ -30,6 +30,20 @@ func (e Env) Label() string {
 	return ""
 }
 
+// remoteEnv describes a filesystem this process can only reach by launching
+// something. Nothing here can be watched — the events, where they exist at all,
+// are raised in a namespace we are not in — so all of these poll; the note says
+// which one it is, because "why is the tree a second behind" has a different
+// answer for a container than for a distribution.
+func remoteEnv(id string) Env {
+	if strings.HasPrefix(id, "wsl:") {
+		return Env{Kind: "wsl", WatchReliable: false,
+			Note: "listings are read over wsl.exe; polling"}
+	}
+	return Env{Kind: "docker", WatchReliable: false,
+		Note: "listings are read over docker exec; polling"}
+}
+
 // DetectEnv inspects the machine and the path. It is deliberately cheap: a
 // couple of stats and one small file read at startup.
 func DetectEnv(root string) Env {

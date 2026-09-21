@@ -17,6 +17,7 @@ import (
 
 	"github.com/phanngoc/agent-tui/internal/fsx"
 	"github.com/phanngoc/agent-tui/internal/session"
+	"github.com/phanngoc/agent-tui/internal/shell"
 	"github.com/phanngoc/agent-tui/internal/task"
 	"github.com/phanngoc/agent-tui/internal/vfs"
 )
@@ -159,7 +160,13 @@ func (e *Executor) Defs(mode Mode) []anthropic.ToolUnionParam {
 }
 
 // Run dispatches a tool call and returns the text handed back to the model.
-func (e *Executor) Run(ctx context.Context, name string, raw json.RawMessage) (string, bool) {
+//
+// out receives that text as it is produced, for the one tool that produces it
+// over time rather than all at once. It may be nil, and every other tool
+// ignores it.
+func (e *Executor) Run(ctx context.Context, name string, raw json.RawMessage,
+	out func(string)) (string, bool) {
+
 	switch name {
 	case "read_file":
 		return e.readFile(raw)
@@ -174,7 +181,7 @@ func (e *Executor) Run(ctx context.Context, name string, raw json.RawMessage) (s
 	case "edit_file":
 		return e.editFile(raw)
 	case "bash":
-		return e.bash(ctx, raw)
+		return e.bash(ctx, raw, out)
 	case "task_output":
 		return e.taskOutput(raw)
 	case "task_stop":
@@ -193,10 +200,10 @@ func (e *Executor) resolve(p string) (string, error) {
 		return "", fmt.Errorf("path %q is outside the project root", p)
 	}
 	abs := p
-	if !strings.HasPrefix(abs, "/") {
-		abs = vfs.Join(e.Root, filepath.ToSlash(p))
+	if !vfs.IsAbs(abs) {
+		abs = vfs.Join(e.Root, p)
 	}
-	if abs != e.Root && !strings.HasPrefix(abs, strings.TrimSuffix(e.Root, "/")+"/") {
+	if !vfs.Within(e.Root, abs) {
 		return "", fmt.Errorf("path %q is outside the project root", p)
 	}
 	return abs, nil
@@ -476,7 +483,7 @@ func (e *Executor) editFile(raw json.RawMessage) (string, bool) {
 	return fmt.Sprintf("edited %s (%d replacement(s))", e.rel(abs), replaced), false
 }
 
-func (e *Executor) bash(ctx context.Context, raw json.RawMessage) (string, bool) {
+func (e *Executor) bash(ctx context.Context, raw json.RawMessage, sink func(string)) (string, bool) {
 	var in struct {
 		Command    string `json:"command"`
 		TimeoutSec int    `json:"timeout_sec"`
@@ -501,14 +508,22 @@ func (e *Executor) bash(ctx context.Context, raw json.RawMessage) (string, bool)
 
 	// The command runs where the files are: locally for the host, inside the
 	// container when the session targets one.
-	cmd := e.FS.Command(cctx, e.Root, "/bin/sh", "-c", in.Command)
+	sh, shArgs := shell.For(e.FS.IsLocal())
+	cmd := e.FS.Command(cctx, e.Root, sh, append(shArgs, in.Command)...)
 	if e.FS.IsLocal() {
 		cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1", "CI=1")
 	}
-	out, err := cmd.CombinedOutput()
 
 	const maxOut = 60 << 10
-	text := string(out)
+	// Both streams share one writer, which is what makes the transcript read
+	// like a terminal: a compiler's errors stay in place among its progress
+	// lines instead of arriving as a separate block after them.
+	live := &liveOutput{emit: sink, max: maxOut}
+	cmd.Stdout, cmd.Stderr = live, live
+	err := cmd.Run()
+	live.Close()
+
+	text := live.String()
 	if len(text) > maxOut {
 		text = text[:maxOut] + "\n… (output truncated)"
 	}
@@ -587,7 +602,8 @@ func (e *Executor) bashBackground(command string) (string, bool) {
 		return "background commands are not available here", true
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := e.FS.Command(ctx, e.Root, "/bin/sh", "-c", command)
+	sh, shArgs := shell.For(e.FS.IsLocal())
+	cmd := e.FS.Command(ctx, e.Root, sh, append(shArgs, command)...)
 	if e.FS.IsLocal() {
 		cmd.Env = append(os.Environ(), "TERM=dumb", "NO_COLOR=1", "CI=1")
 	}
@@ -666,11 +682,8 @@ func (e *Executor) ShouldAsk(call session.ToolCall, mode Mode, trusted bool) (bo
 	case ModeAsk:
 		return true, "ask mode confirms every change"
 	case ModeAuto:
-		if inside, decided := call.PathsInside(e.Root); decided && inside {
+		if AutoAllows(call, e.Root) {
 			return false, ""
-		}
-		if call.Name == "bash" {
-			return false, "" // auto runs commands in the project; the shell is not a path
 		}
 		return true, "this is outside " + e.Root
 	default:

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/phanngoc/agent-tui/internal/shell"
 )
 
 func waitFor(t *testing.T, r *Registry, cond func() bool, what string) {
@@ -27,7 +29,7 @@ func waitFor(t *testing.T, r *Registry, cond func() bool, what string) {
 func TestStartCapturesOutputAndFinishes(t *testing.T) {
 	r := NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
-	cmd := exec.CommandContext(ctx, "/bin/sh", "-c", "echo one; echo two >&2; echo three")
+	cmd := shCmd(ctx, "echo one; echo two >&2; echo three")
 
 	tk := r.Start("", "echo test", cmd, cancel, "sess-1")
 	if tk.State() != Running {
@@ -52,7 +54,7 @@ func TestStartCapturesOutputAndFinishes(t *testing.T) {
 func TestFailureIsRecorded(t *testing.T) {
 	r := NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
-	tk := r.Start("", "false", exec.CommandContext(ctx, "/bin/sh", "-c", "echo bad; exit 3"), cancel, "s")
+	tk := r.Start("", "false", shCmd(ctx, "echo bad; exit 3"), cancel, "s")
 
 	waitFor(t, r, func() bool { return !tk.Live() }, "the task to fail")
 	if tk.State() != Failed {
@@ -66,7 +68,7 @@ func TestFailureIsRecorded(t *testing.T) {
 func TestStopEndsARunningTask(t *testing.T) {
 	r := NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
-	tk := r.Start("", "sleep", exec.CommandContext(ctx, "/bin/sh", "-c", "sleep 30"), cancel, "s")
+	tk := r.Start("", "sleep", shCmd(ctx, "sleep 30"), cancel, "s")
 
 	tk.Stop()
 	waitFor(t, r, func() bool { return !tk.Live() }, "the task to stop")
@@ -78,7 +80,7 @@ func TestStopEndsARunningTask(t *testing.T) {
 func TestOutputIsBounded(t *testing.T) {
 	r := NewRegistry()
 	ctx, cancel := context.WithCancel(context.Background())
-	tk := r.Start("", "flood", exec.CommandContext(ctx, "/bin/sh", "-c",
+	tk := r.Start("", "flood", shCmd(ctx,
 		"i=0; while [ $i -lt 3000 ]; do echo line$i; i=$((i+1)); done"), cancel, "s")
 
 	waitFor(t, r, func() bool { return !tk.Live() }, "the flood to finish")
@@ -137,4 +139,11 @@ func TestTailIsSafeToHold(t *testing.T) {
 	if got := tk.Tail(1); len(got) != 1 || got[0] != "second" {
 		t.Errorf("tail = %v", got)
 	}
+}
+
+// shCmd builds a command through whichever shell this machine has, so these
+// tests exercise the registry rather than the presence of /bin/sh.
+func shCmd(ctx context.Context, command string) *exec.Cmd {
+	name, args := shell.For(true)
+	return exec.CommandContext(ctx, name, append(args, command)...)
 }

@@ -1,6 +1,10 @@
 package agent
 
-import "strings"
+import (
+	"strings"
+
+	"github.com/phanngoc/agent-tui/internal/session"
+)
 
 // Mode is how much rope the agent gets for a turn.
 //
@@ -70,6 +74,35 @@ func (m Mode) Detail() string {
 	default:
 		return "edits and runs commands inside the project without asking"
 	}
+}
+
+// AutoAllows reports whether auto mode may let a call run without asking.
+//
+// Auto's promise, in its own words, is "edits and runs commands inside the
+// project without asking". The only boundary it boasts is the project, so the
+// only question it can answer is about paths — and a shell command names none.
+// There is nothing to judge there, and stopping to ask anyway would make auto
+// narrower than the status bar says it is.
+//
+// Both engines decide through this. They used to disagree: the built-in agent
+// let a shell command run, while the broker that answers for Claude Code did
+// not, so the same mode meant two different things depending on which engine
+// happened to be picked.
+func AutoAllows(call session.ToolCall, root string) bool {
+	if inside, decided := call.PathsInside(root); decided && inside {
+		return true
+	}
+	return isShellTool(call.Name)
+}
+
+// isShellTool spots the run-a-command tool, which the engines spell
+// differently: the built-in agent calls it bash, Claude Code calls it Bash.
+func isShellTool(name string) bool {
+	switch strings.ToLower(name) {
+	case "bash", "shell":
+		return true
+	}
+	return false
 }
 
 // Writes reports whether the mode allows changing anything at all.

@@ -3,9 +3,11 @@ package engine
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
+	"runtime"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -42,6 +44,10 @@ type CLI struct {
 	version string
 	ok      bool
 	why     string
+	// path is the resolved binary; winBin marks a Windows build reached from
+	// WSL through interop, whose path arguments must be translated.
+	path   string
+	winBin bool
 
 	argv   func(c *CLI, t agent.Turn, br *broker) []string
 	newDec func() decoder
@@ -76,26 +82,66 @@ func (c *CLI) Detail() string {
 		return c.why
 	}
 	d := c.version
-	if c.CanAsk() {
+	switch {
+	case c.CanAsk():
 		d += " · can ask before acting"
-	} else {
+	case c.noSandbox():
+		// Do not claim a policy that is not being enforced.
+		d += " · UNCONFINED: no sandbox on Windows"
+	default:
 		d += " · cannot ask; its mode is set by sandbox policy"
 	}
 	return d
 }
 
+// noSandbox reports whether this CLI's own confinement cannot start here.
+//
+// Codex builds its sandbox from a helper directory it re-ACLs at startup, which
+// an ordinary Windows account may not do; the same applies to a Windows build
+// reached from WSL, which is still a Windows process. Nothing is confined in
+// that case, and the UI has to say so rather than imply a gate that is absent.
+func (c *CLI) noSandbox() bool {
+	if c.approvals {
+		return false // this engine asks instead of confining
+	}
+	c.detect()
+	return hostSandboxBroken() || c.winBin
+}
+
+// hostSandboxBroken is a variable so a test can exercise both platforms from
+// either one, the same way lookPath and executable are.
+var hostSandboxBroken = func() bool { return runtime.GOOS == "windows" }
+
+// argPath renders a path for this CLI's own namespace. A Windows binary reached
+// from WSL is handed Windows paths even though this process speaks Linux ones.
+func (c *CLI) argPath(p string) string {
+	if c.winBin && runtime.GOOS != "windows" {
+		return toWindowsPath(p)
+	}
+	return p
+}
+
 // detect resolves the binary and its version once.
 func (c *CLI) detect() {
 	c.detectOnce.Do(func() {
-		path, err := lookPath(c.bin)
+		path, win, err := lookAgent(c.bin)
 		if err != nil {
 			c.why = "not installed"
 			return
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		defer cancel()
-
-		out, err := exec.CommandContext(ctx, path, "--version").Output()
+		out, err := probeVersion(path)
+		if err != nil && !win {
+			// Under WSL a Linux launcher can be present but broken — an npm
+			// install done on the Windows side leaves a shim whose platform
+			// binary was never fetched. A working Windows build is often right
+			// there, so do not let the broken one hide it.
+			if alt, aerr := lookPath(c.bin + ".exe"); aerr == nil && underWSL() {
+				if altOut, altErr := probeVersion(alt); altErr == nil {
+					path, win, out, err = alt, true, altOut, nil
+				}
+			}
+		}
+		c.path, c.winBin = path, win
 		if err != nil {
 			// A binary that cannot even report its version is not usable, but
 			// say what actually happened rather than claiming it is missing.
@@ -169,8 +215,8 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 				}
 				reason := "the agent asked for permission"
 				if !t.Mode.Confirms() {
-					if inside, decided := call.PathsInside(root); decided && inside {
-						return true // inside the project, which auto already allows
+					if agent.AutoAllows(call, root) {
+						return true // what auto already permits
 					}
 					reason = "this is outside " + root
 				}
@@ -198,6 +244,13 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	if t.Mode.Confirms() && br == nil {
 		send(agent.EvStatus{Text: "cannot ask here; running confined instead"})
 	}
+	// Auto without a broker widens what the CLI may do, because the alternative
+	// is a turn that stalls on a prompt nothing can display. Say so: a mode
+	// that quietly means something else than the status bar claims is worse
+	// than one that announces the difference.
+	if t.Mode == agent.ModeAuto && br == nil && c.approvals {
+		send(agent.EvStatus{Text: "cannot ask here; auto runs unconfined"})
+	}
 
 	args := c.argv(c, t, br)
 	fsys := t.FS
@@ -209,10 +262,19 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		// against a caller assembling one by hand.
 		fsys = vfs.NewLocal(root)
 	}
-	cmd := fsys.Command(ctx, root, c.bin, args...)
+	bin := c.bin
+	if c.path != "" && fsys.IsLocal() {
+		bin = c.path
+	}
+	cmd := fsys.Command(ctx, root, bin, args...)
 	// A nil Stdin gives the child /dev/null. Codex otherwise blocks reading a
 	// prompt from a pipe it will never receive.
 	cmd.Stdin = nil
+	// Cancelling a turn kills the process we spawned, but not a grandchild it
+	// left behind — a node process behind a .cmd shim on Windows, say. That
+	// grandchild keeps the output pipes open and Wait would block on them for
+	// as long as it lives, stranding the session. WaitDelay bounds that.
+	cmd.WaitDelay = 5 * time.Second
 	if fsys.IsLocal() {
 		cmd.Env = append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0")
 	}
@@ -275,11 +337,49 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		send(agent.EvDone{Err: ctx.Err()})
 	case dec.failure() != "":
 		send(agent.EvDone{Err: fmt.Errorf("%s: %s", c.id, dec.failure())})
+	case missingBinary(waitErr, errTail.text()):
+		send(agent.EvDone{Err: errors.New(c.missingIn(fsys))})
 	case waitErr != nil:
 		send(agent.EvDone{Err: fmt.Errorf("%s exited: %w%s", c.bin, waitErr, errTail.suffix())})
 	default:
 		send(agent.EvDone{})
 	}
+}
+
+// missingBinary reports whether a run failed because the binary was not there.
+//
+// It matters because "installed" is a question about a filesystem, not about
+// this machine: the detection at startup uses LookPath here, which says nothing
+// about what exists inside a container or a WSL distribution. A session pointed
+// at one of those runs an engine that looked perfectly available, and the only
+// signal that it was not is the shell's exit 127 coming back afterwards.
+func missingBinary(err error, stderr string) bool {
+	if err == nil {
+		return false
+	}
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && ee.ExitCode() == 127 {
+		return true
+	}
+	// Not every launcher reports 127; some fail before a shell is involved.
+	s := strings.ToLower(stderr)
+	return strings.Contains(s, "command not found") ||
+		strings.Contains(s, "executable file not found") ||
+		strings.Contains(s, "no such file or directory")
+}
+
+// missingIn says where the binary is missing and what to do about it. Naming
+// the filesystem is the whole point: "claude: command not found" is baffling
+// on a machine where claude is plainly installed, and stops being baffling the
+// moment it says which filesystem was looked in.
+func (c *CLI) missingIn(fsys vfs.FS) string {
+	if fsys == nil || fsys.IsLocal() {
+		return c.bin + " is not installed on this machine"
+	}
+	return fmt.Sprintf(
+		"%s is not installed in %s — install it there, or use the built-in engine "+
+			"(/engine api), which runs its tools from here and works anywhere",
+		c.bin, fsys.Label())
 }
 
 // tail keeps the last few stderr lines so a failure can explain itself without
@@ -302,10 +402,14 @@ func (t *tail) add(s string) {
 }
 
 func (t *tail) suffix() string {
+	if s := t.text(); s != "" {
+		return "\n" + s
+	}
+	return ""
+}
+
+func (t *tail) text() string {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if len(t.lines) == 0 {
-		return ""
-	}
-	return "\n" + strings.Join(t.lines, "\n")
+	return strings.Join(t.lines, "\n")
 }
