@@ -160,20 +160,70 @@ func wrapTitle(title string, width, maxLines int) []string {
 	return wrapped
 }
 
+// sessionsPane draws the list, scrolled so the conversation that matters is
+// in it.
+//
+// It used to cut the rows at the height of the whole body and hand the rest to
+// the pane, which clipped them without a word. The pane is at most half that
+// tall, so with seven conversations the last two were simply not drawn — and
+// the one running was as likely to be among them as any other. A list that
+// silently drops the row you are waiting on is worse than a short list: it
+// answers the question wrongly instead of not answering it.
 func (m *Model) sessionsPane() string {
 	lines := m.sessionLines(max(4, m.sideW-2))
 	if len(lines) == 0 {
 		return m.st.Faint.Render("  none")
 	}
-	limit := max(1, m.bodyH-2)
-	if len(lines) > limit {
-		lines = lines[:limit]
-	}
+	sessH, _ := m.leftSplit()
+	lines = m.sessionWindow(lines, max(1, sessH-2))
+
 	rows := make([]string, len(lines))
 	for i, l := range lines {
 		rows[i] = l.text
 	}
 	return strings.Join(rows, "\n")
+}
+
+// sessionWindow scrolls the list so the row that matters stays on screen, and
+// records where the window began so a click still lands on the row it hit.
+//
+// Which row matters depends on where the keyboard is: the one the cursor is
+// over while you are moving through the list, and otherwise the conversation
+// the prompt is talking to.
+func (m *Model) sessionWindow(lines []sessionLine, limit int) []sessionLine {
+	if len(lines) <= limit {
+		m.sessTop = 0
+		return lines
+	}
+	want := m.mgr.ActiveIndex()
+	if m.focus == focusSessions {
+		want = m.sessSel
+	}
+	// A conversation is more than one row — a wrapped title, then its state —
+	// so the window has to hold the whole of it, not just where it starts.
+	first, last := -1, -1
+	for i, l := range lines {
+		if l.idx != want {
+			continue
+		}
+		if first < 0 {
+			first = i
+		}
+		last = i
+	}
+	if first < 0 {
+		first, last = 0, 0
+	}
+
+	top := m.sessTop
+	if last >= top+limit {
+		top = last - limit + 1
+	}
+	if first < top {
+		top = first
+	}
+	m.sessTop = clamp(top, 0, len(lines)-limit)
+	return lines[m.sessTop : m.sessTop+limit]
 }
 
 // ---- renaming --------------------------------------------------------------

@@ -127,6 +127,10 @@ type Model struct {
 	corpus        []session.Entry
 	recallPending string // typed before the corpus landed
 
+	// sessTop is the row the session list is scrolled to. The renderer writes
+	// it and the mouse reads it, so a click lands on the row that was drawn.
+	sessTop int
+
 	chatCache string
 	// chatStarts[i] is the line message i begins on in chatCache, so a search
 	// hit can be opened where it was found rather than at the newest turn. It

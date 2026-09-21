@@ -85,7 +85,10 @@ func (m *Model) sessionRowAt(y int) int {
 	// height: a click on the second line of a wrapped title belongs to that
 	// session, not to the next one.
 	lines := m.sessionLines(max(4, m.sideW-2))
-	row := y - top
+	// Past the scroll offset, because the list no longer starts at its first
+	// row: the renderer records where the window began and the hit test reads
+	// it, rather than each counting for itself.
+	row := y - top + m.sessTop
 	if row < 0 || row >= len(lines) {
 		return -1
 	}

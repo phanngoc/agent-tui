@@ -750,6 +750,13 @@ answer arrived somewhere you were not. It is runtime only, because what it
 records is whether you have looked since it happened, and a new process has
 not.
 
+The list scrolls to keep the conversation that matters in it — the one the
+cursor is over while you are moving through it, and otherwise the one the
+prompt is talking to. It used to cut its rows at the height of the whole body
+and hand the rest to a pane half that tall, which clipped them without a word:
+with seven conversations the last two were simply not drawn, and the one
+running was as likely to be among them as any other.
+
 The tab strip at the top speaks the same vocabulary, but only when there is
 something to say: `blocked`, `working` and `done` get their mark up there, and
 `idle` and `new` get nothing. The sidebar shows every state because it is a

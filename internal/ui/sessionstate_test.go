@@ -372,3 +372,100 @@ func TestGrowingAnotherConversationDoesNotScrollThisOne(t *testing.T) {
 		t.Errorf("another conversation growing moved this pane to %d", m.chat.YOffset())
 	}
 }
+
+// crowd fills the list with more conversations than the pane can draw.
+func crowd(t *testing.T, m *Model, n int) []*session.Session {
+	t.Helper()
+	m.resize(120, 40)
+	var out []*session.Session
+	for i := 0; i < n; i++ {
+		out = append(out, talking(m, "cuộc hội thoại số "+strconv.Itoa(i)))
+	}
+	return out
+}
+
+// The list is a list, so it scrolls. It used to cut at the height of the whole
+// body and hand the rest to a pane half that tall, which clipped the rest
+// without a word — so the conversation that was running could be below the
+// fold with nothing to say it existed, which is exactly how it looked.
+func TestTheRunningConversationStaysInTheList(t *testing.T) {
+	m := newTestModel(t)
+	all := crowd(t, m, 9)
+	// New puts each conversation at the top of the list, so the one made
+	// first is the row furthest down — the row the old code cut off.
+	busy := all[0]
+	busy.Busy, busy.Status = true, "thinking"
+	m.mgr.Select(m.indexOf(busy))
+	m.setFocus(focusChat)
+
+	sessH, _ := m.leftSplit()
+	rows := m.sessionLines(max(4, m.sideW-2))
+	if len(rows) <= sessH-2 {
+		t.Skipf("everything fits at this size (%d rows in %d)", len(rows), sessH-2)
+	}
+
+	pane := stripANSI(m.sessionsPane())
+	if n := strings.Count(pane, "\n") + 1; n > sessH-2 {
+		t.Errorf("the pane was handed %d lines for %d", n, sessH-2)
+	}
+	if !strings.Contains(pane, stripANSI(m.spin.View())) {
+		t.Errorf("the running conversation is not in the pane:\n%s", pane)
+	}
+	if !strings.Contains(pane, "thinking") {
+		t.Errorf("the running conversation's state is not in the pane:\n%s", pane)
+	}
+}
+
+// And moving the cursor through the list brings rows into view rather than
+// running off the bottom of it.
+func TestMovingThroughTheListScrollsIt(t *testing.T) {
+	m := newTestModel(t)
+	all := crowd(t, m, 9)
+	m.setFocus(focusSessions)
+
+	// A title wraps, so "is it on screen" is asked of the rows the session
+	// owns rather than of the text, which the wrap has cut in half.
+	onScreen := func(want int) bool {
+		full := m.sessionLines(max(4, m.sideW-2))
+		drawn := len(strings.Split(m.sessionsPane(), "\n"))
+		for i := m.sessTop; i < len(full) && i < m.sessTop+drawn; i++ {
+			if full[i].idx == want {
+				return true
+			}
+		}
+		return false
+	}
+
+	m.sessSel = m.indexOf(all[0]) // the bottom of the list
+	if !onScreen(m.sessSel) {
+		t.Error("the last conversation is off the bottom when the cursor is on it")
+	}
+	m.sessSel = m.indexOf(all[len(all)-1]) // back to the top
+	if !onScreen(m.sessSel) {
+		t.Error("moving back to the top did not scroll back")
+	}
+}
+
+// A click has to land on the row that was drawn, which after scrolling is not
+// the row at the same index in the full list.
+func TestAClickLandsOnTheRowItHitAfterScrolling(t *testing.T) {
+	m := newTestModel(t)
+	all := crowd(t, m, 9)
+	m.mgr.Select(m.indexOf(all[0])) // the bottom of the list, so it must scroll
+	m.setFocus(focusChat)
+
+	drawn := strings.Split(stripANSI(m.sessionsPane()), "\n")
+	if m.sessTop == 0 {
+		t.Skip("the list did not need to scroll at this size")
+	}
+	full := m.sessionLines(max(4, m.sideW-2))
+
+	top := headerRows + 1
+	for row := range drawn {
+		want := full[m.sessTop+row].idx
+		if got := m.sessionRowAt(top + row); got != want {
+			t.Errorf("row %d: a click lands on session %d, but %d was drawn there",
+				row, got, want)
+		}
+	}
+}
