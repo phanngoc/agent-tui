@@ -682,7 +682,7 @@ retry it.
   "effort": "high",
   "engine": "api",
   "mode": "auto",
-  "theme": "herdr",
+  "theme": "onedark",
   "max_tokens": 32000,
   "max_file_kb": 2048,
   "index_limit": 200000,
@@ -782,9 +782,27 @@ same row.
 
 ## Colours
 
-Two palettes, set with `"theme"` in the config: `herdr` (the default) and
-`monokai`. An unknown name falls back to the default rather than failing to
-start — a typo in a config file is not worth a dead terminal.
+Three palettes, set with `"theme"` in the config: `onedark` (the default),
+`herdr` and `monokai`. An unknown name falls back to the default rather than
+failing to start — a typo in a config file is not worth a dead terminal.
+
+**onedark** is One Dark, as Atom shipped it and every editor since has copied
+it: a blue-grey ground, a cool grey read on top of it, and bold a near-white
+step above that. That step is the whole of the scheme's typography — emphasis
+is not a colour, it is the plain foreground turned up, the way a terminal has
+always done bold — which is why nothing here gives bold a hue of its own.
+
+Four canonical values did not clear this package's floors and were lifted by
+the smallest amount that does. They are listed rather than quietly changed,
+because a palette not being the thing it is named after is worse than one that
+says where it differs:
+
+| | was | is | why |
+|---|---|---|---|
+| foreground | `#abb2bf` | `#b9c0cc` | 6.57 → 7.65; it is read continuously, so AAA |
+| comment | `#7f848e` | `#8f96a3` | 3.73 → 4.71; below AA is where the last palette went wrong |
+| red | `#e06c75` | `#e88891` | 4.38 → 5.57; it has to clear the deleted-row tint too |
+| white | `#ffffff` | `#e4e8ef` | 14.00 → 11.39; near-white on near-black is a lamp |
 
 **herdr** is Catppuccin Mocha, which is what
 [herdr](https://herdr.dev/docs/configuration/) ships as its dark theme, with

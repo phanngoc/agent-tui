@@ -2,6 +2,8 @@ package theme
 
 import (
 	"image/color"
+
+	"charm.land/lipgloss/v2"
 	"math"
 	"strings"
 	"testing"
@@ -266,6 +268,39 @@ func TestTheRowBackgroundsAreTellableApart(t *testing.T) {
 				if got := contrast(p.Fg, bg.c); got < 4.5 {
 					t.Errorf("text on %s is %.2f:1, want at least 4.5:1", bg.what, got)
 				}
+			}
+		})
+	}
+}
+
+// TestBoldIsTheForegroundTurnedUp pins the one thing the default palette is
+// built around: emphasis is not a colour of its own.
+//
+// A terminal has always done bold by brightening what is already there, and
+// the scheme leans on that — the prose sits a clear step below, and the step
+// is the only thing distinguishing them. A bold style that reached for a hue
+// instead would read as a third kind of text rather than as the same text,
+// said louder.
+func TestBoldIsTheForegroundTurnedUp(t *testing.T) {
+	for name, p := range palettes(t) {
+		t.Run(name, func(t *testing.T) {
+			s := New(p)
+			for label, style := range map[string]lipgloss.Style{
+				"MdBold":       s.MdBold,
+				"MdBoldItalic": s.MdBoldItalic,
+			} {
+				if got := style.GetForeground(); got != p.Fg {
+					t.Errorf("%s is %v, want the plain foreground %v", label, got, p.Fg)
+				}
+				if !style.GetBold() {
+					t.Errorf("%s is not bold", label)
+				}
+			}
+			// And the step is real: emphasis has to be plainly brighter than
+			// the prose it is emphasising, or bold says nothing at all.
+			if contrast(p.Fg, p.Bg) < contrast(p.Text, p.Bg)*1.2 {
+				t.Errorf("bold is %.2f:1 against prose at %.2f:1 — too close to read as emphasis",
+					contrast(p.Fg, p.Bg), contrast(p.Text, p.Bg))
 			}
 		})
 	}
