@@ -84,6 +84,56 @@ var Dark = Palette{
 	Punct:   lipgloss.Color("#c8c5b6"),
 }
 
+// OneDark is the palette agent-tui wears by default.
+//
+// One Dark, as Atom shipped it and every editor since has copied it: a
+// blue-grey ground with a cool grey read on top of it, and the bold text a
+// near-white step above that. That step is the whole of the scheme's
+// typography — emphasis is not a colour, it is the plain foreground turned up,
+// the way a terminal has always done bold — and it is why nothing here gives
+// bold a hue of its own.
+//
+// Four of the canonical values did not clear this package's floors and were
+// lifted by the smallest amount that does. They are listed with what they were,
+// because a palette quietly not being the thing it is named after is worse than
+// a palette that says where it differs:
+//
+//	fg      #abb2bf → #b9c0cc   6.57 → 7.65   read continuously, so AAA
+//	comment #7f848e → #8f96a3   3.73 → 4.71   below AA, which is where the
+//	                                          last palette had gone wrong
+//	red     #e06c75 → #e88891   4.38 → 5.57   below AA, and it has to clear
+//	                                          the deleted-row tint as well
+//	white   #ffffff → #e4e8ef  14.00 → 11.39  over the ceiling; near-white on
+//	                                          near-black is a lamp
+//
+// Everything else is One Dark unchanged.
+var OneDark = Palette{
+	Bg:       lipgloss.Color("#282c34"),
+	BgAlt:    lipgloss.Color("#21252b"),
+	Border:   lipgloss.Color("#3e4451"),
+	BorderOn: lipgloss.Color("#61afef"),
+	Fg:       lipgloss.Color("#e4e8ef"), // bold, headings, chrome
+	Text:     lipgloss.Color("#b9c0cc"), // the prose they sit in
+	Dim:      lipgloss.Color("#b3bac6"), // what stands beside the prose
+	Faint:    lipgloss.Color("#8f96a3"),
+	Accent:   lipgloss.Color("#61afef"),
+	Good:     lipgloss.Color("#98c379"),
+	Warn:     lipgloss.Color("#e5c07b"),
+	Bad:      lipgloss.Color("#e88891"),
+	Sel:      lipgloss.Color("#4b5263"),
+	Row:      lipgloss.Color("#2f343e"),
+	AddBg:    lipgloss.Color("#2b3a2e"),
+	DelBg:    lipgloss.Color("#402a2f"),
+
+	Keyword: lipgloss.Color("#c678dd"),
+	Type:    lipgloss.Color("#e5c07b"),
+	String:  lipgloss.Color("#98c379"),
+	Number:  lipgloss.Color("#d19a66"),
+	Comment: lipgloss.Color("#8f96a3"),
+	Func:    lipgloss.Color("#61afef"),
+	Punct:   lipgloss.Color("#b9c0cc"),
+}
+
 // Herdr is the palette herdr wears, and the default here.
 //
 // It is Catppuccin Mocha, which is what herdr ships as its dark theme, with
@@ -130,13 +180,15 @@ func ByName(name string) Palette {
 	switch name {
 	case "monokai":
 		return Dark
+	case "herdr":
+		return Herdr
 	}
-	return Herdr
+	return OneDark
 }
 
 // Names are the palettes ByName knows, for the config reference and for
 // anything that offers a choice.
-var Names = []string{"herdr", "monokai"}
+var Names = []string{"onedark", "herdr", "monokai"}
 
 // Styles are pre-rendered lipgloss styles used across the UI.
 type Styles struct {
@@ -192,8 +244,8 @@ type Styles struct {
 	// Select is text the mouse has selected. It is a background rather than a
 	// tint: a selection that let the syntax show through would have to be dark
 	// enough not to fight it, which is dark enough not to be seen.
-	Select    lipgloss.Style
-	SelRow    lipgloss.Style
+	Select      lipgloss.Style
+	SelRow      lipgloss.Style
 	SelRowDim   lipgloss.Style
 	MatchChar   lipgloss.Style
 	Placeholder lipgloss.Style
