@@ -305,6 +305,13 @@ line is still visible.
   106     // Mode is how much the agent may do without asking on this turn.
 ```
 
+Click a result and it opens, the same as `enter` on the same row — picking one
+is a single decision whichever way you make it, and a mouse that only moved the
+cursor would leave you reaching for the keyboard to finish a gesture you had
+already finished. Clicking a file header folds it; the wheel scrolls the list
+without moving the cursor, because reading past a result is not choosing it.
+The same is true of `/recall`.
+
 `←` and `→` fold a file away and back, `enter` opens the hit in the preview at
 its line, `alt+a` switches to exact case and `alt+r` to regex. Search runs on
 the session's filesystem too, so a container-targeted session greps inside the

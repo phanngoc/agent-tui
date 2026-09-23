@@ -95,6 +95,7 @@ func (m *Model) grepTreeView(width, rows int) string {
 	inner := width - 2
 	var b strings.Builder
 
+	m.grepDrawn = 0
 	if len(m.grepRows) == 0 {
 		return ""
 	}
@@ -122,6 +123,7 @@ func (m *Model) grepTreeView(width, rows int) string {
 		if selected {
 			line = m.st.SelRow.Render(padRight(" "+stripANSI(line), inner))
 		}
+		m.grepDrawn++
 		b.WriteString(clipLine(line, inner) + "\n")
 	}
 	return strings.TrimRight(b.String(), "\n")

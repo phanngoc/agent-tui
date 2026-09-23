@@ -193,3 +193,128 @@ func TestWindowAroundKeepsTheMatch(t *testing.T) {
 		t.Errorf("short line became %q with %q", out, out[s:e])
 	}
 }
+
+// A result you can plainly click used to do nothing at all: onClick handed
+// every overlay but the history browser back an untouched nil. A line that
+// looks clickable and is not reads as the program being broken, not as the
+// feature being absent.
+func TestClickingASearchResultOpensIt(t *testing.T) {
+	m := newTestModel(t)
+	press(t, m, "ctrl+g")
+	typeQuery(t, m, "Needle")
+	if len(m.grepRows) < 2 {
+		t.Fatalf("not enough results to click: %d rows", len(m.grepRows))
+	}
+	m.View()
+
+	// The row the view says it drew, not the row a second count believes is
+	// there — which is the whole reason the view records it.
+	want := -1
+	var row, screenY int
+	for i := m.grepTop; i < m.grepTop+m.grepDrawn && i < len(m.grepRows); i++ {
+		if m.grepRows[i].hit >= 0 {
+			row, screenY = i, m.overlayY+1+m.grepBodyY+(i-m.grepTop)
+			want = i
+			break
+		}
+	}
+	if want < 0 {
+		t.Fatal("no hit row was drawn")
+	}
+	hit := m.grepFiles[m.grepRows[row].file].hits[m.grepRows[row].hit]
+
+	cmd := clickAt(m, m.overlayX+4, screenY)
+	if cmd == nil {
+		t.Fatal("the click opened nothing")
+	}
+	m.Update(runUntil[fileMsg](t, cmd))
+
+	if m.grepSel != row {
+		t.Errorf("the click selected row %d, want %d", m.grepSel, row)
+	}
+	if m.overlay != overlayNone {
+		t.Error("the overlay stayed open over the file it opened")
+	}
+	if !m.showPreview {
+		t.Error("the preview was not opened to show it")
+	}
+	// The file it asked for is the one the row named, at the line it named.
+	if m.fileLine != hit.Line {
+		t.Errorf("the preview was sent to line %d, want %d", m.fileLine, hit.Line)
+	}
+}
+
+// Clicking a file header folds it, because that is the only thing a header
+// can mean — and it does not go opening whatever happens to be under it.
+func TestClickingAFileHeaderFoldsIt(t *testing.T) {
+	m := newTestModel(t)
+	press(t, m, "ctrl+g")
+	typeQuery(t, m, "Needle")
+	m.View()
+
+	row := -1
+	for i := m.grepTop; i < m.grepTop+m.grepDrawn && i < len(m.grepRows); i++ {
+		if m.grepRows[i].hit < 0 {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Skip("no header was drawn")
+	}
+	file := m.grepRows[row].file
+	was := m.grepFiles[file].collapsed
+
+	clickAt(m, m.overlayX+4, m.overlayY+1+m.grepBodyY+(row-m.grepTop))
+
+	if m.grepFiles[file].collapsed == was {
+		t.Error("clicking the header did not fold the file")
+	}
+	if m.overlay != overlayGrep {
+		t.Error("clicking a header closed the search")
+	}
+}
+
+// A click outside the list is not a click on its last row.
+func TestClickingOutsideTheListPicksNothing(t *testing.T) {
+	m := newTestModel(t)
+	press(t, m, "ctrl+g")
+	typeQuery(t, m, "Needle")
+	m.View()
+	was := m.grepSel
+
+	clickAt(m, m.overlayX+4, m.overlayY) // the title
+	clickAt(m, m.overlayX+4, m.overlayY+1+m.grepBodyY+m.grepDrawn+1)
+	clickAt(m, 0, m.overlayY+1+m.grepBodyY) // outside the box
+
+	if m.grepSel != was {
+		t.Errorf("a click off the list moved the cursor to %d", m.grepSel)
+	}
+	if m.overlay != overlayGrep {
+		t.Error("a click off the list closed the search")
+	}
+}
+
+// The wheel reads without choosing: a list that re-selected as it scrolled
+// would make reading past a result the same as picking it.
+func TestTheWheelScrollsTheResultsWithoutPicking(t *testing.T) {
+	m := newTestModel(t)
+	press(t, m, "ctrl+g")
+	typeQuery(t, m, "Needle")
+	m.View()
+	if len(m.grepRows) == 0 {
+		t.Fatal("no results to scroll")
+	}
+	was := m.grepSel
+
+	m.onMouse(tea.MouseWheelMsg{X: m.overlayX + 4, Y: m.overlayY + 4, Button: tea.MouseWheelDown})
+
+	if m.grepSel != was {
+		t.Errorf("the wheel moved the selection to %d", m.grepSel)
+	}
+	// It scrolls as far as there is anywhere to scroll to, and no further.
+	if want := clampRow(3, len(m.grepRows)); m.grepTop != want {
+		t.Errorf("the wheel scrolled to row %d, want %d of %d rows",
+			m.grepTop, want, len(m.grepRows))
+	}
+}

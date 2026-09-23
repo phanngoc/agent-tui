@@ -25,6 +25,8 @@ func (m *Model) recallView() string {
 	b.WriteString("  " + m.recallIn.View() + "\n")
 	b.WriteString("  " + m.recallToggles() + "\n\n")
 	b.WriteString("  " + m.recallSummary() + "\n\n")
+	// Where the list begins, recorded as the view goes.
+	m.recallBodyY = strings.Count(b.String(), "\n")
 	b.WriteString(m.recallList(inner))
 	b.WriteString("\n  " + m.st.Faint.Render(
 		"enter open · ←→ fold · alt+a case · alt+r regex · esc close"))
@@ -66,6 +68,7 @@ func (m *Model) recallSummary() string {
 func (m *Model) recallHeight() int { return clamp(m.h/2, 5, 18) }
 
 func (m *Model) recallList(inner int) string {
+	m.recallDrawn = 0
 	if len(m.recallRows) == 0 {
 		return ""
 	}
@@ -90,6 +93,7 @@ func (m *Model) recallList(inner int) string {
 		if i == m.recallSel {
 			line = m.st.SelRow.Render(padRight(" "+stripANSI(line), inner))
 		}
+		m.recallDrawn++
 		b.WriteString(line + "\n")
 	}
 	return b.String()
@@ -113,7 +117,7 @@ func (m *Model) recallHeader(c convoConv, inner int) string {
 	project := filepath.Base(c.entry.Root)
 	when := relTime(c.entry.Updated)
 
-	tail := m.st.Faint.Render(project + "  " + when + "  ") + count
+	tail := m.st.Faint.Render(project+"  "+when+"  ") + count
 	room := max(8, inner-lipgloss.Width(stripANSI(fold+mark))-lipgloss.Width(stripANSI(tail))-3)
 	title := m.st.Bold.Render(truncate(orDefault(c.entry.Title, "untitled"), room))
 

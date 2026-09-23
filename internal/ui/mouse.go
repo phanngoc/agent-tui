@@ -178,6 +178,7 @@ func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 		return nil
 	}
 	if m.overlay != overlayNone {
+		m.overlayWheel(dir)
 		return nil
 	}
 
@@ -195,11 +196,16 @@ func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 
 // onClick focuses the pane under the pointer and acts on what was clicked.
 func (m *Model) onClick(e tea.Mouse) tea.Cmd {
-	if m.overlay == overlayGit {
+	switch m.overlay {
+	case overlayGit:
 		return m.gitClick(e.X, e.Y)
-	}
-	if m.overlay != overlayNone {
-		return nil // a modal owns the screen
+	case overlayGrep:
+		return m.grepClick(e.X, e.Y)
+	case overlayRecall:
+		return m.recallClick(e.X, e.Y)
+	case overlayNone:
+	default:
+		return nil // a picker or a prompt, with nothing to aim at
 	}
 	// A switch in the header opens or closes a pane.
 	if pane, ok := m.switchAt(e.X, e.Y); ok {

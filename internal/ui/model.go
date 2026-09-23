@@ -131,6 +131,13 @@ type Model struct {
 	// it and the mouse reads it, so a click lands on the row that was drawn.
 	sessTop int
 
+	// grepBodyY and recallBodyY are the line each search overlay's list began
+	// on, and grepDrawn and recallDrawn how many rows it drew. The views write
+	// them and the mouse reads them, so a click lands on the row that was
+	// drawn rather than on the one a second count thought was there.
+	grepBodyY, grepDrawn     int
+	recallBodyY, recallDrawn int
+
 	chatCache string
 	// chatStarts[i] is the line message i begins on in chatCache, so a search
 	// hit can be opened where it was found rather than at the newest turn. It

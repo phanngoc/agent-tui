@@ -181,14 +181,7 @@ func (m *Model) grepKey(k tea.KeyPressMsg) tea.Cmd {
 	// text box, and binding a bare letter would swallow it out of the query.
 	switch k.String() {
 	case "enter", "right":
-		if hit, ok := m.selectedHit(); ok {
-			m.closeOverlay()
-			m.showPreview = true
-			m.resize(m.w, m.h)
-			return m.loadFile(hit.Path, hit.Line, true)
-		}
-		// On a file header, enter folds it.
-		return m.foldSelected()
+		return m.openSelectedHit()
 	case "left":
 		return m.foldSelected()
 	case "down", "ctrl+n":
@@ -223,6 +216,23 @@ func (m *Model) grepKey(k tea.KeyPressMsg) tea.Cmd {
 }
 
 // foldSelected collapses or expands the file the cursor is inside.
+// openSelectedHit shows the file the cursor is on, at the line the match was
+// found on — or folds the file, when the cursor is on a header.
+//
+// Shared by enter and by a click. Picking a result is one decision whichever
+// way it was made, and a mouse that only moved the cursor would leave you
+// reaching for the keyboard to finish a gesture you had already finished.
+func (m *Model) openSelectedHit() tea.Cmd {
+	hit, ok := m.selectedHit()
+	if !ok {
+		return m.foldSelected()
+	}
+	m.closeOverlay()
+	m.showPreview = true
+	m.resize(m.w, m.h)
+	return m.loadFile(hit.Path, hit.Line, true)
+}
+
 func (m *Model) foldSelected() tea.Cmd {
 	if m.grepSel < 0 || m.grepSel >= len(m.grepRows) {
 		return nil
@@ -270,6 +280,9 @@ func (m *Model) grepView() string {
 	if m.grepRes.Err != nil {
 		b.WriteString("  " + m.st.Bad.Render(m.grepRes.Err.Error()) + "\n")
 	}
+	// Where the list begins, recorded as the view goes rather than counted
+	// afterwards by anyone who thinks they know what is above it.
+	m.grepBodyY = strings.Count(b.String(), "\n")
 	if tree := m.grepTreeView(w, rows); tree != "" {
 		b.WriteString(tree + "\n")
 	}

@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
+
 	"github.com/phanngoc/agent-tui/internal/search"
 	"github.com/phanngoc/agent-tui/internal/session"
 )
@@ -254,5 +256,89 @@ func TestRecallSummaryCountsThings(t *testing.T) {
 	if !strings.Contains(got, "2 results") || !strings.Contains(got, "2 conversations") ||
 		!strings.Contains(got, "2 projects") {
 		t.Errorf("the summary does not say how many: %q", got)
+	}
+}
+
+// The conversation search is the same shape and gets the same mouse. A hit
+// under the pointer opens its conversation at the message it was found in.
+func TestClickingARecallResultOpensIt(t *testing.T) {
+	m := newTestModel(t)
+	other := m.mgr.New()
+	other.Title = "về ranking"
+	for i := 0; i < 6; i++ {
+		other.Append(session.Message{Role: session.RoleUser, Text: "câu " + strconv.Itoa(i)})
+	}
+	other.Append(session.Message{Role: session.RoleUser, Text: "resolvePfid nằm ở đâu"})
+	want := len(other.Messages) - 1
+	m.mgr.Select(0)
+
+	m.openRecall("")
+	m.setCorpus(recallMsg{seq: m.recallSeq, corpus: m.mgr.LiveEntries()})
+	m.recallIn.SetValue("resolvePfid")
+	m.runRecall("resolvePfid")
+	m.View()
+
+	row := -1
+	for i := m.recallTop; i < m.recallTop+m.recallDrawn && i < len(m.recallRows); i++ {
+		if m.recallRows[i].hit >= 0 {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatalf("no hit row was drawn: %d rows, %d drawn", len(m.recallRows), m.recallDrawn)
+	}
+
+	m.onMouse(tea.MouseClickMsg{
+		X: m.overlayX + 4, Y: m.overlayY + 1 + m.recallBodyY + (row - m.recallTop),
+		Button: tea.MouseLeft,
+	})
+
+	if m.mgr.Active().ID != other.ID {
+		t.Fatalf("the click opened %q, want %q", m.mgr.Active().ID, other.ID)
+	}
+	m.View()
+	at, top, h := m.chatStarts[want], m.chat.YOffset(), m.chat.Height()
+	if at < top || at >= top+h {
+		t.Errorf("message %d starts at line %d, outside the %d shown from %d", want, at, h, top)
+	}
+}
+
+// And a click on a conversation header folds it rather than opening whatever
+// is beneath.
+func TestClickingARecallHeaderFoldsIt(t *testing.T) {
+	m := newTestModel(t)
+	m.openRecall("")
+	m.setCorpus(recallMsg{seq: m.recallSeq, corpus: []session.Entry{
+		conversation("a", "một", "/p", "về resolvePfid"),
+		conversation("b", "hai", "/q", "resolvePfid nữa"),
+	}})
+	m.recallIn.SetValue("resolvePfid")
+	m.runRecall("resolvePfid")
+	m.View()
+
+	row := -1
+	for i := m.recallTop; i < m.recallTop+m.recallDrawn && i < len(m.recallRows); i++ {
+		if m.recallRows[i].hit < 0 {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("no header was drawn")
+	}
+	conv := m.recallRows[row].conv
+	was := m.recallRes.convs[conv].collapsed
+
+	m.onMouse(tea.MouseClickMsg{
+		X: m.overlayX + 4, Y: m.overlayY + 1 + m.recallBodyY + (row - m.recallTop),
+		Button: tea.MouseLeft,
+	})
+
+	if m.recallRes.convs[conv].collapsed == was {
+		t.Error("clicking the header did not fold the conversation")
+	}
+	if m.overlay != overlayRecall {
+		t.Error("clicking a header closed the search")
 	}
 }
