@@ -111,6 +111,10 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 			return nil
 		}
 		// A button held down is a drag, and over a pane a drag is a selection.
+		if e.Button == tea.MouseLeft && m.inputDrag {
+			m.extendInputSelect(e)
+			return nil
+		}
 		if e.Button == tea.MouseLeft && m.sel.dragging {
 			m.extendSelect(e)
 			return nil
@@ -124,6 +128,10 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	case tea.MouseReleaseMsg:
 		m.drag = dragNone
+		if m.inputDrag {
+			m.inputDrag = false
+			return nil // the prompt keeps its selection; ctrl+c takes it
+		}
 		return m.endSelect()
 	case tea.MouseClickMsg:
 		if e.Button != tea.MouseLeft {
@@ -262,8 +270,10 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 
 	case focusInput:
 		// Clicking the prompt returns the keyboard to it, which is the way
-		// back from any pane without remembering a shortcut.
+		// back from any pane without remembering a shortcut — and puts the
+		// caret where the click was, rather than wherever it happened to be.
 		m.setFocus(focusInput)
+		m.beginInputSelect(e)
 		return nil
 
 	case focusChat, focusBtw, focusPreview:

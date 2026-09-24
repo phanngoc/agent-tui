@@ -197,6 +197,12 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			m.clearSelection()
 			return cmd
 		}
+		// The same in the prompt, where a selection is just as much a
+		// selection and ctrl+c means the same thing everywhere else.
+		if cmd := m.copyInput(); cmd != nil {
+			m.input.ClearSelection()
+			return cmd
+		}
 		if m.mgr.Active().Busy {
 			m.cancelRun()
 			return nil
@@ -260,6 +266,13 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.grepIn.Focus()
 		return nil
 	case "ctrl+g":
+		// Select-all, where there is text to select it in. The file search
+		// keeps ctrl+f, which is the binding it is reached by anyway; this
+		// one was only ever its second name, and the prompt has a better use
+		// for it.
+		if m.focus == focusInput && m.overlay == overlayNone && m.input.Value() != "" {
+			break
+		}
 		m.overlay = overlayGrep
 		m.grepIn.Focus()
 		return nil

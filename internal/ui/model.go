@@ -136,6 +136,13 @@ type Model struct {
 	// with the one you are talking to keeping the caret.
 	split int
 
+	// inputDrag is a selection being dragged in the prompt, and inputHead the
+	// offset it has reached. The textarea cannot be told where a selection
+	// begins, only extended from the caret, so a drag is kept as a distance
+	// to step rather than as a pair of points.
+	inputDrag bool
+	inputHead int
+
 	// grepBodyY and recallBodyY are the line each search overlay's list began
 	// on, and grepDrawn and recallDrawn how many rows it drew. The views write
 	// them and the mouse reads them, so a click lands on the row that was

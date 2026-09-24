@@ -751,6 +751,18 @@ Its coordinates are rows the pane drew rather than lines of its content,
 because the transcript soft-wraps: one message is many rows, and the row is the
 only thing the renderer and the mouse both know.
 
+**In the prompt** the same gestures work, and most of them already did without
+being reachable. The textarea binds shift and the arrows to a selection, and
+alt+shift to a word of one; what it also binds is `ctrl+g` to select-all, which
+this program had taken for the file search before the prompt ever saw it — so
+the first thing anyone tries opened a search box. It selects the prompt now,
+and the search keeps `ctrl+f`, the binding it is actually reached by.
+
+Clicking puts the caret where you clicked; dragging selects; `ctrl+c` copies,
+the same as everywhere else. The drag is the keyboard's own selection driven by
+how far the pointer moved, because the textarea offers no way to begin one at a
+point — one selection with one set of rules, however it was begun.
+
 **Pasting** lands wherever typing would have — the prompt, a search box, an
 open buffer — which it did not before: every text field here is a component,
 and a paste that is not routed to one disappears without a word.
