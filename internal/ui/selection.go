@@ -83,7 +83,15 @@ func (s *selection) span() (a, b selPoint, ok bool) {
 func (m *Model) paneBox(f focus) (left, top, w, h int, ok bool) {
 	switch f {
 	case focusChat:
-		left, w = m.sideW, m.chatW
+		// The cell the conversation is drawn in, which is the column until
+		// the column is split. Selecting in an unfocused cell would be
+		// selecting from a rendering rather than from the transcript.
+		c := m.chatCell()
+		left, w = c.x, c.w
+		if c.h < 3 {
+			return 0, 0, 0, 0, false
+		}
+		return left + 1, c.y + 1, w - 2, c.h - 2, true
 	case focusBtw:
 		if m.btwW == 0 {
 			return 0, 0, 0, 0, false

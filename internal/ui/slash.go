@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -118,6 +119,22 @@ var slashCmds = []slashCmd{
 	{"recall", "[text]", "search every conversation, in every project",
 		func(m *Model, arg string) tea.Cmd {
 			return m.openRecall(arg)
+		}},
+	{"split", "[1|2|4]", "watch this many conversations side by side",
+		func(m *Model, arg string) tea.Cmd {
+			n := 2
+			if arg != "" {
+				v, err := strconv.Atoi(strings.TrimSpace(arg))
+				if err != nil || v < 1 || v > splitMax {
+					m.notice = "split takes 1, 2 or 4"
+					return nil
+				}
+				n = v
+			} else if m.split > 1 {
+				n = 1 // typing it again with no number puts the column back
+			}
+			m.setSplit(n)
+			return nil
 		}},
 	{"tasks", "", "background commands, and their output", func(m *Model, _ string) tea.Cmd {
 		m.overlay = overlayTasks

@@ -117,9 +117,8 @@ func (m *Model) panes() string {
 	if s := m.mgr.Active(); s.Busy && s.Status != "" {
 		chatTitle = s.Status
 	}
-	m.chat.SetContent(m.transcript(max(10, m.chatW-2)))
-	chatBody := m.paintSelection(m.chat.View(), focusChat, m.chatW-2)
-	cols = append(cols, m.pane(chatBody, chatTitle, m.chatW, m.bodyH, m.focus == focusChat))
+	m.chat.SetContent(m.transcript(max(10, m.chatWidth()-2)))
+	cols = append(cols, m.splitColumn(chatTitle))
 
 	if m.btwW > 0 {
 		body := m.paintSelection(m.btwPane(m.btwW-2), focusBtw, m.btwW-2)

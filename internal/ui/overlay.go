@@ -384,6 +384,7 @@ var helpGroups = []struct {
 		{"ctrl+t", "new session"},
 		{"alt+t", "fork this session — same history, separate branch"},
 		{"/btw", "ask beside this one, in a pane, without interrupting it"},
+		{"/split", "watch 2 or 4 conversations side by side · click one to talk to it"},
 		{"/recall", "search every conversation, in every project"},
 		{"ctrl+r", "choose the engine (built-in, claude, codex, opencode)"},
 		{"/model", "choose the model this session runs on"},

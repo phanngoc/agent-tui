@@ -1344,8 +1344,11 @@ func (m *Model) resize(w, h int) {
 
 	m.chatW, m.prevW, m.sideW, m.btwW, m.bodyH = chatW, previewW, sidebarW, btwW, bodyH
 
-	m.chat.SetWidth(max(1, chatW-2))
-	m.chat.SetHeight(max(1, bodyH-2))
+	// Sized to the cell it is drawn in, which is the column until the column
+	// is split. Both are set before this so splitBoxes can be asked.
+	cell := m.chatCell()
+	m.chat.SetWidth(max(1, cell.w-2))
+	m.chat.SetHeight(max(1, cell.h-2))
 	m.prev.SetWidth(max(1, previewW-2))
 	m.prev.SetHeight(max(1, bodyH-2))
 	if m.edit != nil {
