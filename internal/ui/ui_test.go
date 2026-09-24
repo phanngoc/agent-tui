@@ -1684,8 +1684,21 @@ func TestClickSelectsASession(t *testing.T) {
 	m.onSessionSwitch()
 	first := m.mgr.ActiveIndex()
 
-	// Each session occupies two rows; the second starts two rows down.
-	clickAt(m, 3, headerRows+1+2)
+	// Ask the list where it drew the other conversation rather than counting
+	// its rows here: a card is however many rows its title wraps onto, plus
+	// its state, plus the gap after it, and a test that knows that number is
+	// a test that breaks the next time the card changes.
+	row := -1
+	for i, l := range m.sessionLines(max(4, m.sideW-2)) {
+		if l.idx != first {
+			row = i
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("the second conversation was not drawn")
+	}
+	clickAt(m, 3, headerRows+1+row-m.sessTop)
 	if m.focus != focusSessions {
 		t.Errorf("clicking the session list did not focus it: %v", m.focus)
 	}
