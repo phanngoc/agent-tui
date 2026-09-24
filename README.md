@@ -246,6 +246,24 @@ project, and that length has nothing to do with how wide the terminal is — and
 they are saved, along with which panes you closed, in
 `$XDG_DATA_HOME/agent-tui/layout.json`.
 
+**Watching more than one at a time** — `/split 2` or `/split 4`.
+
+Sessions here have always run at the same time, which is what made a list of
+them worth having; but only one was ever on screen, so watching two meant
+switching between them and trusting your memory for whichever was not in front
+of you. A split puts them side by side: two across, or four as a square.
+
+One of them is the conversation you are talking to. That cell is the transcript
+exactly as it always was — it scrolls, it selects, it takes what you type — and
+the others are renderings of the newest part of each, which is what you glance
+at a second pane for. Clicking one makes it the one you are talking to, and
+that is the only gesture the arrangement needs: one prompt, one caret, one
+conversation being addressed.
+
+Asking for more cells than fit, or more than you have conversations open, folds
+back to what there is room for and says which. `/split` on its own puts the
+column back.
+
 **Side chat** — `/btw` opens a pane beside the transcript and asks there.
 
 A long turn is exactly when a question occurs to you, and the two places to put
@@ -655,6 +673,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/engine [name]` | choose the agent: `api`, `claude`, `codex`, `opencode` |
 | `/target [name]` | work on the host, in a container, or in WSL |
 | `/btw [question]` | ask beside this conversation, in a pane of its own |
+| `/split [1\|2\|4]` | watch this many conversations side by side |
 | `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |

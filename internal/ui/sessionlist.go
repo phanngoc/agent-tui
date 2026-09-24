@@ -61,19 +61,44 @@ func (m *Model) sessionLines(width int) []sessionLine {
 			style = m.st.Bold
 		}
 
-		head := wrapTitle(s.Label(), width-2, titleLines)
-		for j, part := range head {
-			prefix := mark + " "
+		// Each conversation is a card, edged in the colour of what it is
+		// doing. A full box would be the obvious way to draw one and the wrong
+		// one here: two rows of border per card, in a column that already
+		// gives each conversation three, would halve how many you can see at
+		// once — and seeing them at once is the only thing this pane is for.
+		//
+		// So the card is an edge and a gap: one column down the side, one
+		// blank row between. It reads as a card, costs a quarter as much, and
+		// the edge is doing a second job — it is the same state colour as the
+		// glyph, so a conversation that wants you is legible from the shape of
+		// the column alone, before any of it is read.
+		edge := m.stateStyle(m.sessionState(s)).Render("▎")
+		// The edge is a column and the glyph beside it is two more, so what
+		// the title gets is what is left after all three. Measuring it against
+		// the pane instead is how every previous version of this line ran one
+		// column past the border.
+		const lead = 3 // the edge, the glyph, and the space after it
+		body := max(4, width-lead)
+
+		rows := make([]string, 0, titleLines+1)
+		for j, part := range wrapTitle(s.Label(), body, titleLines) {
+			lead := mark + " "
 			if j > 0 {
-				prefix = "  "
+				lead = "  "
 			}
-			row := prefix + style.Render(part)
-			out = append(out, sessionLine{idx: i, text: m.rowBg(row, width, i == active, selected)})
+			rows = append(rows, lead+style.Render(truncate(part, body)))
 		}
-		out = append(out, sessionLine{
-			idx:  i,
-			text: m.rowBg("  "+m.sessionMeta(s, width-2), width, i == active, selected),
-		})
+		rows = append(rows, "  "+m.sessionMeta(s, body))
+
+		for _, row := range rows {
+			out = append(out, sessionLine{
+				idx:  i,
+				text: m.rowBg(edge+row, width, i == active, selected),
+			})
+		}
+		// The gap belongs to the card above it, so a click in it lands there
+		// rather than between two conversations.
+		out = append(out, sessionLine{idx: i, text: m.rowBg("", width, false, false)})
 	}
 	return out
 }

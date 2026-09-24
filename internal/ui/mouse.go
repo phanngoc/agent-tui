@@ -267,6 +267,16 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 		return nil
 
 	case focusChat, focusBtw, focusPreview:
+		// A click in one of the other cells is the whole of what a split
+		// needs for a gesture: it says which conversation you are talking to
+		// now. Selecting starts in the cell that answers the prompt.
+		if pane == focusChat {
+			if s := m.splitAt(e.X, e.Y); s != nil && s != m.mgr.Active() {
+				m.setFocus(focusChat)
+				m.mgr.Select(m.indexOf(s))
+				return m.onSessionSwitch()
+			}
+		}
 		m.setFocus(pane)
 		// A press in a pane of text is the start of a selection. Focusing and
 		// selecting are not alternatives: you click into a pane to read it,

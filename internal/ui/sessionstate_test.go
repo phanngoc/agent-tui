@@ -469,3 +469,22 @@ func TestAClickLandsOnTheRowItHitAfterScrolling(t *testing.T) {
 		}
 	}
 }
+
+// Every card fits its column. The edge and the glyph are columns too, and the
+// title has to be measured against what is left after them — which is where
+// this pane has gone wrong before.
+func TestSessionCardsFitTheSidebar(t *testing.T) {
+	m := newTestModel(t)
+	talking(m, strings.Repeat("một tiêu đề rất dài ", 6))
+	s := talking(m, "ngắn")
+	s.Busy, s.Status = true, strings.Repeat("đang chạy gì đó ", 8)
+
+	for _, w := range []int{14, 20, 26, 34, 60} {
+		for i, l := range m.sessionLines(w) {
+			if got := ansi.StringWidth(stripANSI(l.text)); got > w {
+				t.Errorf("width %d: row %d is %d columns: %q",
+					w, i, got, stripANSI(l.text))
+			}
+		}
+	}
+}

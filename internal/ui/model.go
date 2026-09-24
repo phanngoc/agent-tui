@@ -131,6 +131,11 @@ type Model struct {
 	// it and the mouse reads it, so a click lands on the row that was drawn.
 	sessTop int
 
+	// split is how many conversations share the transcript column. One is the
+	// pane as it always was; two and four put others beside it, read-only,
+	// with the one you are talking to keeping the caret.
+	split int
+
 	// grepBodyY and recallBodyY are the line each search overlay's list began
 	// on, and grepDrawn and recallDrawn how many rows it drew. The views write
 	// them and the mouse reads them, so a click lands on the row that was
