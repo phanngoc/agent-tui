@@ -11,7 +11,9 @@ import (
 // second copy of the layout to fall out of step.
 const (
 	headerRows = 1
-	inputRows  = 5
+	// The prompt: a rule on top, the textarea, and no rule under it — the
+	// status line is the end of the screen.
+	inputRows  = 4
 	statusRows = 1
 )
 

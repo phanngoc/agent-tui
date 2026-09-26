@@ -320,10 +320,10 @@ func (m *Model) renameView() string {
 
 	var b strings.Builder
 	b.WriteString(m.st.Accent.Render("  Name this session") + "\n")
-	b.WriteString("  " + m.renameIn.View() + "\n\n")
+	b.WriteString(gutter + m.renameIn.View() + "\n\n")
 	if s != nil && s.Title == "" {
-		b.WriteString("  " + m.st.Faint.Render("currently named after its first prompt") + "\n")
+		b.WriteString(gutter + m.st.Faint.Render("currently named after its first prompt") + "\n")
 	}
-	b.WriteString("  " + m.st.Faint.Render("enter save · empty clears it · esc cancel"))
+	b.WriteString(gutter + m.st.Faint.Render("enter save · empty clears it · esc cancel"))
 	return m.st.Overlay.Width(w).Render(b.String())
 }

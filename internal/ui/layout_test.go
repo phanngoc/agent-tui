@@ -24,7 +24,9 @@ func TestDraggingADividerResizesThePane(t *testing.T) {
 		t.Skip("the test terminal is too narrow for a sidebar")
 	}
 
-	drag(m, before, before+10, headerRows+2)
+	// The rule is the sidebar's own right border — panes share one line — so
+	// the column to take hold of is that one, not the one after it.
+	drag(m, before-1, before+9, headerRows+2)
 
 	if m.sideW != before+10 {
 		t.Errorf("the sidebar is %d columns, want %d", m.sideW, before+10)
@@ -44,7 +46,7 @@ func TestDraggingThePreviewDivider(t *testing.T) {
 	}
 	edge := m.w - m.prevW
 
-	drag(m, edge, edge-12, headerRows+2)
+	drag(m, edge-1, edge-13, headerRows+2)
 
 	if m.prevW <= 0 || m.w-m.prevW != edge-12 {
 		t.Errorf("the preview's edge is at %d, want %d", m.w-m.prevW, edge-12)
@@ -81,7 +83,7 @@ func TestPressingADividerDoesNotMoveTheFocus(t *testing.T) {
 	}
 	m.setFocus(focusInput)
 
-	m.onMouse(tea.MouseClickMsg{X: m.sideW, Y: headerRows + 2, Button: tea.MouseLeft})
+	m.onMouse(tea.MouseClickMsg{X: m.sideW - 1, Y: headerRows + 2, Button: tea.MouseLeft})
 
 	if m.focus != focusInput {
 		t.Errorf("pressing the divider moved the focus to %v", m.focus)
@@ -89,7 +91,7 @@ func TestPressingADividerDoesNotMoveTheFocus(t *testing.T) {
 	if m.drag != dragSide {
 		t.Error("pressing the divider did not take hold of it")
 	}
-	m.onMouse(tea.MouseReleaseMsg{X: m.sideW, Y: headerRows + 2})
+	m.onMouse(tea.MouseReleaseMsg{X: m.sideW - 1, Y: headerRows + 2})
 	if m.drag != dragNone {
 		t.Error("the divider is still held after the button came up")
 	}

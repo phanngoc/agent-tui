@@ -206,32 +206,36 @@ func (m *Model) dividerAt(x, y int) dragging {
 	if y < headerRows || y >= headerRows+m.bodyH {
 		return dragNone
 	}
-	if m.sideW > 0 && onDivider(x, m.sideW) {
+	if m.sideW > 0 && x == m.sideW-1 {
 		return dragSide
 	}
-	if col := m.prevW + m.btwW; col > 0 && onDivider(x, m.w-col) {
+	if col := m.prevW + m.btwW; col > 0 && x == m.w-col-1 {
 		return dragPreview
 	}
 	return dragNone
 }
 
-// onDivider is the two columns a divider is drawn on: the right border of the
-// pane before it and the left border of the pane after it.
+// A divider is one column now, and it is the rule you can see.
 //
-// It used to be three, one either side of the edge and the edge itself, which
-// is a column too many in the wrong direction: the extra one is the first
-// column of the pane's text, and a press there took hold of the divider
-// instead of the word under the pointer. A divider is easier to grab for it,
-// and nothing else on that column can ever be reached.
-func onDivider(x, edge int) bool { return x == edge-1 || x == edge }
+// It was two: the right border of the pane before it and the left border of
+// the pane after. Panes share a rule since — one line between them rather than
+// two — so there is only one column to be on, and the column after it is the
+// first column of text. Claiming that one took hold of the divider instead of
+// the word under the pointer, which is how this was wrong the last two times.
 
 // dragTo moves the divider being held to the column the pointer is in.
+// dragTo moves the divider the mouse has hold of to a column.
+//
+// The column is where the rule should end up, and a pane's rule is its own
+// last column — panes share one line now, so the rule between the sidebar and
+// the transcript is the sidebar's right border at sideW-1. Dropping it on
+// column x therefore makes the pane x+1 wide.
 func (m *Model) dragTo(x int) {
 	switch m.drag {
 	case dragSide:
-		m.setSideWidth(x)
+		m.setSideWidth(x + 1)
 	case dragPreview:
-		m.setPrevWidth(m.w - x)
+		m.setPrevWidth(m.w - x - 1)
 	}
 }
 

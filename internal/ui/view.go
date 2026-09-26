@@ -58,7 +58,7 @@ func (m *Model) header() string {
 	var sb strings.Builder
 	sb.WriteString(m.st.Accent.Render(" ▪ "))
 	sb.WriteString(m.st.Bold.Render(m.projectName()))
-	sb.WriteString("  ")
+	sb.WriteString(m.st.TabGap.Render(" │"))
 
 	listed := 0
 	for _, s := range sessions {
@@ -85,6 +85,11 @@ func (m *Model) header() string {
 		label := truncate(s.Label(), 16)
 		if mark := m.tabMark(s, s == active); mark != "" {
 			label = mark + " " + label
+		}
+		if shown > 1 {
+			// A rule between the tabs, so they read as divisions of one strip
+			// rather than as separate labels adrift on it.
+			sb.WriteString(m.st.TabGap.Render("│"))
 		}
 		if s == active {
 			sb.WriteString(m.st.TabOn.Render(label))
@@ -117,17 +122,21 @@ func (m *Model) panes() string {
 	if s := m.mgr.Active(); s.Busy && s.Status != "" {
 		chatTitle = s.Status
 	}
-	m.chat.SetContent(m.transcript(max(10, m.chatWidth()-2)))
-	cols = append(cols, m.splitColumn(chatTitle))
+	// Every pane after the first leans on its neighbour's right edge, so the
+	// screen is ruled once between panes rather than twice.
+	seam := seams{left: len(cols) > 0, bottom: true}
+	m.chat.SetContent(m.transcript(max(10, m.chatWidth())))
+	cols = append(cols, m.splitColumn(chatTitle, seam))
 
 	if m.btwW > 0 {
 		body := m.paintSelection(m.btwPane(m.btwW-2), focusBtw, m.btwW-2)
-		cols = append(cols, m.pane(body, m.btwTitle(), m.btwW, m.bodyH,
-			m.focus == focusBtw))
+		cols = append(cols, m.paneSeam(body, m.btwTitle(), m.btwW, m.bodyH,
+			m.focus == focusBtw, seams{left: true, bottom: true}))
 	}
 	if m.prevW > 0 {
 		body := m.paintSelection(m.previewPane(), focusPreview, m.prevW-2)
-		cols = append(cols, m.pane(body, m.previewTitle(), m.prevW, m.bodyH, m.focus == focusPreview))
+		cols = append(cols, m.paneSeam(body, m.previewTitle(), m.prevW, m.bodyH,
+			m.focus == focusPreview, seams{left: true, bottom: true}))
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, cols...)
 }
@@ -139,8 +148,10 @@ func (m *Model) leftColumn() string {
 	sessH, treeH := m.leftSplit()
 
 	return lipgloss.JoinVertical(lipgloss.Left,
-		m.pane(m.sessionsPane(), "sessions", m.sideW, sessH, m.focus == focusSessions),
-		m.pane(m.explorerPane(treeH-2), m.explorerTitle(), m.sideW, treeH, m.focus == focusExplorer),
+		m.paneSeam(m.sessionsPane(), "sessions", m.sideW, sessH,
+			m.focus == focusSessions, seams{bottom: true}),
+		m.paneSeam(m.explorerPane(treeH-2), m.explorerTitle(), m.sideW, treeH,
+			m.focus == focusExplorer, seams{bottom: true}),
 	)
 }
 
@@ -169,7 +180,7 @@ func (m *Model) explorerTitle() string {
 func (m *Model) explorerPane(height int) string {
 	rows := m.tree.Rows()
 	if len(rows) == 0 {
-		return m.st.Faint.Render("  (empty)")
+		return m.st.Faint.Render(gutter + "(empty)")
 	}
 	height = max(1, height)
 
@@ -186,7 +197,10 @@ func (m *Model) explorerPane(height int) string {
 	var b strings.Builder
 	for i := m.treeTop; i < len(rows) && i < m.treeTop+height; i++ {
 		n := rows[i]
-		indent := strings.Repeat("  ", min(n.Depth, 6))
+		// One column a level, not two. Six levels deep, two columns each is a
+		// third of a narrow sidebar spent on saying how deep you are — which
+		// the tree already says by being a tree.
+		indent := strings.Repeat(" ", min(n.Depth, 6))
 
 		icon, style := " ", m.st.Dim
 		switch {
@@ -204,7 +218,7 @@ func (m *Model) explorerPane(height int) string {
 		}
 		row := " " + indent + style.Render(icon) + " " + m.st.Dim.Render(label)
 		if m.file != nil && !n.Dir && filepath.Join(m.tree.Root(), filepath.FromSlash(n.Rel)) == m.file.Abs {
-			row = " " + indent + "  " + m.st.Good.Render(label)
+			row = " " + indent + " " + m.st.Good.Render(label)
 		}
 		if i == m.treeSel && m.focus == focusExplorer {
 			row = m.st.SelRow.Render(padRight(" "+indent+icon+" "+label, inner))
@@ -219,13 +233,43 @@ func (m *Model) explorerPane(height int) string {
 //
 // Lip Gloss v2 counts the border inside Width and Height, so the box is sized
 // to the full pane and the content is clipped to the space left inside it.
+// seams says which of a pane's edges belong to its neighbour instead of to it.
+type seams struct {
+	left   bool // the pane to the left already drew this rule
+	bottom bool // the pane below draws its top rule where this one would end
+}
+
 func (m *Model) pane(content, title string, w, h int, active bool) string {
+	return m.paneSeam(content, title, w, h, active, seams{})
+}
+
+// paneSeam draws a pane that may share its left edge with the one before it.
+//
+// Every pane used to draw its own box, so two panes side by side put two rules
+// between them — and a screen ruled twice everywhere reads as clutter rather
+// than as structure. The pane on the right drops its left border and leans on
+// its neighbour's right one, which is what a seam is: one line doing the job
+// two lines were doing.
+//
+// The width does not change. A pane without a left border has one more column
+// of content, which is a column back rather than a column moved.
+func (m *Model) paneSeam(content, title string, w, h int, active bool, seam seams) string {
 	style := m.st.Pane
 	ts := m.st.Title
 	if active {
 		style, ts = m.st.PaneActive, m.st.TitleOn
 	}
 	inner := max(1, w-2)
+	if seam.left {
+		style = style.BorderLeft(false)
+		inner = max(1, w-1)
+	}
+	// Dropping the bottom rather than the top, because the title lives on the
+	// top border: the pane below keeps its own, and it serves as the line
+	// between the two. One rule, and a row of content back.
+	if seam.bottom {
+		style = style.BorderBottom(false)
+	}
 
 	box := style.Width(w).Height(max(3, h)).Render(clipBlock(content, inner, h-2))
 	lines := strings.Split(box, "\n")
@@ -314,10 +358,10 @@ func (m *Model) previewPane() string {
 	if m.file == nil {
 		hint := []string{
 			"",
-			m.st.Dim.Render("  No file open."),
+			m.st.Dim.Render(gutter + "No file open."),
 			"",
-			"  " + m.st.StatusKey.Render(" ctrl+p ") + " " + m.st.Dim.Render("open a file"),
-			"  " + m.st.StatusKey.Render(" ctrl+f ") + " " + m.st.Dim.Render("search contents"),
+			gutter + m.st.StatusKey.Render(" ctrl+p ") + " " + m.st.Dim.Render("open a file"),
+			gutter + m.st.StatusKey.Render(" ctrl+f ") + " " + m.st.Dim.Render("search contents"),
 		}
 		return strings.Join(hint, "\n")
 	}
@@ -344,7 +388,11 @@ func (m *Model) inputBox() string {
 	// own. A shell puts it next to the caret because that is where you are
 	// looking when you type; the caret here is a textarea whose prompt repeats
 	// on every row, so the border is the nearest place that says it once.
-	box := style.Width(max(3, m.w)).Render(body)
+	// No rule under the prompt. The status line below it is the end of the
+	// screen, and a border drawn to separate the last thing from the edge is
+	// a line spent on nothing — which is a row of the conversation, given
+	// back.
+	box := style.BorderBottom(false).Width(max(3, m.w)).Render(body)
 	lines := strings.Split(box, "\n")
 	if len(lines) > 0 {
 		inner := max(1, m.w-2)

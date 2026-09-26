@@ -59,7 +59,7 @@ func TestTheCellsAddUpToTheColumn(t *testing.T) {
 					size[0], size[1], n, tall, m.bodyH)
 			}
 			// And what it draws is that size, not merely that arithmetic.
-			drawn := strings.Split(m.splitColumn("transcript"), "\n")
+			drawn := strings.Split(m.splitColumn("transcript", seams{}), "\n")
 			if len(drawn) != m.bodyH {
 				t.Errorf("%dx%d split %d: drew %d rows, want %d",
 					size[0], size[1], n, len(drawn), m.bodyH)
@@ -157,13 +157,15 @@ func TestTheTranscriptIsSizedToItsCell(t *testing.T) {
 	if half >= whole {
 		t.Errorf("split in two, the transcript is still %d columns of %d", half, whole)
 	}
-	if want := m.chatCell().w - 2; half != want {
+	// Its cell's writable width, which is not always the cell minus two: a
+	// pane that leans on its neighbour's rule has a column more of it.
+	want, _ := m.chatInner()
+	if half != want {
 		t.Errorf("the transcript is %d columns, want its cell's %d", half, want)
 	}
-	// And what it draws fits that cell.
 	for i, l := range strings.Split(m.chat.View(), "\n") {
-		if got := len([]rune(stripANSI(l))); got > m.chatCell().w-2 {
-			t.Errorf("line %d is %d columns in a cell of %d", i, got, m.chatCell().w-2)
+		if got := len([]rune(stripANSI(l))); got > want {
+			t.Errorf("line %d is %d columns in a cell of %d", i, got, want)
 		}
 	}
 }
@@ -182,10 +184,18 @@ func TestSelectionFollowsTheFocusedCell(t *testing.T) {
 	if !ok {
 		t.Fatal("the transcript has no box")
 	}
+	// The focused cell's writable area. Not the cell minus a border on each
+	// side: a pane that leans on its neighbour's rule has no left border of
+	// its own, so its text begins a column earlier and runs a column further.
 	cell := m.chatCell()
-	if left != cell.x+1 || top != cell.y+1 || w != cell.w-2 || h != cell.h-2 {
-		t.Errorf("selection is aimed at %d,%d %dx%d; the focused cell is %d,%d %dx%d",
-			left, top, w, h, cell.x+1, cell.y+1, cell.w-2, cell.h-2)
+	wantW, wantH := m.chatInner()
+	wantX := cell.x
+	if m.paneHasLeftRule(focusChat) {
+		wantX++
+	}
+	if left != wantX || top != cell.y+1 || w != wantW || h != wantH {
+		t.Errorf("selection is aimed at %d,%d %dx%d; the focused cell's text is %d,%d %dx%d",
+			left, top, w, h, wantX, cell.y+1, wantW, wantH)
 	}
 	// A press inside it starts a selection; one in the cell beside it does not.
 	m.onMouse(tea.MouseClickMsg{X: left + 1, Y: top + 1, Button: tea.MouseLeft})
@@ -207,5 +217,44 @@ func TestSplitWithNoNumberPutsTheColumnBack(t *testing.T) {
 	m.runSlash("split", "")
 	if got := m.splitCells(); got != 1 {
 		t.Errorf("/split again left %d cells", got)
+	}
+}
+
+// Where a pane's content starts has to be where the renderer put it. A pane
+// that leans on its neighbour's rule has no left border of its own, so the
+// column the text begins on moves — and every click and every drag is aimed
+// through the same arithmetic.
+func TestPaneBoxFindsTheTextTheRendererDrew(t *testing.T) {
+	m := newTestModel(t)
+	conversations(m, 2)
+	m.resize(120, 30)
+	m.View()
+
+	rows := strings.Split(stripANSI(m.View().Content), "\n")
+	for _, f := range []focus{focusChat, focusPreview} {
+		left, top, w, _, ok := m.paneBox(f)
+		if !ok {
+			continue
+		}
+		if top >= len(rows) {
+			t.Fatalf("pane %v claims row %d of %d", f, top, len(rows))
+		}
+		row := []rune(rows[top])
+		if left >= len(row) {
+			t.Fatalf("pane %v claims column %d of %d", f, left, len(row))
+		}
+		// The cell just before the content is the rule; the content itself is
+		// not one. If the box is a column out, one of these is wrong.
+		if got := row[left]; got == '│' {
+			t.Errorf("pane %v: column %d is still the rule, so the box is a column short",
+				f, left)
+		}
+		if left > 0 && row[left-1] != '│' {
+			t.Errorf("pane %v: column %d is %q, not the rule that should precede the text",
+				f, left-1, string(row[left-1]))
+		}
+		if left+w > len(row) {
+			t.Errorf("pane %v: %d columns from %d runs past the %d drawn", f, w, left, len(row))
+		}
 	}
 }

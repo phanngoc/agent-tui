@@ -240,6 +240,7 @@ type Styles struct {
 	MdTableHead                         lipgloss.Style
 
 	ActiveRow lipgloss.Style
+	TabGap    lipgloss.Style
 	Overlay   lipgloss.Style
 	// Select is text the mouse has selected. It is a background rather than a
 	// tint: a selection that let the syntax show through would have to be dark
@@ -261,8 +262,13 @@ func New(p Palette) *Styles {
 	// is often barely visible against this background.
 	s.App = base.Foreground(p.Fg)
 	s.Body = base.Foreground(p.Text)
-	s.Pane = base.Border(lipgloss.RoundedBorder()).BorderForeground(p.Border)
-	s.PaneActive = base.Border(lipgloss.RoundedBorder()).BorderForeground(p.BorderOn)
+	// Square corners, not round. A rounded box is a card — it says "this is a
+	// thing, sitting on a surface" — and a terminal divided into panes is not
+	// a surface with things on it, it is one surface ruled into parts. The
+	// straight corner is the ruling; the curve was an ornament pretending to
+	// be a structure.
+	s.Pane = base.Border(lipgloss.NormalBorder()).BorderForeground(p.Border)
+	s.PaneActive = base.Border(lipgloss.NormalBorder()).BorderForeground(p.BorderOn)
 	s.Title = base.Foreground(p.Dim).Bold(true)
 	s.TitleOn = base.Foreground(p.Accent).Bold(true)
 
@@ -277,8 +283,15 @@ func New(p Palette) *Styles {
 	s.Status = base.Foreground(p.Dim).Background(p.BgAlt)
 	s.StatusKey = base.Foreground(p.Fg).Background(p.BgAlt).Bold(true)
 
+	// One column of padding, not two, and a rule between them instead of a
+	// second. The gutter was two columns per tab spent on nothing; the rule is
+	// one, spent on saying where one tab ends and the next begins.
 	s.TabOn = base.Foreground(p.Bg).Background(p.Accent).Bold(true).Padding(0, 1)
-	s.TabOff = base.Foreground(p.Dim).Padding(0, 1)
+	s.TabOff = base.Foreground(p.Dim).PaddingLeft(1).PaddingRight(1)
+	// A divider between the tabs rather than a gutter around each. The gutter
+	// is two columns per tab spent on nothing; the divider is one, spent on
+	// saying where one ends.
+	s.TabGap = base.Foreground(p.Border)
 
 	s.UserTag = base.Foreground(p.Accent).Bold(true)
 	s.AgentTag = base.Foreground(p.Good).Bold(true)
@@ -331,7 +344,7 @@ func New(p Palette) *Styles {
 	s.MdMark = base.Foreground(p.Accent)
 	s.MdTableHead = base.Foreground(p.Accent).Bold(true)
 
-	s.Overlay = base.Border(lipgloss.RoundedBorder()).BorderForeground(p.Accent).Background(p.BgAlt)
+	s.Overlay = base.Border(lipgloss.NormalBorder()).BorderForeground(p.Accent).Background(p.BgAlt)
 	s.ActiveRow = base.Background(p.Row)
 	s.Select = base.Foreground(p.Fg).Background(p.Sel)
 	s.SelRow = base.Foreground(p.Fg).Background(p.Border)
