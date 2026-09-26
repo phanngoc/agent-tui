@@ -818,6 +818,27 @@ were. There are now two backgrounds: one for the conversation the prompt is
 talking to, one for the row the cursor is over, because they are often not the
 same row.
 
+## Chrome
+
+The frame is ruled, not boxed.
+
+A rounded box is a card — it says *this is a thing, sitting on a surface* — and
+a terminal divided into panes is not a surface with things on it. It is one
+surface, ruled into parts. So the corners are square, and panes share their
+rules: the pane on the right drops its left border and leans on its
+neighbour's, which is one line doing the job two were doing. The body sits
+straight on the prompt, whose top rule is the line between them, and there is
+no rule under the prompt at all — the status line is the end of the screen, and
+a border drawn to separate the last thing from the edge is a row of the
+conversation spent on nothing.
+
+Padding went the same way. One column of gutter inside a panel rather than two
+on top of the border's own; one column per level in the file tree rather than
+two; a rule between the tabs rather than a gutter around each.
+
+It is all pinned: nothing rounded, no two rules touching, and the frame exactly
+the size of the terminal, at four sizes.
+
 ## Colours
 
 Three palettes, set with `"theme"` in the config: `onedark` (the default),

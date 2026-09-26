@@ -1340,8 +1340,8 @@ func (m *Model) resize(w, h int) {
 	const (
 		headerH  = 1
 		statusH  = 1
-		inputIn  = 3 // textarea rows
-		inputBox = inputIn + 2
+		inputIn  = 3           // textarea rows
+		inputBox = inputIn + 1 // a rule above the textarea, and none below
 	)
 	bodyH := h - headerH - statusH - inputBox - m.attachRows()
 	bodyH = max(bodyH, 5)
@@ -1359,9 +1359,9 @@ func (m *Model) resize(w, h int) {
 
 	// Sized to the cell it is drawn in, which is the column until the column
 	// is split. Both are set before this so splitBoxes can be asked.
-	cell := m.chatCell()
-	m.chat.SetWidth(max(1, cell.w-2))
-	m.chat.SetHeight(max(1, cell.h-2))
+	cw, ch := m.chatInner()
+	m.chat.SetWidth(max(1, cw))
+	m.chat.SetHeight(max(1, ch))
 	m.prev.SetWidth(max(1, previewW-2))
 	m.prev.SetHeight(max(1, bodyH-2))
 	if m.edit != nil {

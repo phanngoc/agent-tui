@@ -155,20 +155,26 @@ func (m *Model) splitBoxes() []splitBox {
 
 // splitColumn draws the cells and stacks them into the column the transcript
 // used to fill on its own.
-func (m *Model) splitColumn(chatTitle string) string {
+func (m *Model) splitColumn(chatTitle string, seam seams) string {
 	boxes := m.splitBoxes()
 	if len(boxes) <= 1 {
 		body := m.paintSelection(m.chat.View(), focusChat, m.chatW-2)
-		return m.pane(body, chatTitle, m.chatW, m.bodyH, m.focus == focusChat)
-	}
-
-	cells := make([]string, len(boxes))
-	for i, b := range boxes {
-		title, body := m.splitCell(b, chatTitle)
-		cells[i] = m.pane(body, title, b.w, b.h, b.focused && m.focus == focusChat)
+		return m.paneSeam(body, chatTitle, m.chatW, m.bodyH, m.focus == focusChat, seam)
 	}
 
 	cols, _ := splitGrid(len(boxes))
+	cells := make([]string, len(boxes))
+	for i, b := range boxes {
+		title, body := m.splitCell(b, chatTitle)
+		// A cell leans left on whatever is beside it: the cell before it in
+		// the row, or the sidebar for the first cell of each row.
+		cells[i] = m.paneSeam(body, title, b.w, b.h,
+			b.focused && m.focus == focusChat, seams{
+				left:   seam.left || i%cols != 0,
+				bottom: seam.bottom && i >= len(boxes)-cols,
+			})
+	}
+
 	var rows []string
 	for i := 0; i < len(cells); i += cols {
 		rows = append(rows, lipgloss.JoinHorizontal(lipgloss.Top, cells[i:min(i+cols, len(cells))]...))
@@ -220,8 +226,19 @@ func (m *Model) chatCell() splitBox {
 	return splitBox{x: m.sideW, y: headerRows, w: m.chatW, h: m.bodyH, focused: true}
 }
 
-func (m *Model) chatWidth() int  { return m.chatCell().w }
-func (m *Model) chatHeight() int { return m.chatCell().h }
+// chatInner is the writable size of the cell the transcript is drawn in,
+// which is the one thing resize, the renderer and the mouse all have to agree
+// about. A pane that leans on its neighbour's rule has a column more of it,
+// so it cannot be derived from the cell's width alone.
+func (m *Model) chatInner() (w, h int) {
+	if _, _, w, h, ok := m.paneBox(focusChat); ok {
+		return w, h
+	}
+	c := m.chatCell()
+	return max(1, c.w-2), max(1, c.h-2)
+}
+
+func (m *Model) chatWidth() int { w, _ := m.chatInner(); return w }
 
 // splitAt is the conversation whose cell covers a screen cell, or nil.
 func (m *Model) splitAt(x, y int) *session.Session {

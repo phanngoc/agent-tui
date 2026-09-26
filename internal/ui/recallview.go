@@ -21,10 +21,10 @@ func (m *Model) recallView() string {
 	inner := w - 2
 
 	var b strings.Builder
-	b.WriteString(m.st.Accent.Render("  Search every conversation") + "\n")
-	b.WriteString("  " + m.recallIn.View() + "\n")
-	b.WriteString("  " + m.recallToggles() + "\n\n")
-	b.WriteString("  " + m.recallSummary() + "\n\n")
+	b.WriteString(m.st.Accent.Render(gutter+"Search every conversation") + "\n")
+	b.WriteString(gutter + m.recallIn.View() + "\n")
+	b.WriteString(gutter + m.recallToggles() + "\n\n")
+	b.WriteString(gutter + m.recallSummary() + "\n\n")
 	// Where the list begins, recorded as the view goes.
 	m.recallBodyY = strings.Count(b.String(), "\n")
 	b.WriteString(m.recallList(inner))

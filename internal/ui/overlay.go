@@ -134,7 +134,7 @@ func (m *Model) finderView() string {
 	inner := w - 2 // Lip Gloss v2 counts the border inside Width
 	var b strings.Builder
 
-	b.WriteString(m.st.Accent.Render("  Go to file") + "  " +
+	b.WriteString(m.st.Accent.Render(gutter+"Go to file") + "  " +
 		m.st.Faint.Render(strconv.Itoa(m.idx.Len())+" indexed"))
 	b.WriteString("\n  " + m.finderIn.View() + "\n\n")
 
@@ -143,7 +143,7 @@ func (m *Model) finderView() string {
 	}
 	for i, hit := range m.finderHit {
 		path := highlightPath(m.st, hit, inner-4)
-		row := "  " + path
+		row := gutter + path
 		if i == m.finderSel {
 			row = m.st.SelRow.Render(padRight(" ▸ "+stripANSI(path), inner))
 		}
@@ -173,6 +173,14 @@ func highlightPath(st *theme.Styles, hit fsx.Hit, w int) string {
 	}
 	return b.String()
 }
+
+// pad is the gutter inside an overlay, and the one place that decides it.
+//
+// It used to be two columns written out at every line that wanted them, on top
+// of the border's own one — three columns of nothing down the left of every
+// box. One is enough to keep the text off the rule, and a panel that is mostly
+// panel reads as a tool rather than as a card sitting on a desk.
+const gutter = " "
 
 // ---- project-wide content search ------------------------------------------
 
@@ -273,12 +281,12 @@ func (m *Model) grepView() string {
 	rows := clamp(m.h/2, 8, 22)
 
 	var b strings.Builder
-	b.WriteString(m.st.Accent.Render("  Search") + "  " + m.grepToggles() + "\n")
-	b.WriteString("  " + m.grepIn.View() + "\n")
-	b.WriteString("  " + m.st.Faint.Render(m.grepSummary()) + "\n\n")
+	b.WriteString(m.st.Accent.Render(gutter+"Search") + "  " + m.grepToggles() + "\n")
+	b.WriteString(gutter + m.grepIn.View() + "\n")
+	b.WriteString(gutter + m.st.Faint.Render(m.grepSummary()) + "\n\n")
 
 	if m.grepRes.Err != nil {
-		b.WriteString("  " + m.st.Bad.Render(m.grepRes.Err.Error()) + "\n")
+		b.WriteString(gutter + m.st.Bad.Render(m.grepRes.Err.Error()) + "\n")
 	}
 	// Where the list begins, recorded as the view goes rather than counted
 	// afterwards by anyone who thinks they know what is above it.
@@ -336,13 +344,13 @@ func (m *Model) approvalView() string {
 	}
 	b.WriteString(m.st.Warn.Render(head) + "\n")
 	if reason := m.approvals[0].ev.Reason; reason != "" {
-		b.WriteString("  " + m.st.Faint.Render(truncate(reason, w-6)) + "\n")
+		b.WriteString(gutter + m.st.Faint.Render(truncate(reason, w-6)) + "\n")
 	}
 	b.WriteString("\n")
-	b.WriteString("  " + m.st.ToolTag.Render(call.Name) + "\n")
+	b.WriteString(gutter + m.st.ToolTag.Render(call.Name) + "\n")
 
 	for _, line := range prettyInput(call.Input, w-6) {
-		b.WriteString("  " + m.st.Dim.Render(line) + "\n")
+		b.WriteString(gutter + m.st.Dim.Render(line) + "\n")
 	}
 	b.WriteString("\n  " +
 		m.st.Good.Render("[y] allow") + "   " +
@@ -661,7 +669,7 @@ func (m *Model) targetView() string {
 	b.WriteString(m.st.Accent.Render("  Where this session works") + "\n\n")
 
 	if len(m.targets) == 1 {
-		b.WriteString("  " + m.st.Faint.Render("no running containers found") + "\n")
+		b.WriteString(gutter + m.st.Faint.Render("no running containers found") + "\n")
 	}
 	active := m.mgr.Active().Target
 	if active == "" {
@@ -768,7 +776,7 @@ func (m *Model) choiceView() string {
 	b.WriteString(m.st.Accent.Render(title) + "\n\n")
 
 	for _, line := range strings.Split(lipgloss.Wrap(head.ev.Question, inner-4, " "), "\n") {
-		b.WriteString("  " + m.st.Body.Render(line) + "\n")
+		b.WriteString(gutter + m.st.Body.Render(line) + "\n")
 	}
 	b.WriteString("\n")
 
@@ -844,7 +852,7 @@ func (m *Model) tasksView() string {
 	b.WriteString(m.st.Accent.Render("  Background commands") + "\n\n")
 
 	if len(all) == 0 {
-		b.WriteString("  " + m.st.Faint.Render("nothing running") + "\n")
+		b.WriteString(gutter + m.st.Faint.Render("nothing running") + "\n")
 	}
 	for i, t := range all {
 		mark, style := taskMark(m.st, t)
@@ -870,15 +878,15 @@ func (m *Model) taskOutputView(w, inner int) string {
 
 	mark, style := taskMark(m.st, t)
 	var b strings.Builder
-	b.WriteString("  " + mark + " " + style.Render(truncate(t.Label, inner-24)) +
+	b.WriteString(gutter + mark + " " + style.Render(truncate(t.Label, inner-24)) +
 		"  " + m.st.Faint.Render(shortDur(t.Elapsed())) + "\n\n")
 
 	lines := t.Tail(rows)
 	if len(lines) == 0 {
-		b.WriteString("  " + m.st.Faint.Render("no output yet") + "\n")
+		b.WriteString(gutter + m.st.Faint.Render("no output yet") + "\n")
 	}
 	for _, l := range lines {
-		b.WriteString("  " + m.st.Dim.Render(truncate(l, inner-4)) + "\n")
+		b.WriteString(gutter + m.st.Dim.Render(truncate(l, inner-4)) + "\n")
 	}
 
 	b.WriteString("\n  " + m.st.Faint.Render("esc back · x stop"))

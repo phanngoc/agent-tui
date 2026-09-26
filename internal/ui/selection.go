@@ -81,17 +81,29 @@ func (s *selection) span() (a, b selPoint, ok bool) {
 // border, and the size of the area inside it. It is the one place that knows,
 // so the renderer and the mouse cannot come to disagree about it.
 func (m *Model) paneBox(f focus) (left, top, w, h int, ok bool) {
+	// A pane that leans on its neighbour's rule has no left border of its own,
+	// so its text starts one column earlier. The renderer decides that in
+	// panes(); this asks the same question the same way rather than carrying a
+	// second copy of the answer, because two copies is how a click ends up one
+	// column from where it was aimed.
+	edge := func(f focus) int {
+		if m.paneHasLeftRule(f) {
+			return 1
+		}
+		return 0
+	}
+
 	switch f {
 	case focusChat:
 		// The cell the conversation is drawn in, which is the column until
 		// the column is split. Selecting in an unfocused cell would be
 		// selecting from a rendering rather than from the transcript.
 		c := m.chatCell()
-		left, w = c.x, c.w
 		if c.h < 3 {
 			return 0, 0, 0, 0, false
 		}
-		return left + 1, c.y + 1, w - 2, c.h - 2, true
+		e := edge(focusChat)
+		return c.x + e, c.y + 1, c.w - e - 1, c.h - 2, true
 	case focusBtw:
 		if m.btwW == 0 {
 			return 0, 0, 0, 0, false
@@ -108,7 +120,20 @@ func (m *Model) paneBox(f focus) (left, top, w, h int, ok bool) {
 	if w < 3 || m.bodyH < 3 {
 		return 0, 0, 0, 0, false
 	}
-	return left + 1, headerRows + 1, w - 2, m.bodyH - 2, true
+	e := edge(f)
+	return left + e, headerRows + 1, w - e - 1, m.bodyH - 2, true
+}
+
+// paneHasLeftRule reports whether a pane draws its own left border, which it
+// does only when there is nothing beside it to borrow one from.
+func (m *Model) paneHasLeftRule(f focus) bool {
+	switch f {
+	case focusChat:
+		return m.sideW == 0 && m.chatCell().x == 0
+	case focusBtw, focusPreview:
+		return false
+	}
+	return true
 }
 
 // paneScroll is how far a pane has been scrolled, so a row can keep its name
