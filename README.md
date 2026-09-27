@@ -674,6 +674,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/target [name]` | work on the host, in a container, or in WSL |
 | `/btw [question]` | ask beside this conversation, in a pane of its own |
 | `/split [1\|2\|4]` | watch this many conversations side by side |
+| `/theme [name]` | change the colours, or list what there is |
 | `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |
@@ -841,8 +842,33 @@ the size of the terminal, at four sizes.
 
 ## Colours
 
-Three palettes, set with `"theme"` in the config: `onedark` (the default),
-`herdr` and `monokai`. An unknown name falls back to the default rather than
+A theme is data, not code. Three palettes are compiled in — `onedark` (the
+default), `herdr` and `monokai` — and any number more are JSON files in
+`$XDG_CONFIG_HOME/agent-tui/themes/`, named by the file. `/theme <name>`
+changes it without leaving; `/theme` on its own lists what there is.
+
+The role names are [opencode's](https://opencode.ai/docs/themes/), so a theme
+written for that mostly drops straight in: `background`, `backgroundPanel`,
+`backgroundElement`, `text`, `textMuted`, `border`, `borderActive`, `accent`,
+`success`, `warning`, `error`, `info`, and the `syntax*` set. Three roles are
+this program's own, because it reads at three weights rather than two —
+`textStrong` for emphasis, `textSubtle` for what stands furthest back, and
+`selection`. A value may be a hex string, an ANSI index, or the name of another
+role, so a theme can say *the same blue* once.
+
+**Anything a file leaves out keeps the built-in value**, which is what makes a
+four-line theme worth writing: you say the three colours you actually care
+about and the rest stays measured. There is an example in
+[`docs/themes/`](docs/themes/).
+
+A file that would not be legible is refused, with the colour and the ratio, and
+the default is used instead. A theme is taste, and the one thing taste does not
+get to decide is whether the words can be read: a UI whose comment colour has
+vanished into the background is not a style, it is a fault — and one the reader
+will blame on this program rather than on their file. The floors are the same
+ones the built-ins are held to, applied at the moment the file loads, because a
+guarantee that only covers the colours that ship is not a guarantee about the
+program. An unknown name falls back to the default rather than
 failing to start — a typo in a config file is not worth a dead terminal.
 
 **onedark** is One Dark, as Atom shipped it and every editor since has copied
@@ -904,6 +930,41 @@ and stops it being Monokai.
 | comment | `#9a9484` |
 
 ## How it stays fast
+
+A frame is drawn on every spinner tick, every keystroke and every movement of
+the mouse, so what a frame costs is what the program costs to sit in front of.
+On a two-hundred-message conversation with eight open, measured:
+
+| | was | is |
+|---|---|---|
+| a frame with nothing moving | 4.93 ms · 16,064 allocs | **0.99 ms · 1,893** |
+| a frame with an answer arriving | 4.16 ms | **1.73 ms** |
+| the session list | 113 µs | **1.8 µs** |
+
+Two thirds of it was one thing: measuring text. Working out where a border
+goes, or where a soft wrap falls, means walking a string a grapheme at a time
+through a width table with an escape-sequence parser in between — and almost
+all of that walking was over text that had not changed since the frame before.
+So four things are now remembered rather than recomputed:
+
+- **the viewport's content**, handed over only when it differs;
+- **its visible lines**, against a counter rather than the text, because the
+  text is the one string here big enough that hashing it would itself show up;
+- **each pane's drawn output**, keyed by everything it was drawn from — hashing
+  a string is a pass over its bytes, which is the cheap way to find out that
+  measuring it is unnecessary;
+- **the session list**, which three separate things ask for in one frame and
+  which wraps every title to do it.
+
+Soft wrap on the transcript was also turned off, because the transcript is
+wrapped as it is written: the viewport was re-deriving line breaks that were
+already there.
+
+The danger in all of this is a screen that is fast and wrong, which is worse
+than one that is slow. So the tests are about staleness rather than speed:
+change a title, start a turn, fail one, stream a delta, type a letter, scroll,
+resize — and insist the screen changed with it.
+
 
 Measured on an M1, `make bench`:
 

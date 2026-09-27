@@ -34,8 +34,71 @@ type sessionLine struct {
 
 // sessionLines renders the whole list. width is the usable width inside the
 // pane's border.
+// sessionLines renders the whole list, and remembers what it rendered.
+//
+// Three different things ask for it in one frame — the split that sizes the
+// pane, the pane that draws it, and the mouse that has to land on the row that
+// was drawn — and each was wrapping every title over again. Wrapping is the
+// most expensive thing this list does: it was a quarter of the allocations in
+// a frame, to arrive three times at the same answer.
+//
+// The key is everything the rows are made of. It is cheaper to build than one
+// title is to wrap, and it has to be complete rather than clever: a list that
+// caches on too little is a list that goes stale, which costs more than the
+// wrapping ever did.
 func (m *Model) sessionLines(width int) []sessionLine {
 	width = max(6, width)
+	if key := m.sessionKey(width); key == m.sessKey {
+		return m.sessRows
+	} else {
+		m.sessKey = key
+	}
+	rows := m.buildSessionLines(width)
+	m.sessRows = rows
+	return rows
+}
+
+// sessionKey is everything a row is drawn from, in the order it is drawn.
+func (m *Model) sessionKey(width int) string {
+	var b strings.Builder
+	b.Grow(64 + m.mgr.Len()*48)
+	b.WriteString(strconv.Itoa(width))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(m.mgr.ActiveIndex()))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(m.sessSel))
+	b.WriteByte('|')
+	b.WriteString(strconv.Itoa(int(m.focus)))
+	for _, s := range m.mgr.All() {
+		b.WriteByte('|')
+		b.WriteString(s.Label())
+		b.WriteByte(';')
+		b.WriteString(strconv.Itoa(int(m.sessionState(s))))
+		b.WriteByte(';')
+		b.WriteString(s.Status)
+		b.WriteByte(';')
+		b.WriteString(strconv.Itoa(len(s.Messages)))
+		b.WriteByte(';')
+		b.WriteString(relTime(s.Updated))
+	}
+	// The spinner is a frame of an animation, so a running conversation has to
+	// rebuild — but only a running one.
+	if m.anyRunning() {
+		b.WriteString("|" + m.spin.View())
+	}
+	return b.String()
+}
+
+func (m *Model) anyRunning() bool {
+	for _, s := range m.mgr.All() {
+		if s.Busy || s.Running > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (m *Model) buildSessionLines(width int) []sessionLine {
 	active := m.mgr.ActiveIndex()
 
 	var out []sessionLine

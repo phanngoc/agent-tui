@@ -64,6 +64,47 @@ func (m *Model) transcript(width int) string {
 	return b.String()
 }
 
+// setChatContent hands the transcript to the viewport, and only when it has
+// changed.
+//
+// Handing it the same string again is not free: the viewport re-measures every
+// line to work out where the soft wraps fall, and measuring a line means
+// walking it a grapheme at a time. On a long conversation that was two thirds
+// of the cost of a frame — paid on every spinner tick, every keystroke, every
+// mouse move, to arrive at the answer it already had.
+//
+// The comparison is cheap for the case that matters: a cached transcript hands
+// back the same string, and comparing a string to itself is a pointer check
+// before it is anything else.
+func (m *Model) setChatContent(text string) {
+	if text == m.chatSet {
+		return
+	}
+	m.chatSet = text
+	m.chatVer++
+	m.chat.SetContent(text)
+}
+
+// chatView is the visible part of the transcript, remembered.
+//
+// The viewport works out which lines are visible from scratch on every call,
+// and it is called on every frame whether or not anything moved. What decides
+// the answer is the content and where it is scrolled to, so that is the key —
+// and the content is a counter rather than the text itself, because the text
+// is the one thing here big enough that hashing it would show up.
+func (m *Model) chatView() string {
+	k := viewKey{ver: m.chatVer, y: m.chat.YOffset(), x: m.chat.XOffset(),
+		w: m.chat.Width(), h: m.chat.Height()}
+	if k == m.chatViewKey && m.chatViewOut != "" {
+		return m.chatViewOut
+	}
+	m.chatViewKey, m.chatViewOut = k, m.chat.View()
+	return m.chatViewOut
+}
+
+// viewKey is everything that decides which lines a viewport shows.
+type viewKey struct{ ver, y, x, w, h int }
+
 // showLatestTurn scrolls the transcript to the top of the newest exchange.
 //
 // Landing at the very bottom instead drops the reader into the last line of an
@@ -77,7 +118,7 @@ func (m *Model) showLatestTurn() {
 	// frame later than this. Setting it here too means the offset is clamped
 	// against this session's transcript rather than against whichever one was
 	// on screen a moment ago.
-	m.chat.SetContent(m.transcript(width))
+	m.setChatContent(m.transcript(width))
 	m.chat.SetYOffset(m.chatTurn)
 }
 
@@ -93,7 +134,7 @@ func (m *Model) showLatestTurn() {
 // which looks plausible and is completely wrong.
 func (m *Model) showMessage(i int) {
 	width := max(10, m.chatW-2)
-	m.chat.SetContent(m.transcript(width))
+	m.setChatContent(m.transcript(width))
 	if i >= 0 && i < len(m.chatStarts) {
 		m.chat.SetYOffset(m.chatStarts[i])
 		return

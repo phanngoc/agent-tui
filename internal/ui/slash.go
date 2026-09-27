@@ -120,6 +120,11 @@ var slashCmds = []slashCmd{
 		func(m *Model, arg string) tea.Cmd {
 			return m.openRecall(arg)
 		}},
+	{"theme", "[name]", "change the colours, or list what there is",
+		func(m *Model, arg string) tea.Cmd {
+			m.setTheme(strings.TrimSpace(arg))
+			return nil
+		}},
 	{"split", "[1|2|4]", "watch this many conversations side by side",
 		func(m *Model, arg string) tea.Cmd {
 			n := 2
