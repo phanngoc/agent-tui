@@ -130,6 +130,15 @@ type Model struct {
 	// sessTop is the row the session list is scrolled to. The renderer writes
 	// it and the mouse reads it, so a click lands on the row that was drawn.
 	sessTop int
+	// sessKey and sessRows memoise the session list. Three things ask for it
+	// in one frame and it is the most expensive list this program draws.
+	// paneOut remembers what each pane drew, keyed by everything it was drawn
+	// from. Rendering one measures its text grapheme by grapheme, and most
+	// panes are unchanged between one frame and the next.
+	paneOut map[paneKey]string
+
+	sessKey  string
+	sessRows []sessionLine
 
 	// split is how many conversations share the transcript column. One is the
 	// pane as it always was; two and four put others beside it, read-only,
@@ -151,6 +160,18 @@ type Model struct {
 	recallBodyY, recallDrawn int
 
 	chatCache string
+	// chatSet is the last thing handed to the viewport, so the same text is
+	// not handed to it twice — which costs a full re-measure of every line.
+	chatSet string
+	// chatVer counts the times the transcript actually changed, so the
+	// viewport's own output can be remembered against a number rather than
+	// against the text — which is the one string here big enough that hashing
+	// it every frame would itself show up.
+	chatVer     int
+	chatViewKey viewKey
+	chatViewOut string
+	promptKey   promptFrame
+	promptOut   string
 	// chatStarts[i] is the line message i begins on in chatCache, so a search
 	// hit can be opened where it was found rather than at the newest turn. It
 	// belongs to whichever conversation the cache was last built for.
@@ -317,7 +338,7 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 	m.sideSet, m.prevSet = lay.Side, lay.Preview
 	m.showSessions, m.showPreview = !lay.Hide, !lay.HidePrv
 	m.histIdx = len(m.history)
-	m.chat.SoftWrap = true
+	m.chat.SoftWrap = false
 	m.prev.SoftWrap = false
 	m.prev.LeftGutterFunc = m.gutter
 	m.prev.HighlightStyle = st.Match
@@ -725,7 +746,7 @@ func (m *Model) grew(s *session.Session) {
 	// is along in a moment to correct them. A command run with `!` appends
 	// once and nothing follows it, which is why this is the path where it
 	// showed.
-	m.chat.SetContent(m.transcript(max(10, m.chatW-2)))
+	m.setChatContent(m.transcript(max(10, m.chatW-2)))
 	m.chat.GotoBottom()
 }
 

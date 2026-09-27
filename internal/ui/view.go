@@ -125,7 +125,7 @@ func (m *Model) panes() string {
 	// Every pane after the first leans on its neighbour's right edge, so the
 	// screen is ruled once between panes rather than twice.
 	seam := seams{left: len(cols) > 0, bottom: true}
-	m.chat.SetContent(m.transcript(max(10, m.chatWidth())))
+	m.setChatContent(m.transcript(max(10, m.chatWidth())))
 	cols = append(cols, m.splitColumn(chatTitle, seam))
 
 	if m.btwW > 0 {
@@ -253,7 +253,48 @@ func (m *Model) pane(content, title string, w, h int, active bool) string {
 //
 // The width does not change. A pane without a left border has one more column
 // of content, which is a column back rather than a column moved.
+// paneKey is everything a drawn pane is made of. Two panes with the same key
+// are the same pixels, so the second one is a map lookup rather than a render.
+type paneKey struct {
+	content, title string
+	w, h           int
+	active         bool
+	seam           seams
+}
+
+// paneSeam draws a pane, or remembers that it already did.
+//
+// Rendering a pane measures its content — every line, a grapheme at a time, to
+// work out where to put the border and how to pad it. That was two thirds of
+// what was left of a frame, spent re-measuring text that had not changed since
+// the last one: a spinner tick redrew the file tree, the session list and the
+// preview, none of which the spinner is in.
+//
+// The key holds the content itself rather than a summary of it. Hashing a
+// string is a pass over its bytes; measuring one is a pass over its graphemes,
+// through a width table, with an escape-sequence parser in between. The first
+// is the cheap way to find out that the second is unnecessary.
 func (m *Model) paneSeam(content, title string, w, h int, active bool, seam seams) string {
+	k := paneKey{content: content, title: title, w: w, h: h, active: active, seam: seam}
+	if out, ok := m.paneOut[k]; ok {
+		return out
+	}
+	out := m.renderPane(content, title, w, h, active, seam)
+	// Bounded, because the content changes as a conversation does and every
+	// version of it would otherwise be kept for ever. There are never more
+	// than a handful of panes on screen; this is room for a few frames of
+	// them.
+	if len(m.paneOut) > 32 {
+		m.paneOut = make(map[paneKey]string, 16)
+	}
+	if m.paneOut == nil {
+		m.paneOut = make(map[paneKey]string, 16)
+	}
+	m.paneOut[k] = out
+	return out
+}
+
+func (m *Model) renderPane(content, title string, w, h int, active bool, seam seams) string {
 	style := m.st.Pane
 	ts := m.st.Title
 	if active {
@@ -384,6 +425,12 @@ func (m *Model) inputBox() string {
 		body = m.attachBar() + "\n" + body
 	}
 
+	path := m.promptPath()
+	k := promptFrame{body: body, path: path, w: m.w, active: m.focus == focusInput}
+	if k == m.promptKey && m.promptOut != "" {
+		return m.promptOut
+	}
+
 	// Where the session stands goes on the frame rather than on a line of its
 	// own. A shell puts it next to the caret because that is where you are
 	// looking when you type; the caret here is a textarea whose prompt repeats
@@ -397,9 +444,20 @@ func (m *Model) inputBox() string {
 	if len(lines) > 0 {
 		inner := max(1, m.w-2)
 		lines[0] = injectTitle(lines[0],
-			ts.Render(" "+truncateLeft(m.promptPath(), max(4, inner-6))+" "))
+			ts.Render(" "+truncateLeft(path, max(4, inner-6))+" "))
 	}
-	return strings.Join(lines, "\n")
+	m.promptKey, m.promptOut = k, strings.Join(lines, "\n")
+	return m.promptOut
+}
+
+// inputKey is everything the prompt's frame is drawn from. The textarea's own
+// view is in it, so a keystroke redraws and nothing else does — which matters
+// because the frame is measured and bordered on every frame, and between
+// keystrokes it is the same frame.
+type promptFrame struct {
+	body, path string
+	w          int
+	active     bool
 }
 
 // promptPath is where the session stands, written the way a shell prompt

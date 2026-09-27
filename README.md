@@ -905,6 +905,41 @@ and stops it being Monokai.
 
 ## How it stays fast
 
+A frame is drawn on every spinner tick, every keystroke and every movement of
+the mouse, so what a frame costs is what the program costs to sit in front of.
+On a two-hundred-message conversation with eight open, measured:
+
+| | was | is |
+|---|---|---|
+| a frame with nothing moving | 4.93 ms · 16,064 allocs | **0.99 ms · 1,893** |
+| a frame with an answer arriving | 4.16 ms | **1.73 ms** |
+| the session list | 113 µs | **1.8 µs** |
+
+Two thirds of it was one thing: measuring text. Working out where a border
+goes, or where a soft wrap falls, means walking a string a grapheme at a time
+through a width table with an escape-sequence parser in between — and almost
+all of that walking was over text that had not changed since the frame before.
+So four things are now remembered rather than recomputed:
+
+- **the viewport's content**, handed over only when it differs;
+- **its visible lines**, against a counter rather than the text, because the
+  text is the one string here big enough that hashing it would itself show up;
+- **each pane's drawn output**, keyed by everything it was drawn from — hashing
+  a string is a pass over its bytes, which is the cheap way to find out that
+  measuring it is unnecessary;
+- **the session list**, which three separate things ask for in one frame and
+  which wraps every title to do it.
+
+Soft wrap on the transcript was also turned off, because the transcript is
+wrapped as it is written: the viewport was re-deriving line breaks that were
+already there.
+
+The danger in all of this is a screen that is fast and wrong, which is worse
+than one that is slow. So the tests are about staleness rather than speed:
+change a title, start a turn, fail one, stream a delta, type a letter, scroll,
+resize — and insist the screen changed with it.
+
+
 Measured on an M1, `make bench`:
 
 | | |
