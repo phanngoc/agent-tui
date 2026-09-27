@@ -75,6 +75,18 @@ func NewLoader(sc *highlight.Scheme, maxKB, capacity int) *Loader {
 // preview pane are coloured by one set of rules.
 func (l *Loader) Scheme() *highlight.Scheme { return l.sc }
 
+// Recolour changes the scheme and drops everything highlighted with the old
+// one. The cache holds files with their colours already in them, so a new
+// scheme that did not clear it would show the next file in the new colours and
+// the one already open in the last set.
+func (l *Loader) Recolour(sc *highlight.Scheme) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.sc = sc
+	l.items = make(map[string]*entry, l.capacity)
+	l.order = l.order[:0]
+}
+
 // Load returns the highlighted file, hitting the cache when the file has not
 // changed since it was last read. fsys is where the file lives: the host, or a
 // container the session is pointed at.

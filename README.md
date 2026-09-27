@@ -674,6 +674,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/target [name]` | work on the host, in a container, or in WSL |
 | `/btw [question]` | ask beside this conversation, in a pane of its own |
 | `/split [1\|2\|4]` | watch this many conversations side by side |
+| `/theme [name]` | change the colours, or list what there is |
 | `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |
@@ -841,8 +842,33 @@ the size of the terminal, at four sizes.
 
 ## Colours
 
-Three palettes, set with `"theme"` in the config: `onedark` (the default),
-`herdr` and `monokai`. An unknown name falls back to the default rather than
+A theme is data, not code. Three palettes are compiled in — `onedark` (the
+default), `herdr` and `monokai` — and any number more are JSON files in
+`$XDG_CONFIG_HOME/agent-tui/themes/`, named by the file. `/theme <name>`
+changes it without leaving; `/theme` on its own lists what there is.
+
+The role names are [opencode's](https://opencode.ai/docs/themes/), so a theme
+written for that mostly drops straight in: `background`, `backgroundPanel`,
+`backgroundElement`, `text`, `textMuted`, `border`, `borderActive`, `accent`,
+`success`, `warning`, `error`, `info`, and the `syntax*` set. Three roles are
+this program's own, because it reads at three weights rather than two —
+`textStrong` for emphasis, `textSubtle` for what stands furthest back, and
+`selection`. A value may be a hex string, an ANSI index, or the name of another
+role, so a theme can say *the same blue* once.
+
+**Anything a file leaves out keeps the built-in value**, which is what makes a
+four-line theme worth writing: you say the three colours you actually care
+about and the rest stays measured. There is an example in
+[`docs/themes/`](docs/themes/).
+
+A file that would not be legible is refused, with the colour and the ratio, and
+the default is used instead. A theme is taste, and the one thing taste does not
+get to decide is whether the words can be read: a UI whose comment colour has
+vanished into the background is not a style, it is a fault — and one the reader
+will blame on this program rather than on their file. The floors are the same
+ones the built-ins are held to, applied at the moment the file loads, because a
+guarantee that only covers the colours that ship is not a guarantee about the
+program. An unknown name falls back to the default rather than
 failing to start — a typo in a config file is not worth a dead terminal.
 
 **onedark** is One Dark, as Atom shipped it and every editor since has copied

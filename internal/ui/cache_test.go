@@ -160,3 +160,52 @@ func TestThePaneCacheDoesNotGrowForEver(t *testing.T) {
 		t.Errorf("the pane cache holds %d frames of panes", n)
 	}
 }
+
+// Changing the theme has to reach the screen, and that is the hardest thing
+// for a cache to get right: the frames are keyed on content and size, and a
+// palette that changed underneath them would leave a screen half in each.
+func TestChangingTheThemeRedrawsEverything(t *testing.T) {
+	m := newTestModel(t)
+	m.resize(140, 34)
+	s := m.mgr.Active()
+	s.Append(session.Message{Role: session.RoleUser, Text: "một câu"})
+	m.invalidateChat()
+	before := m.View().Content
+
+	m.setTheme("monokai")
+
+	after := m.View().Content
+	if before == after {
+		t.Error("the screen is identical after changing the theme")
+	}
+	// The same words, in different colours — not a different screen. The
+	// status line is left out: it has just been told which theme this is, so
+	// it is the one row that should read differently.
+	body := func(v string) string {
+		rows := strings.Split(stripANSI(v), "\n")
+		return strings.Join(rows[:len(rows)-1], "\n")
+	}
+	if body(before) != body(after) {
+		t.Errorf("changing the colours changed the text:\n%s\n---\n%s",
+			body(before), body(after))
+	}
+	if !strings.Contains(m.notice, "monokai") {
+		t.Errorf("nothing said which theme it is now: %q", m.notice)
+	}
+}
+
+// And a theme that cannot be read is refused with the reason, rather than
+// being applied and blamed on the program.
+func TestAnUnreadableThemeIsRefusedFromTheCommand(t *testing.T) {
+	m := newTestModel(t)
+	was := m.st.P.Bg
+
+	m.setTheme("no-such-theme-exists")
+
+	if m.st.P.Bg != was {
+		t.Error("a theme that does not exist was applied")
+	}
+	if !strings.Contains(m.notice, "theme:") {
+		t.Errorf("it failed without saying so: %q", m.notice)
+	}
+}

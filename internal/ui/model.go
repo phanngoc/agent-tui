@@ -137,6 +137,8 @@ type Model struct {
 	// panes are unchanged between one frame and the next.
 	paneOut map[paneKey]string
 
+	themeSet string
+
 	sessKey  string
 	sessRows []sessionLine
 
@@ -722,6 +724,10 @@ func tick() tea.Cmd {
 }
 
 func (m *Model) invalidateChat() { m.chatKey = "" }
+
+// Notice puts a line in the status bar from outside the update loop, for the
+// things that go wrong before there is a loop to put them in.
+func (m *Model) Notice(text string) { m.notice = text }
 
 // grew says the transcript gained a line, so the cache is stale and the pane
 // should follow it down.

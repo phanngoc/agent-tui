@@ -4,6 +4,7 @@ package theme
 
 import (
 	"image/color"
+	"math"
 
 	"charm.land/lipgloss/v2"
 )
@@ -189,6 +190,28 @@ func ByName(name string) Palette {
 // Names are the palettes ByName knows, for the config reference and for
 // anything that offers a choice.
 var Names = []string{"onedark", "herdr", "monokai"}
+
+// ratio is the WCAG contrast between two colours, for the checks a loaded
+// theme has to pass. The tests compute the same thing; this is the copy that
+// ships, because a guarantee that only holds in the test binary is not one.
+func ratio(fg, bg color.Color) float64 {
+	lum := func(c color.Color) float64 {
+		r, g, b, _ := c.RGBA()
+		lin := func(v uint32) float64 {
+			f := float64(v>>8) / 255
+			if f <= 0.04045 {
+				return f / 12.92
+			}
+			return math.Pow((f+0.055)/1.055, 2.4)
+		}
+		return 0.2126*lin(r) + 0.7152*lin(g) + 0.0722*lin(b)
+	}
+	a, b := lum(fg), lum(bg)
+	if a < b {
+		a, b = b, a
+	}
+	return (a + 0.05) / (b + 0.05)
+}
 
 // Styles are pre-rendered lipgloss styles used across the UI.
 type Styles struct {

@@ -76,7 +76,12 @@ func run() error {
 		mode = agent.ModeFull
 	}
 
-	styles := theme.New(theme.ByName(cfg.Theme))
+	// A theme is taste, and a theme file that cannot be read is a fault the
+	// reader will blame on this program rather than on their file — so a bad
+	// one is refused out loud and the default is used, rather than shipping a
+	// UI whose comment colour has vanished into the background.
+	palette, themeErr := theme.Resolve(cfg.Theme)
+	styles := theme.New(palette)
 	scheme := highlight.NewScheme(
 		styles.P.Fg, styles.P.Keyword, styles.P.Type, styles.P.String,
 		styles.P.Number, styles.P.Comment, styles.P.Func, styles.P.Punct,
@@ -116,6 +121,9 @@ func run() error {
 	}
 
 	m := ui.New(cfg, styles, idx, loader, mgr, reg, tasks)
+	if themeErr != nil {
+		m.Notice("theme: " + themeErr.Error())
+	}
 	p := tea.NewProgram(m)
 
 	_, err = p.Run()
