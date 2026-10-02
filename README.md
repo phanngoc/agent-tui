@@ -658,8 +658,14 @@ headless modes, so only the built-in engine can ask.
 `/tasks` lists everything running, with its output; the status bar counts what
 is still going.
 
-Claude Code's own background commands land in the same list, decoded from its
-event stream. One honest limitation there: `claude -p` kills its background
+Claude Code's own commands land in the same list, decoded from its event
+stream — foreground ones as well as background ones — and their output is
+**live**: Claude Code writes it to a file as it goes, and the list follows the
+end of that file, so a nine-minute test run can be watched rather than waited
+on. With one command running, `ctrl+k` opens straight into its output; with
+several it lists them. (This works when Claude Code runs on this machine; one
+running inside a container or a WSL distribution writes its files there.)
+One honest limitation: `claude -p` kills its background
 tasks when the turn ends, so those show as stopped rather than outliving the
 conversation. Commands the built-in agent starts are detached from the turn and
 keep running.

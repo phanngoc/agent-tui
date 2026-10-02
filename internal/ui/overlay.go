@@ -806,6 +806,29 @@ func (m *Model) choiceView() string {
 
 // ---- background commands ---------------------------------------------------
 
+// openTasks shows the commands. With one still running, it opens that one's
+// output straight away: "what is it doing" is almost always the question, and
+// a list of one is a step between the reader and the answer. esc still steps
+// back to the list.
+func (m *Model) openTasks() {
+	m.overlay = overlayTasks
+	m.taskSel, m.taskOpen = 0, ""
+
+	all := m.tasks.All()
+	live := -1
+	for i, t := range all {
+		if t.Live() {
+			if live >= 0 {
+				return // more than one: the list is the answer
+			}
+			live = i
+		}
+	}
+	if live >= 0 {
+		m.taskSel, m.taskOpen = live, all[live].ID
+	}
+}
+
 func (m *Model) tasksKey(key string) tea.Cmd {
 	all := m.tasks.All()
 
@@ -876,18 +899,25 @@ func (m *Model) taskOutputView(w, inner int) string {
 		m.taskOpen = ""
 		return m.tasksView()
 	}
-	rows := clamp(m.h/2, 6, 20)
+	rows := clamp(m.h*2/3, 6, 32)
 
 	mark, style := taskMark(m.st, t)
 	var b strings.Builder
-	b.WriteString(gutter + mark + " " + style.Render(truncate(t.Label, inner-24)) +
-		"  " + m.st.Faint.Render(shortDur(t.Elapsed())) + "\n\n")
+	head := gutter + mark + " " + style.Render(truncate(t.Label, inner-30)) +
+		"  " + m.st.Faint.Render(shortDur(t.Elapsed()))
+	if t.Live() && t.Following() {
+		head += "  " + m.st.Accent.Render("live")
+	}
+	b.WriteString(head + "\n\n")
 
 	lines := t.Tail(rows)
 	if len(lines) == 0 {
 		b.WriteString(gutter + m.st.Faint.Render("no output yet") + "\n")
 	}
 	for _, l := range lines {
+		// Output is the command's, colours and all; the escapes would only
+		// fight the overlay's, and a tab is as wide as the terminal says.
+		l = strings.ReplaceAll(stripANSI(l), "\t", "    ")
 		b.WriteString(gutter + m.st.Dim.Render(truncate(l, inner-4)) + "\n")
 	}
 

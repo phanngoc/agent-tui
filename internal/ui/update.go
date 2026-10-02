@@ -288,8 +288,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.refreshTargets()
 		return nil
 	case "ctrl+k":
-		m.overlay = overlayTasks
-		m.taskSel, m.taskOpen = 0, ""
+		m.openTasks()
 		return nil
 	case "ctrl+r":
 		m.overlay = overlayEngine
@@ -988,6 +987,11 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 				note = "output: " + e.Output
 			}
 			m.tasks.Update(e.ID, task.State(e.State), note)
+			// The files are on this machine only when the agent is: one
+			// running in a container or a distribution writes them there.
+			if len(e.Live) > 0 && m.sessionFS(s).IsLocal() {
+				m.tasks.Follow(e.ID, e.Live)
+			}
 		}
 
 	case agent.EvSession:

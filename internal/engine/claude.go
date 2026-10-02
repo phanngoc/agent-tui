@@ -90,6 +90,9 @@ type claudeDec struct {
 	tools []session.ToolCall
 	fail  string
 	sent  bool
+	// cwd is where Claude Code says it is running, from its init event. Its
+	// command output files are filed under it.
+	cwd string
 }
 
 func (d *claudeDec) failure() string { return d.fail }
@@ -99,6 +102,7 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 		Type      string `json:"type"`
 		Subtype   string `json:"subtype"`
 		SessionID string `json:"session_id"`
+		CWD       string `json:"cwd"`
 		TaskID    string `json:"task_id"`
 		TaskDesc  string `json:"description"`
 		TaskSum   string `json:"summary"`
@@ -124,13 +128,20 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 			emit(agent.EvSession{ExternalID: ev.SessionID})
 		}
 		switch ev.Subtype {
+		case "init":
+			if ev.CWD != "" {
+				d.cwd = ev.CWD
+			}
 		case "permission_denied":
 			emit(agent.EvStatus{Text: "permission denied"})
 		case "task_started":
+			// Foreground commands arrive here too, not only background ones,
+			// and both are written to a file while they run.
 			emit(agent.EvTask{
 				ID:    ev.TaskID,
 				Label: firstNonEmpty(ev.TaskDesc, ev.TaskSum, "background command"),
 				State: "running",
+				Live:  claudeTaskFiles(d.cwd, ev.SessionID, ev.TaskID),
 			})
 		case "task_updated":
 			emit(agent.EvTask{ID: ev.TaskID, State: claudeTaskState(ev.Patch.Status)})
