@@ -138,8 +138,7 @@ var slashCmds = []slashCmd{
 			return nil
 		}},
 	{"tasks", "", "background commands, and their output", func(m *Model, _ string) tea.Cmd {
-		m.overlay = overlayTasks
-		m.taskSel, m.taskOpen = 0, ""
+		m.openTasks()
 		return nil
 	}},
 	{"settings", "", "where new sessions start", func(m *Model, _ string) tea.Cmd {

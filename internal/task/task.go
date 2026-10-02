@@ -48,6 +48,14 @@ type Task struct {
 	exit   int
 	lines  []string
 	cancel context.CancelFunc
+
+	// A followed task gets its output from a file another program writes.
+	// What the file says and what was noted about the task are kept apart,
+	// because every read of the file replaces the first and must not lose the
+	// second; lines is the two of them together.
+	following bool
+	file      []string
+	notes     []string
 }
 
 // State is where the task is now.
@@ -103,6 +111,12 @@ func (t *Task) Tail(n int) []string {
 
 func (t *Task) append(line string) {
 	t.mu.Lock()
+	if t.following {
+		t.notes = append(t.notes, line)
+		t.joinLocked()
+		t.mu.Unlock()
+		return
+	}
 	next := append(t.lines[:len(t.lines):len(t.lines)], line)
 	if len(next) > maxLines {
 		next = next[len(next)-maxLines:]

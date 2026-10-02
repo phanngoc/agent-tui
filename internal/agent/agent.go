@@ -76,6 +76,10 @@ type (
 		State  string // "", "running", "done", "failed", "stopped"
 		Note   string
 		Output string // a file the agent is writing the output to, if any
+		// Live is where the output is being written while the command runs,
+		// most likely first; an entry may be a glob pattern. It lets the
+		// output be watched before the agent reports anything about it.
+		Live []string
 	}
 	// EvDone ends the turn. Err is nil on success. State is whatever the engine
 	// wants handed back on the next turn (SDK message history, an external

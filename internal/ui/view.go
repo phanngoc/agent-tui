@@ -525,7 +525,9 @@ func (m *Model) statusBar() string {
 
 	right := []string{m.modeBadge(s)}
 	if n := m.tasks.LiveCount(); n > 0 {
-		right = append(right, m.st.Accent.Render("●"+strconv.Itoa(n)+" running"))
+		// Say how to look, not only that something is there to look at.
+		right = append(right, m.st.Accent.Render("●"+strconv.Itoa(n)+" running")+
+			m.st.Faint.Render(" ctrl+k"))
 	}
 	right = append(right,
 		m.st.Faint.Render(engineLabel),
