@@ -33,6 +33,11 @@ agent-tui -C ~/code/x  # somewhere else
 agent-tui -yes         # skip approval prompts for write and bash
 ```
 
+With no `-C`, where it opens is a setting: `/settings` picks the folder it was
+opened in (the default), wherever the last session left off, or one fixed
+folder. The same choice decides where a session made with `ctrl+t` or `/new`
+starts, and `-C` always wins over it.
+
 ## Engines
 
 The same UI drives four different agents. Press `ctrl+r` to pick one per
@@ -675,6 +680,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/btw [question]` | ask beside this conversation, in a pane of its own |
 | `/split [1\|2\|4]` | watch this many conversations side by side |
 | `/theme [name]` | change the colours, or list what there is |
+| `/settings` | where new sessions start: launch folder, last session, or a fixed folder |
 | `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |

@@ -68,6 +68,12 @@ func run() error {
 	if st, serr := os.Stat(abs); serr != nil || !st.IsDir() {
 		return fmt.Errorf("%s is not a directory", *root)
 	}
+	// Where to open is a setting only when nobody said: -C is a request for
+	// this folder now, and a preference set weeks ago does not outrank it.
+	var startNote string
+	if !flagSet("C") {
+		abs, startNote = config.LoadPrefs().StartRoot(abs)
+	}
 	cfg.Root, cfg.Model, cfg.Effort = abs, *model, *effort
 	cfg.AutoApprove = cfg.AutoApprove || *autoApprove
 
@@ -121,6 +127,9 @@ func run() error {
 	}
 
 	m := ui.New(cfg, styles, idx, loader, mgr, reg, tasks)
+	if startNote != "" {
+		m.Notice(startNote)
+	}
 	if themeErr != nil {
 		m.Notice("theme: " + themeErr.Error())
 	}
@@ -129,7 +138,20 @@ func run() error {
 	_, err = p.Run()
 	mgr.SaveAll()
 	mgr.Shutdown()
+	config.RememberRoot(abs)
 	return err
+}
+
+// flagSet reports whether a flag was given on the command line, as opposed to
+// holding its default.
+func flagSet(name string) bool {
+	set := false
+	flag.Visit(func(f *flag.Flag) {
+		if f.Name == name {
+			set = true
+		}
+	})
+	return set
 }
 
 // checkTerminal fails early with something a user can act on. Bubble Tea's own

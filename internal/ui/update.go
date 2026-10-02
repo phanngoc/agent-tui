@@ -296,11 +296,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.engineSel = m.engineIndex(m.mgr.Active().Engine)
 		return nil
 	case "ctrl+t":
-		s := m.mgr.New()
-		s.Engine = m.lastEngine
-		cmd := m.onSessionSwitch()
-		m.notice = "new session"
-		return cmd
+		return m.newSession()
 	case "alt+t":
 		return m.forkSession(m.mgr.Active())
 	case "ctrl+w":
@@ -385,6 +381,8 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.targetKey(k.String())
 	case overlayTasks:
 		return m.tasksKey(k.String())
+	case overlaySettings:
+		return m.settingsKey(k)
 	case overlayHelp:
 		m.overlay = overlayNone
 		return nil
@@ -871,11 +869,7 @@ func (m *Model) sessionsKey(key string) tea.Cmd {
 		m.setFocus(focusInput)
 		return cmd
 	case "n":
-		s := m.mgr.New()
-		s.Engine = m.lastEngine
-		cmd := m.onSessionSwitch()
-		m.notice = "new session"
-		return cmd
+		return m.newSession()
 	case "f":
 		all := m.mgr.All()
 		if m.sessSel >= 0 && m.sessSel < len(all) {
@@ -1201,6 +1195,8 @@ func (m *Model) closeOverlay() {
 	m.finderIn.Blur()
 	m.recallIn.Blur()
 	m.grepIn.Blur()
+	m.setIn.Blur()
+	m.setEditing = false
 }
 
 func (m *Model) setFocus(f focus) {
@@ -1435,6 +1431,8 @@ func (m *Model) onPaste(msg tea.PasteMsg) tea.Cmd {
 		m.grepIn, cmd = m.grepIn.Update(msg)
 	case m.overlay == overlayRename:
 		m.renameIn, cmd = m.renameIn.Update(msg)
+	case m.overlay == overlaySettings && m.setEditing:
+		m.setIn, cmd = m.setIn.Update(msg)
 	case m.overlay != overlayNone:
 		// An overlay with no text in it has nothing to paste into.
 	case m.finding:
