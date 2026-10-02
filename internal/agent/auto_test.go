@@ -36,6 +36,26 @@ func TestAutoRunsShellCommands(t *testing.T) {
 	}
 }
 
+// TestAutoRunsToolsThatNameNoPath: an MCP tool searching Slack came up as
+// "this is outside <project>" and waited on the user, in auto, every call.
+func TestAutoRunsToolsThatNameNoPath(t *testing.T) {
+	const root = "/home/me/project"
+	for _, c := range []session.ToolCall{
+		call(t, "mcp__shizuka__message_search", map[string]any{"channel": "C0A8", "query": "*", "limit": 50}),
+		call(t, "mcp__shizuka__list_projects", map[string]any{}),
+		call(t, "WebFetch", map[string]any{"url": "https://example.com"}),
+	} {
+		if !AutoAllows(c, root) {
+			t.Errorf("auto stopped to ask about %s", c.Name)
+		}
+	}
+	// A path still counts, whoever names it.
+	c := call(t, "mcp__fs__write", map[string]any{"path": "/etc/hosts"})
+	if AutoAllows(c, root) {
+		t.Error("auto allowed an MCP write outside the project")
+	}
+}
+
 func TestAutoAllowsWritesInsideTheProject(t *testing.T) {
 	const root = "/home/me/project"
 	c := call(t, "write_file", map[string]any{"file_path": root + "/main.go"})
