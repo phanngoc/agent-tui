@@ -1227,7 +1227,11 @@ func (m *Model) cycleFocus(d int) {
 		order = append(order, focusPreview)
 	}
 	if m.sideW > 0 {
-		order = append(order, focusExplorer, focusSessions)
+		// A folded tree is one line with nothing in it to move through.
+		if !m.treeFold {
+			order = append(order, focusExplorer)
+		}
+		order = append(order, focusSessions)
 	}
 	at := 0
 	for i, f := range order {

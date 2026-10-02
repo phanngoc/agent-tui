@@ -41,6 +41,11 @@ type layout struct {
 	Preview int  `json:"preview,omitempty"`
 	Hide    bool `json:"hide_sessions,omitempty"`
 	HidePrv bool `json:"hide_preview,omitempty"`
+	// The file tree's height in rows, and whether it is folded to its title.
+	Tree     int  `json:"tree_rows,omitempty"`
+	TreeFold bool `json:"tree_fold,omitempty"`
+	// Where the panes stand; the zero value is the original arrangement.
+	Dock dock `json:"dock"`
 }
 
 func layoutPath() string { return filepath.Join(config.DataDir(), "layout.json") }
@@ -65,6 +70,7 @@ func (m *Model) saveLayout() {
 	l := layout{
 		Side: m.sideSet, Preview: m.prevSet,
 		Hide: !m.showSessions, HidePrv: !m.showPreview,
+		Tree: m.treeSet, TreeFold: m.treeFold, Dock: m.dock,
 	}
 	b, err := json.Marshal(l)
 	if err != nil {
@@ -195,25 +201,11 @@ func (m *Model) nudgeWidth(by int) {
 type dragging int
 
 const (
-	dragNone dragging = iota
-	dragSide
-	dragPreview
+	dragNone    dragging = iota
+	dragSide             // a rule beside the sidebar
+	dragPreview          // a rule beside the preview, not beside the sidebar
+	dragSplit            // the rule between the sessions and the file tree
 )
-
-// dividerAt reports which divider a column is on, allowing a cell either side:
-// a one-column target is a target you miss.
-func (m *Model) dividerAt(x, y int) dragging {
-	if y < headerRows || y >= headerRows+m.bodyH {
-		return dragNone
-	}
-	if m.sideW > 0 && x == m.sideW-1 {
-		return dragSide
-	}
-	if col := m.prevW + m.btwW; col > 0 && x == m.w-col-1 {
-		return dragPreview
-	}
-	return dragNone
-}
 
 // A divider is one column now, and it is the rule you can see.
 //
@@ -222,22 +214,9 @@ func (m *Model) dividerAt(x, y int) dragging {
 // two — so there is only one column to be on, and the column after it is the
 // first column of text. Claiming that one took hold of the divider instead of
 // the word under the pointer, which is how this was wrong the last two times.
-
-// dragTo moves the divider being held to the column the pointer is in.
-// dragTo moves the divider the mouse has hold of to a column.
 //
-// The column is where the rule should end up, and a pane's rule is its own
-// last column — panes share one line now, so the rule between the sidebar and
-// the transcript is the sidebar's right border at sideW-1. Dropping it on
-// column x therefore makes the pane x+1 wide.
-func (m *Model) dragTo(x int) {
-	switch m.drag {
-	case dragSide:
-		m.setSideWidth(x + 1)
-	case dragPreview:
-		m.setPrevWidth(m.w - x - 1)
-	}
-}
+// Where the dividers are, and what dragging one does, is in dock.go: which
+// column is beside which is a choice now, so it is asked rather than assumed.
 
 func abs(n int) int {
 	if n < 0 {
@@ -289,6 +268,7 @@ func (m *Model) paneSwitches(at int) string {
 		on   bool
 	}{
 		{focusSessions, "sessions", m.showSessions},
+		{focusExplorer, "files", m.showSessions && !m.treeFold},
 		{focusPreview, "preview", m.showPreview},
 	} {
 		mark, style := "▫", m.st.Faint
@@ -323,7 +303,7 @@ func (m *Model) switchAt(x, y int) (focus, bool) {
 func (m *Model) switchesWidth() int {
 	// Measured, not counted: the marks are multi-byte and a byte count would
 	// put the switches two columns off the edge they are meant to sit on.
-	return lipgloss.Width(" ▪ sessions ") + lipgloss.Width(" ▪ preview ")
+	return lipgloss.Width(" ▪ sessions ") + lipgloss.Width(" ▪ files ") + lipgloss.Width(" ▪ preview ")
 }
 
 // switchFor finds a drawn switch, for the tests and for anything that needs to

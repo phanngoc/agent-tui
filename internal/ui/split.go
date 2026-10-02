@@ -126,7 +126,7 @@ func (m *Model) splitBoxes() []splitBox {
 	cols, rows := splitGrid(n)
 	sessions := m.splitSessions(n)
 
-	left, top := m.sideW, headerRows
+	left, top := m.colX(colChat), headerRows
 	out := make([]splitBox, 0, n)
 	for i := 0; i < n && i < len(sessions); i++ {
 		cx, cy := i%cols, i/cols
@@ -223,7 +223,7 @@ func (m *Model) chatCell() splitBox {
 	if len(boxes) > 0 {
 		return boxes[0]
 	}
-	return splitBox{x: m.sideW, y: headerRows, w: m.chatW, h: m.bodyH, focused: true}
+	return splitBox{x: m.colX(colChat), y: headerRows, w: m.chatW, h: m.bodyH, focused: true}
 }
 
 // chatInner is the writable size of the cell the transcript is drawn in,
