@@ -141,6 +141,18 @@ var slashCmds = []slashCmd{
 		m.openTasks()
 		return nil
 	}},
+	{"copy", "[md]", "copy the last answer, formatted for Slack · md copies the markdown",
+		func(m *Model, arg string) tea.Cmd {
+			src := lastReply(m.mgr.Active())
+			if strings.EqualFold(strings.TrimSpace(arg), "md") {
+				if strings.TrimSpace(src) == "" {
+					m.notice = "nothing to copy yet"
+					return nil
+				}
+				return m.copyText(src)
+			}
+			return m.copyForSlack(src, "the last answer")
+		}},
 	{"settings", "", "where new sessions start", func(m *Model, _ string) tea.Cmd {
 		m.openSettings()
 		return nil

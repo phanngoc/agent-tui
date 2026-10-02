@@ -391,6 +391,7 @@ var helpGroups = []struct {
 		{"ctrl+c", "copy a selection  ·  or stop the agent, or quit when idle"},
 		{"drag", "select text in a pane  ·  releasing copies it"},
 		{"double-click", "select the word under the pointer"},
+		{"y", "copy the answer in view for Slack  ·  /copy the last one"},
 		{"ctrl+t", "new session"},
 		{"alt+t", "fork this session — same history, separate branch"},
 		{"/btw", "ask beside this one, in a pane, without interrupting it"},
