@@ -599,7 +599,7 @@ func (m *Model) hintFor(f focus) string {
 		}
 		return "preview · e edit · / find · n next · w wrap · ctrl+o switch pane"
 	case focusChat:
-		return "transcript · ↑↓ scroll · tab or ctrl+o switch pane"
+		return "transcript · ↑↓ scroll · y copy for Slack · tab or ctrl+o switch pane"
 	case focusExplorer:
 		return "files · ↑↓ browse · click to open · ←→ fold · - up a level · r work here"
 	case focusSessions:

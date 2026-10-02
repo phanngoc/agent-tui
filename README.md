@@ -687,6 +687,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/split [1\|2\|4]` | watch this many conversations side by side |
 | `/theme [name]` | change the colours, or list what there is |
 | `/settings` | where new sessions start: launch folder, last session, or a fixed folder |
+| `/copy [md]` | copy the last answer formatted for Slack · `md` copies the markdown |
 | `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |
@@ -763,6 +764,17 @@ markdown, diffs or syntax — it colours cells — and the cache is left alone.
 Its coordinates are rows the pane drew rather than lines of its content,
 because the transcript soft-wraps: one message is many rows, and the row is the
 only thing the renderer and the mouse both know.
+
+**For Slack.** `y` in the transcript copies the answer in view, and `/copy`
+the last one, formatted to paste into Slack: the clipboard gets HTML, which
+Slack's composer turns into its own bold, lists, links, quotes and code
+blocks, and Slack mrkdwn as the plain-text form for anywhere else. Slack has
+no headings or tables, so a heading becomes a bold line and a table a code
+block with its columns aligned — in display columns, so Vietnamese and
+Japanese cells line up too. `/copy md` copies the markdown as it is. The HTML
+goes on the clipboard on Windows, WSL and macOS; Linux tools take one format
+at a time, so there it is the mrkdwn. The conversion runs only when something
+is copied, never while drawing.
 
 **In the prompt** the same gestures work, and most of them already did without
 being reachable. The textarea binds shift and the arrows to a selection, and

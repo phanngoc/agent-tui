@@ -140,6 +140,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// out of it on a machine that has none.
 		m.notice = "copy: " + msg.err.Error()
 		return m, nil
+
+	case slackCopiedMsg:
+		return m, m.slackCopied(msg)
 	}
 
 	// Everything else (focus changes, spinner ticks) goes to the components.
@@ -393,6 +396,9 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	case focusPreview:
 		return m.previewKey(k)
 	case focusChat:
+		if key == "y" {
+			return m.copyForSlack(m.replyInView(), "the answer in view")
+		}
 		var cmd tea.Cmd
 		m.chat, cmd = m.chat.Update(k)
 		return cmd
