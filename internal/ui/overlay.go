@@ -74,6 +74,8 @@ func (m *Model) composeOverlay(base string) string {
 		body = m.recallView()
 	case overlayTarget:
 		body = m.targetView()
+	case overlaySettings:
+		body = m.settingsView()
 	default:
 		return base
 	}

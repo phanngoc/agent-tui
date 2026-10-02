@@ -57,7 +57,7 @@ func (m *Model) applyTheme(name string, p theme.Palette) {
 	ta := textareaStyles(m.st)
 	m.input.SetStyles(ta)
 	in := textinputStyles(m.st)
-	for _, ti := range []*textinput.Model{&m.finderIn, &m.grepIn, &m.findIn, &m.renameIn, &m.recallIn} {
+	for _, ti := range []*textinput.Model{&m.finderIn, &m.grepIn, &m.findIn, &m.renameIn, &m.recallIn, &m.setIn} {
 		ti.SetStyles(in)
 	}
 

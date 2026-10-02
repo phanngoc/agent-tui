@@ -638,6 +638,8 @@ func (m *Model) cursor() *tea.Cursor {
 		return offsetCursor(m.grepIn.Cursor(), m.overlayX+overlayTextX, m.overlayY+overlayInputY)
 	case overlayRecall:
 		return offsetCursor(m.recallIn.Cursor(), m.overlayX+overlayTextX, m.overlayY+overlayInputY)
+	case overlaySettings:
+		return m.settingsCursor()
 	case overlayNone:
 	default:
 		return nil // pickers and prompts take keys, not text

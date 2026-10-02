@@ -23,11 +23,7 @@ type slashCmd struct {
 
 var slashCmds = []slashCmd{
 	{"new", "", "start an empty session", func(m *Model, _ string) tea.Cmd {
-		s := m.mgr.New()
-		s.Engine = m.lastEngine
-		cmd := m.onSessionSwitch()
-		m.notice = "new session"
-		return cmd
+		return m.newSession()
 	}},
 	{"fork", "", "branch this session, keeping the agent's context", func(m *Model, _ string) tea.Cmd {
 		return m.forkSession(m.mgr.Active())
@@ -144,6 +140,10 @@ var slashCmds = []slashCmd{
 	{"tasks", "", "background commands, and their output", func(m *Model, _ string) tea.Cmd {
 		m.overlay = overlayTasks
 		m.taskSel, m.taskOpen = 0, ""
+		return nil
+	}},
+	{"settings", "", "where new sessions start", func(m *Model, _ string) tea.Cmd {
+		m.openSettings()
 		return nil
 	}},
 	{"help", "", "show every shortcut", func(m *Model, _ string) tea.Cmd {

@@ -57,6 +57,7 @@ const (
 	overlayGit
 	overlayRename
 	overlayRecall
+	overlaySettings
 )
 
 // Model is the root Bubble Tea model.
@@ -189,6 +190,13 @@ type Model struct {
 
 	// Renaming a session.
 	renameIn textinput.Model
+
+	// The settings page, and what it has saved.
+	prefs      config.Prefs
+	setSel     int
+	setIn      textinput.Model
+	setEditing bool
+	setErr     string
 
 	// File picker overlay.
 	finderIn  textinput.Model
@@ -326,6 +334,8 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 		input:    ta,
 		spin:     sp,
 		renameIn: mk("name this session…"),
+		setIn:    mk("a folder, like ~/projects/app"),
+		prefs:    config.LoadPrefs(),
 		finderIn: mk("fuzzy file name…"),
 		grepIn:   mk("search file contents…"),
 		recallIn: mk("search every conversation…"),
