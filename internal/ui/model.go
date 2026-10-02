@@ -79,6 +79,15 @@ type Model struct {
 	// sideSet and prevSet are widths the user chose, in columns. Zero means
 	// the pane has not been touched and keeps the width it is given.
 	sideSet, prevSet int
+	// Where the panes stand, and the file tree's height and fold. See dock.go.
+	dock     dock
+	treeSet  int
+	treeFold bool
+	// dragPair is the two columns either side of the divider being dragged.
+	dragPair [2]col
+	// grabbing says a pane is being carried by its title.
+	grabbing bool
+	grabbed  grab
 	// drag is the divider the mouse is holding, if any.
 	drag dragging
 	// sel is the text the mouse has selected, in whichever pane it was made.
@@ -348,6 +357,7 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 	// for them again every morning is not a default, it is an interruption.
 	lay := loadLayout()
 	m.sideSet, m.prevSet = lay.Side, lay.Preview
+	m.dock, m.treeSet, m.treeFold = lay.Dock, lay.Tree, lay.TreeFold
 	m.showSessions, m.showPreview = !lay.Hide, !lay.HidePrv
 	m.histIdx = len(m.history)
 	m.chat.SoftWrap = false

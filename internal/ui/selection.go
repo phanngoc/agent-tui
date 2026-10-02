@@ -108,12 +108,12 @@ func (m *Model) paneBox(f focus) (left, top, w, h int, ok bool) {
 		if m.btwW == 0 {
 			return 0, 0, 0, 0, false
 		}
-		left, w = m.sideW+m.chatW, m.btwW
+		left, w = m.colX(colAux), m.btwW
 	case focusPreview:
 		if m.prevW == 0 {
 			return 0, 0, 0, 0, false
 		}
-		left, w = m.sideW+m.chatW+m.btwW, m.prevW
+		left, w = m.colX(colAux), m.prevW
 	default:
 		return 0, 0, 0, 0, false
 	}
@@ -129,11 +129,11 @@ func (m *Model) paneBox(f focus) (left, top, w, h int, ok bool) {
 func (m *Model) paneHasLeftRule(f focus) bool {
 	switch f {
 	case focusChat:
-		return m.sideW == 0 && m.chatCell().x == 0
+		return m.chatCell().x == 0
 	case focusBtw, focusPreview:
-		return false
+		return !m.colLeans(colAux)
 	}
-	return true
+	return !m.colLeans(colSide)
 }
 
 // paneScroll is how far a pane has been scrolled, so a row can keep its name

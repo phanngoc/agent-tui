@@ -17,17 +17,6 @@ const (
 	statusRows = 1
 )
 
-// leftSplit is how the left column divides between the session list and the
-// file tree. Both the renderer and the mouse handler call it, so a click always
-// lands on the row that was drawn.
-func (m *Model) leftSplit() (sessH, treeH int) {
-	// A title may wrap, so the height comes from the rows that will actually
-	// be drawn rather than from a count of sessions.
-	rows := len(m.sessionLines(max(4, m.sideW-2)))
-	sessH = clamp(rows+2, 4, m.bodyH/2)
-	return sessH, m.bodyH - sessH
-}
-
 // inInputBox reports whether a screen cell is inside the prompt.
 func (m *Model) inInputBox(x, y int) bool {
 	top := headerRows + m.bodyH
@@ -42,12 +31,8 @@ func (m *Model) paneAt(x, y int) focus {
 	if y < headerRows || y >= headerRows+m.bodyH || x < 0 || x >= m.w {
 		return -1
 	}
-	if m.sideW > 0 && x < m.sideW {
-		sessH, _ := m.leftSplit()
-		if y < headerRows+sessH {
-			return focusSessions
-		}
-		return focusExplorer
+	if left := m.colX(colSide); m.sideW > 0 && x >= left && x < left+m.sideW {
+		return m.sidebarPaneAt(y)
 	}
 	// The three panes to the right of the sidebar are asked where they were
 	// drawn rather than measured again here. They used to be measured here,
@@ -64,8 +49,11 @@ func (m *Model) paneAt(x, y int) focus {
 // treeRowAt maps a screen row onto an index in the visible file tree, or -1
 // when the point is on the pane's border.
 func (m *Model) treeRowAt(y int) int {
-	sessH, treeH := m.leftSplit()
-	top := headerRows + sessH + 1 // past the explorer's top border
+	if m.treeFold {
+		return -1
+	}
+	_, treeH := m.leftSplit()
+	top := m.treeTopY() + 1 // past the explorer's top border
 	if y < top || y >= top+treeH-2 {
 		return -1
 	}
@@ -79,7 +67,7 @@ func (m *Model) treeRowAt(y int) int {
 // sessionRowAt maps a screen row onto a session. A session occupies as many
 // rows as its title wraps onto, plus the line of detail underneath.
 func (m *Model) sessionRowAt(y int) int {
-	top := headerRows + 1 // past the sessions box's top border
+	top := m.sessTopY() + 1 // past the sessions box's top border
 	if y < top {
 		return -1
 	}
@@ -109,7 +97,11 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 		return m.onWheel(e)
 	case tea.MouseMotionMsg:
 		if m.drag != dragNone {
-			m.dragTo(e.X)
+			m.dragTo(e.X, e.Y)
+			return nil
+		}
+		if m.grabbing {
+			m.carry(e.X, e.Y)
 			return nil
 		}
 		// A button held down is a drag, and over a pane a drag is a selection.
@@ -130,6 +122,10 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 		return nil
 	case tea.MouseReleaseMsg:
 		m.drag = dragNone
+		if m.grabbing {
+			m.drop(e.X, e.Y)
+			return nil
+		}
 		if m.inputDrag {
 			m.inputDrag = false
 			return nil // the prompt keeps its selection; ctrl+c takes it
@@ -219,11 +215,21 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 	}
 	// A switch in the header opens or closes a pane.
 	if pane, ok := m.switchAt(e.X, e.Y); ok {
-		if pane == focusSessions {
+		switch pane {
+		case focusSessions:
 			m.toggleSessions()
-		} else {
+		case focusExplorer:
+			m.switchFiles()
+		default:
 			m.togglePreview()
 		}
+		return nil
+	}
+	// A press on a pane's title picks the pane up. Where it is let go decides
+	// whether it moved, and a press that never moved is a click on the title.
+	if pane, ok := m.titleAt(e.X, e.Y); ok {
+		m.grabbing = true
+		m.grabbed = grab{pane: pane, x: e.X, y: e.Y}
 		return nil
 	}
 	// A press on a divider takes hold of it until the button comes back up.
@@ -231,7 +237,7 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 	// one of them and focusing that pane is not what a drag is for.
 	if d := m.dividerAt(e.X, e.Y); d != dragNone {
 		m.drag = d
-		m.dragTo(e.X)
+		m.dragTo(e.X, e.Y)
 		return nil
 	}
 	pane := m.paneAt(e.X, e.Y)

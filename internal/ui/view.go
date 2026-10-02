@@ -112,47 +112,38 @@ func (m *Model) header() string {
 
 // panes lays out the three side-by-side columns.
 func (m *Model) panes() string {
-	cols := make([]string, 0, 3)
-
-	if m.sideW > 0 {
-		cols = append(cols, m.leftColumn())
-	}
+	order := m.colOrder()
+	cols := make([]string, 0, len(order))
 
 	chatTitle := "transcript"
 	if s := m.mgr.Active(); s.Busy && s.Status != "" {
 		chatTitle = s.Status
 	}
-	// Every pane after the first leans on its neighbour's right edge, so the
-	// screen is ruled once between panes rather than twice.
-	seam := seams{left: len(cols) > 0, bottom: true}
 	m.setChatContent(m.transcript(max(10, m.chatWidth())))
-	cols = append(cols, m.splitColumn(chatTitle, seam))
 
-	if m.btwW > 0 {
-		body := m.paintSelection(m.btwPane(m.btwW-2), focusBtw, m.btwW-2)
-		cols = append(cols, m.paneSeam(body, m.btwTitle(), m.btwW, m.bodyH,
-			m.focus == focusBtw, seams{left: true, bottom: true}))
-	}
-	if m.prevW > 0 {
-		body := m.paintSelection(m.previewPane(), focusPreview, m.prevW-2)
-		cols = append(cols, m.paneSeam(body, m.previewTitle(), m.prevW, m.bodyH,
-			m.focus == focusPreview, seams{left: true, bottom: true}))
+	// Every pane after the first leans on its neighbour's right edge, so the
+	// screen is ruled once between panes rather than twice. Which pane is
+	// first is the dock's to say.
+	for _, c := range order {
+		seam := seams{left: m.colLeans(c), bottom: true}
+		switch c {
+		case colSide:
+			cols = append(cols, m.leftColumn())
+		case colChat:
+			cols = append(cols, m.splitColumn(chatTitle, seam))
+		case colAux:
+			if m.btwW > 0 {
+				body := m.paintSelection(m.btwPane(m.btwW-2), focusBtw, m.btwW-2)
+				cols = append(cols, m.paneSeam(body, m.btwTitle(), m.btwW, m.bodyH,
+					m.lit(focusBtw), seam))
+			} else {
+				body := m.paintSelection(m.previewPane(), focusPreview, m.prevW-2)
+				cols = append(cols, m.paneSeam(body, m.previewTitle(), m.prevW, m.bodyH,
+					m.lit(focusPreview), seam))
+			}
+		}
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, cols...)
-}
-
-// leftColumn stacks the session list over the project tree. The tree gets the
-// remaining height because it is the pane that is actually browsed.
-func (m *Model) leftColumn() string {
-	// Shared with the mouse handler so a click lands on the row that was drawn.
-	sessH, treeH := m.leftSplit()
-
-	return lipgloss.JoinVertical(lipgloss.Left,
-		m.paneSeam(m.sessionsPane(), "sessions", m.sideW, sessH,
-			m.focus == focusSessions, seams{bottom: true}),
-		m.paneSeam(m.explorerPane(treeH-2), m.explorerTitle(), m.sideW, treeH,
-			m.focus == focusExplorer, seams{bottom: true}),
-	)
 }
 
 // explorerTitle names the directory the active session's agent runs in, and
@@ -649,13 +640,13 @@ func (m *Model) cursor() *tea.Cursor {
 
 	if m.finding {
 		// The find bar sits on the preview pane's last content row.
-		x := m.sideW + m.chatW + 1 + 1 // pane border, then the "/" prefix
+		x := m.auxText() + 1 + 1 // pane border, then the "/" prefix
 		y := headerRows + m.bodyH - 2
 		return offsetCursor(m.findIn.Cursor(), x, y)
 	}
 
 	if m.edit != nil && m.focus == focusPreview {
-		return offsetCursor(m.edit.ta.Cursor(), m.sideW+m.chatW+1, headerRows+1)
+		return offsetCursor(m.edit.ta.Cursor(), m.auxText()+1, headerRows+1)
 	}
 	if m.focus == focusInput {
 		return offsetCursor(m.input.Cursor(),

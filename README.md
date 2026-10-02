@@ -228,7 +228,15 @@ wide, and neither is a sixth of anything.
 | | (the two border columns, and no further: the column after one is the first column of a pane's text, and a press there belongs to the word under it) |
 | `alt+←` `alt+→` | the arrow pushes the nearest divider that way |
 | `ctrl+b` `ctrl+e` | open or close the sidebar and the preview |
-| the switches | `▪ sessions  ▪ preview` in the header, click to toggle |
+| the switches | `▪ sessions  ▪ files  ▪ preview` in the header, click to toggle |
+| drag the rule above the files | make the file tree taller or shorter |
+| click the files title | fold the tree to one line, `▸`; click again, or drag the line up, to open it |
+| drag a pane by its title | move it: the sidebar to either edge, the preview to either side of the transcript, the files above or below the sessions — the status line says where it will land before you let go |
+| `/layout` | the same, typed: `sidebar left\|right`, `preview left\|right`, `files top\|bottom\|fold\|open\|<rows>`, `reset` |
+
+The file tree gets about a third of the sidebar and the session list the rest:
+the tree is reached for, the list is read all day. It used to be the other way
+round.
 
 **The column to the right of the transcript holds one pane, not two.** The
 preview is in it, and a side chat opened with `/btw` stands in its place. They
@@ -248,7 +256,8 @@ has no title bar to click: an × that can only close is half a switch, and the
 other half would be a key you have to remember. Widths are kept in columns, not
 as a fraction of the window — you size the sidebar to the longest path in the
 project, and that length has nothing to do with how wide the terminal is — and
-they are saved, along with which panes you closed, in
+they are saved, along with which panes you closed, where you moved them and
+how tall the file tree is, in
 `$XDG_DATA_HOME/agent-tui/layout.json`.
 
 **Watching more than one at a time** — `/split 2` or `/split 4`.
@@ -688,6 +697,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/theme [name]` | change the colours, or list what there is |
 | `/settings` | where new sessions start: launch folder, last session, or a fixed folder |
 | `/copy [md]` | copy the last answer formatted for Slack · `md` copies the markdown |
+| `/layout [what where]` | move panes, fold or size the file tree, or `reset` |
 | `/recall [text]` | search every conversation, in every project |
 | `/git` | browse the history and its diffs |
 | `/paste` | attach the image on the clipboard |

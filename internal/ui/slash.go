@@ -153,6 +153,11 @@ var slashCmds = []slashCmd{
 			}
 			return m.copyForSlack(src, "the last answer")
 		}},
+	{"layout", "[what where]", "move panes and fold the file tree · or drag a pane by its title",
+		func(m *Model, arg string) tea.Cmd {
+			m.layoutCommand(arg)
+			return nil
+		}},
 	{"settings", "", "where new sessions start", func(m *Model, _ string) tea.Cmd {
 		m.openSettings()
 		return nil
