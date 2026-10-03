@@ -103,6 +103,7 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case taskMsg:
+		m.feedToolOutput()
 		return m, m.watchTasks()
 
 	case tickMsg:
@@ -897,23 +898,38 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 	next := m.pump(s, msg.eng, msg.ch)
 	// A background session's output must not scroll or repaint the foreground.
 	foreground := s == m.mgr.Active()
+	// Anything at all from the engine is a sign of life. A long gap between
+	// two of them is what a stall looks like, and the activity line says so.
+	s.HeardAt = time.Now()
 
 	switch e := msg.ev.(type) {
 	case agent.EvStatus:
-		s.Status = e.Text
+		setPhase(s, e.Text)
 
 	case agent.EvTextDelta:
 		// No cache invalidation here: only the streaming tail changed, and the
 		// transcript renders that separately from the committed head.
 		s.Partial += e.Text
+		s.Streamed += len(e.Text)
+		// Answering is the end of the thinking it was doing.
+		s.Thinking = ""
+		setPhase(s, "writing")
 		if foreground {
 			m.chat.GotoBottom()
 		}
 
 	case agent.EvThinkingDelta:
-		s.Status = "thinking"
+		setPhase(s, "thinking")
+		s.ThinkTok += e.Tokens
+		if e.Text != "" {
+			s.Thinking = tailOf(s.Thinking+e.Text, liveThinkingBytes)
+			if foreground {
+				m.chat.GotoBottom()
+			}
+		}
 
 	case agent.EvToolPending:
+		setPhase(s, "writing a tool call")
 		// The same calls arrive again on EvAssistant, complete. Until then
 		// these are what the transcript has, and they change on every
 		// fragment, so nothing is cached and nothing is invalidated.
@@ -951,7 +967,8 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		m.queueChoice(s, e)
 
 	case agent.EvToolStart:
-		s.Status = e.Call.Name
+		setPhase(s, e.Call.Name)
+		s.Thinking = ""
 		// The call that is running owns the live output and the clock. Both
 		// are dropped when it finishes, a few cases below.
 		s.OutputID, s.Output, s.RunAt = e.Call.ID, "", time.Now()
@@ -963,6 +980,12 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 			// The result is on the call now, and its line says how much of it
 			// there was. Keeping the live copy would show it twice.
 			s.OutputID, s.Output, s.RunAt = "", "", time.Time{}
+		}
+		// With nothing left running, the turn is back with the model — and
+		// saying the last tool's name for the next two minutes is how the
+		// wait for an answer looked like a tool that had hung.
+		if !hasRunningCall(s) {
+			setPhase(s, "waiting for the model")
 		}
 		m.invalidateChat()
 		if foreground {
@@ -986,7 +1009,10 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		// A background command an external agent started, shown beside ours.
 		if e.ID != "" {
 			if e.Label != "" || m.tasks.Get(e.ID) == nil {
-				m.tasks.Adopt(e.ID, firstNonBlank(e.Label, "background command"), s.ID)
+				t := m.tasks.Adopt(e.ID, firstNonBlank(e.Label, "background command"), s.ID)
+				if e.ToolUse != "" {
+					t.ToolUse = e.ToolUse
+				}
 			}
 			note := e.Note
 			if note == "" && e.Output != "" {

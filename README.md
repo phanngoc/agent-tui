@@ -853,6 +853,35 @@ were. There are now two backgrounds: one for the conversation the prompt is
 talking to, one for the row the cursor is over, because they are often not the
 same row.
 
+**Inside a running turn**, the bottom of the transcript says where it is:
+
+```
+▎  ⋯ Bash  40s
+▎     ⎿ go test ./internal/ekyc/... -run TestReapply -v
+▎     --- PASS: TestReapply/rejected (0.01s)
+▎     === RUN   TestReapply/stale
+▎
+▎ ⠋ thinking · 12s · ↓ ~1.4k tokens
+▎     The stale case fails because isStalePending also requires
+▎     ai_verification_result IS NULL, so row B-2 never becomes stale…
+```
+
+- A tool call appears **while the model is writing it**, half-typed, and gets
+  its clock the moment it starts running — not when its result comes back.
+- A command's **output streams under its call**: Claude Code writes it to a
+  file as it runs, and that file is followed.
+- The live line says the phase (`thinking`, `writing`, `running Bash`,
+  `waiting for the model`), how long it has been in that phase, and roughly how
+  much it has produced. Claude Code is run with `showThinkingSummaries`, so its
+  thinking streams as words, the last few lines under the live line.
+- Nothing from the engine for 20 seconds, with nothing running, and the line
+  says so in the warning colour: `no word from the engine for 45s`. That is
+  what a stall looks like; a long build with its clock going is not one.
+
+It used to be a spinner and the last tool's name for as long as the turn took:
+a call that had finished two minutes earlier and a model thinking about its
+result looked the same, and both looked like a hang.
+
 ## Chrome
 
 The frame is ruled, not boxed.

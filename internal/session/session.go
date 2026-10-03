@@ -351,6 +351,17 @@ type Session struct {
 	// call, and it is dropped as soon as that call finishes.
 	Output   string `json:"-"`
 	OutputID string `json:"-"`
+	// What the turn is doing, said the way a person watching wants to know
+	// it: since when (PhaseAt, reset whenever Status changes), when the engine
+	// last said anything at all (HeardAt — a long silence is how a stall
+	// looks), how much it has streamed (Streamed, in bytes of text, thinking
+	// and tool input), and the thinking it is doing right now (Thinking, the
+	// tail of it, dropped once it starts answering).
+	PhaseAt  time.Time `json:"-"`
+	HeardAt  time.Time `json:"-"`
+	Streamed int       `json:"-"`
+	Thinking string    `json:"-"`
+	ThinkTok int       `json:"-"`
 	// Live holds the SDK-native message history for an in-flight conversation.
 	// It is opaque here on purpose: saved sessions never depend on the SDK's wire
 	// types, while a running session can still replay thinking blocks verbatim,

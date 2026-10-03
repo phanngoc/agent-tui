@@ -31,7 +31,7 @@ func (m *Model) transcript(width int) string {
 		m.chatCache, m.chatStarts, m.chatTurn = h.text, h.starts, h.turn
 		m.chatKey = key
 	}
-	if s.Partial == "" && s.LastErr == "" && len(s.Calls) == 0 && s.Output == "" {
+	if s.Partial == "" && s.LastErr == "" && len(s.Calls) == 0 && s.Output == "" && !s.Busy {
 		return m.chatCache
 	}
 
@@ -55,7 +55,15 @@ func (m *Model) transcript(width int) string {
 	// does not rebuild the cached transcript above it every second.
 	for _, l := range lastLines(s.Output, liveOutputRows) {
 		b.WriteString(m.st.AgentBar.Render("▎") + "     " +
-			m.st.Dim.Render(truncate(highlight.ExpandTabs(l), max(10, width-8))) + "\n")
+			m.st.Dim.Render(truncate(highlight.ExpandTabs(stripANSI(l)), max(10, width-8))) + "\n")
+	}
+	// What the turn is doing now, and for how long — the line that answers
+	// "is it stuck".
+	if act := m.activityLines(s, width); len(act) > 0 {
+		b.WriteString(m.st.AgentBar.Render("▎") + "\n")
+		for _, l := range act {
+			b.WriteString(l + "\n")
+		}
 	}
 	if s.LastErr != "" {
 		b.WriteByte('\n')
