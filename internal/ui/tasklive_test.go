@@ -71,3 +71,47 @@ func TestRunningCommandOutputIsWatchable(t *testing.T) {
 	}
 	m.tasks.Update("bj6q99fbl", task.Done, "")
 }
+
+// TestTheListShowsWhatIsRunning: a long turn runs dozens of commands, and the
+// few still going were lost at the bottom of a column of ticks. The list is
+// what is running; the rest are one key away.
+func TestTheListShowsWhatIsRunning(t *testing.T) {
+	m := newTestModel(t)
+	owner := m.mgr.Active().ID
+	for _, id := range []string{"d1", "d2", "d3"} {
+		m.tasks.Adopt(id, "finished "+id, owner)
+		m.tasks.Update(id, task.Done, "")
+	}
+	m.tasks.Adopt("r1", "Lint the touched batch files", owner)
+	m.tasks.Adopt("r2", "batch full suite", owner)
+
+	press(t, m, "ctrl+k")
+	out := stripANSI(m.View().Content)
+	if strings.Contains(out, "finished d1") {
+		t.Errorf("a finished command is in the list:\n%s", out)
+	}
+	for _, want := range []string{"Lint the touched batch files", "batch full suite", "3 finished commands · a shows them"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the list is missing %q:\n%s", want, out)
+		}
+	}
+
+	press(t, m, "a")
+	if out := stripANSI(m.View().Content); !strings.Contains(out, "finished d1") {
+		t.Errorf("a did not show the finished commands:\n%s", out)
+	}
+	press(t, m, "a")
+	if out := stripANSI(m.View().Content); strings.Contains(out, "finished d1") {
+		t.Errorf("a second a did not hide them again:\n%s", out)
+	}
+
+	// One finishing while the list is open leaves it, and the selection
+	// stays on a row that exists.
+	press(t, m, "down")
+	m.tasks.Update("r2", task.Done, "")
+	m.View()
+	press(t, m, "enter")
+	if m.taskOpen != "r1" {
+		t.Errorf("enter opened %q, want the one still running", m.taskOpen)
+	}
+}

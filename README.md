@@ -728,7 +728,10 @@ stream — foreground ones as well as background ones — and their output is
 **live**: Claude Code writes it to a file as it goes, and the list follows the
 end of that file, so a nine-minute test run can be watched rather than waited
 on. With one command running, `ctrl+k` opens straight into its output; with
-several it lists them. (This works when Claude Code runs on this machine; one
+several it lists them. The list is what is still running — a long turn runs
+dozens of commands, and the few still going used to sit under a column of
+ticks — and one line counts the finished ones; `a` shows them too, for the
+failure whose output you do want to read. (This works when Claude Code runs on this machine; one
 running inside a container or a WSL distribution writes its files there.)
 One honest limitation: `claude -p` kills its background
 tasks when the turn ends, so those show as stopped rather than outliving the
