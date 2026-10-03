@@ -287,6 +287,8 @@ type Model struct {
 
 	// History browser, nil until /git opens it.
 	git *gitState
+	// changes is the working tree listing the empty preview shows; changes.go.
+	changes changesState
 
 	// Filesystem target picker.
 	hostFS    vfs.FS
@@ -699,7 +701,11 @@ func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
 	if s.Busy {
 		return nil
 	}
-	files := m.takeAttachments(fsID(m.sessionFS(s)), text)
+	return m.startTurn(s, text, m.takeAttachments(fsID(m.sessionFS(s)), text))
+}
+
+// startTurn sends a prompt, with the images that go with it, as a new turn.
+func (m *Model) startTurn(s *session.Session, text string, files []session.Attachment) tea.Cmd {
 	s.Append(session.Message{Role: session.RoleUser, Text: text, Files: files})
 	s.Busy = true
 	s.Status = "thinking"
@@ -803,6 +809,9 @@ func (m *Model) cancelRun() {
 	s.Busy = false
 	s.Status = ""
 	m.notice = "cancelled"
+	// Stopping the turn is not sending what was queued behind it: it goes
+	// back in the prompt, to send, change or drop.
+	m.unqueue(s)
 }
 
 // dropApprovals denies and removes every queued approval for one session.

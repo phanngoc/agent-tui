@@ -44,6 +44,15 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
 		m.invalidateChat()
+		// The first size is the first moment the preview exists, and with it
+		// the changes listing it shows when no file is open.
+		return m, m.refreshChanges(2 * time.Second)
+
+	case changesMsg:
+		return m, m.applyChanges(msg)
+
+	case changesPatchMsg:
+		m.applyChangesPatch(msg)
 		return m, nil
 
 	case indexReadyMsg:
@@ -93,7 +102,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if n := len(m.tree.Rows()); m.treeSel >= n {
 			m.treeSel = max(0, n-1)
 		}
-		return m, m.watchTree()
+		// Files moved on disk: the changes listing may be out of date. Not
+		// more often than this, since on WSL every look is a wsl.exe.
+		return m, tea.Batch(m.watchTree(), m.refreshChanges(5*time.Second))
 
 	case completionMsg:
 		return m, m.applyCompletionResult(msg)
@@ -462,6 +473,11 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.completeCmd(false)
 
 	case "up", "ctrl+p":
+		// A prompt still waiting in the queue comes back first: it is the
+		// thing just sent, and the likeliest to want changing.
+		if m.editLastQueued() {
+			return nil
+		}
 		// Single-line prompts recall history, the way a shell does; a
 		// multi-line prompt needs the arrows for moving around in it.
 		if !strings.Contains(m.input.Value(), "\n") && m.recallHistory(-1) {
@@ -502,8 +518,13 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 			m.input.Reset()
 			return m.changeDir(dir)
 		}
-		if m.mgr.Active().Busy {
-			m.notice = "still working — ctrl+c to stop"
+		// While a turn runs, the prompt waits for it rather than being
+		// refused: see queue.go.
+		if s := m.promptTarget(); s != nil && s.Busy {
+			m.pushHistory(text)
+			m.input.Reset()
+			m.queuePrompt(s, text)
+			m.toBottom()
 			return nil
 		}
 		m.pushHistory(text)
@@ -632,6 +653,19 @@ func (m *Model) previewKey(k tea.KeyPressMsg) tea.Cmd {
 	// The editor owns the pane while it is open.
 	if m.edit != nil {
 		return m.editorKey(k)
+	}
+	// With no file open the pane is the changes listing, which has keys of
+	// its own; with one open, q puts it away and the listing comes back.
+	if m.showingChanges() {
+		if cmd, ok := m.changesKey(key); ok {
+			return cmd
+		}
+	}
+	if m.file != nil && !m.finding && key == "q" {
+		m.file = nil
+		m.prev.SetContent("")
+		m.notice = ""
+		return m.refreshChanges(0)
 	}
 	if m.finding {
 		switch key {
@@ -1015,6 +1049,13 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		if foreground {
 			m.followChat()
 		}
+		// Whatever the call was, it may have changed the tree: the changes
+		// listing looks again, if it is on screen.
+		if foreground {
+			if cmd := m.refreshChanges(time.Second); cmd != nil {
+				next = tea.Batch(next, cmd)
+			}
+		}
 		// A write may have changed what the preview is showing.
 		if e.Call.Name == "write_file" || e.Call.Name == "edit_file" {
 			if m.file != nil {
@@ -1090,6 +1131,14 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		m.mgr.Save(s)
 		m.invalidateChat()
+		// The turn's work is done: show what it changed.
+		if foreground {
+			next = tea.Batch(next, m.refreshChanges(0))
+		}
+		// What was queued while this turn ran goes now, if it ended well.
+		if cmd := m.nextQueued(s, e.Err == nil); cmd != nil {
+			return tea.Batch(next, cmd)
+		}
 	}
 	return next
 }
@@ -1317,7 +1366,12 @@ func (m *Model) onSessionSwitchAt(msg int) tea.Cmd {
 		m.noteChatScroll()
 	}
 	m.errText = m.mgr.Active().LastErr
-	return cmd
+	// A session working somewhere else may be another repository; one in the
+	// same place is the same listing, and switching costs nothing.
+	if cmd != nil {
+		return tea.Batch(cmd, m.refreshChanges(0))
+	}
+	return nil
 }
 
 // showActiveSession points everything that reads files at the filesystem and

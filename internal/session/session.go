@@ -362,6 +362,9 @@ type Session struct {
 	Streamed int       `json:"-"`
 	Thinking string    `json:"-"`
 	ThinkTok int       `json:"-"`
+	// Queued are prompts sent while a turn was still running, in order. They
+	// go, one turn each, as the turns before them end.
+	Queued []Queued `json:"-"`
 	// Live holds the SDK-native message history for an in-flight conversation.
 	// It is opaque here on purpose: saved sessions never depend on the SDK's wire
 	// types, while a running session can still replay thinking blocks verbatim,
@@ -474,4 +477,11 @@ func collectPaths(m map[string]any, depth int) []string {
 		}
 	}
 	return out
+}
+
+// Queued is a prompt waiting for the turn before it to end, with the images
+// that were attached when it was sent.
+type Queued struct {
+	Text  string
+	Files []Attachment
 }

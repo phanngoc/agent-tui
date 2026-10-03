@@ -122,3 +122,28 @@ func TestReadOnlyToolsAreNeverAsked(t *testing.T) {
 		}
 	}
 }
+
+// TestAutoReadsAnywhere: the project is the boundary for changes, not for
+// looking. The case that showed it: the agent reading an image the user had
+// just pasted, from the folder pasted images are kept in, outside the project.
+func TestAutoReadsAnywhere(t *testing.T) {
+	const root = `C:\Users\me\project`
+	pasted := `C:\Users\me\AppData\Local\agent-tui\attachments\s1\paste-1.png`
+	for _, c := range []session.ToolCall{
+		call(t, "Read", map[string]any{"file_path": pasted}),
+		call(t, "Grep", map[string]any{"pattern": "x", "path": `C:\Windows`}),
+		call(t, "Glob", map[string]any{"pattern": "*.go", "path": "/etc"}),
+		call(t, "read_file", map[string]any{"path": "/etc/hosts"}),
+	} {
+		if !AutoAllows(c, root) {
+			t.Errorf("auto stopped to ask before %s looked outside the project", c.Name)
+		}
+	}
+	// Changing something outside the project still asks.
+	for _, name := range []string{"Write", "Edit", "write_file"} {
+		c := call(t, name, map[string]any{"file_path": pasted})
+		if AutoAllows(c, root) {
+			t.Errorf("auto let %s change a file outside the project", name)
+		}
+	}
+}

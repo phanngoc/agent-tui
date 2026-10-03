@@ -276,6 +276,16 @@ The file tree gets about a third of the sidebar and the session list the rest:
 the tree is reached for, the list is read all day. It used to be the other way
 round.
 
+**With no file open, the preview shows what changed.** It lists the working
+tree against the last commit, the way Claude Code does beside its
+conversation: `7 files changed +85 -4`, each file with its counts (new files
+marked `new`), and the selected file's diff with line numbers and the changed
+words picked out. In the preview, `↑↓` picks a file, the wheel or `PgUp`/`PgDn`
+reads its diff, `enter` opens the file at its first change, and `r` reads the
+tree again. `q` on an open file closes it and brings the listing back. It
+refreshes when a tool call or a turn ends and when files move on disk, and
+does no git work while a file is open or the preview is closed.
+
 **The column to the right of the transcript holds one pane, not two.** The
 preview is in it, and a side chat opened with `/btw` stands in its place. They
 were made to sit side by side first, and four panes on a terminal is three
@@ -925,6 +935,13 @@ same row.
 - Nothing from the engine for 20 seconds, with nothing running, and the line
   says so in the warning colour: `no word from the engine for 45s`. That is
   what a stall looks like; a long build with its clock going is not one.
+
+**You can send while it works.** A prompt sent during a turn is queued and
+shown under it, as `queued  …`, with any image pasted into it. When the turn
+ends, the queued prompt goes as the next turn, then the one after it. `↑` in an
+empty prompt takes the last queued prompt back out to edit. If you stop the
+turn, or it fails, what was queued goes back into the prompt rather than being
+sent. This works the same for every engine.
 
 **The transcript follows the answer down, until you scroll away.** While you
 are at the bottom, it stays at the bottom as the answer streams. Scroll up to

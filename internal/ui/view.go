@@ -355,6 +355,9 @@ func (m *Model) previewTitle() string {
 		return fitTitle(m.edit.rel, suffix, room)
 	}
 	if m.file == nil {
+		if m.showingChanges() {
+			return "changes  ↑↓ file · enter open · r refresh"
+		}
 		return "preview"
 	}
 	// Say when the pane is not showing column one. Long lines are clipped
@@ -393,6 +396,10 @@ func (m *Model) previewPane() string {
 		return m.edit.ta.View()
 	}
 	if m.file == nil {
+		// With nothing open, the pane shows what has changed.
+		if m.showingChanges() {
+			return m.changesView(max(10, m.prevW-2), max(3, m.prev.Height()))
+		}
 		hint := []string{
 			"",
 			m.st.Dim.Render(gutter + "No file open."),

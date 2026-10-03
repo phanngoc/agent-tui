@@ -52,6 +52,8 @@ type FileChange struct {
 	Added   int
 	Deleted int
 	Binary  bool
+	// Untracked is a file git does not know yet: new, and not yet added.
+	Untracked bool
 }
 
 // Run executes a git command in dir and returns its stdout.
