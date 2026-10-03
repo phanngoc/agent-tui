@@ -658,11 +658,12 @@ func (m *Model) buildGitPatch(w int, head []string) []string {
 			out = append(out, m.st.Faint.Render("  binary file"))
 			continue
 		}
+		g := gutterOf(f)
 		for _, h := range f.Hunks {
 			hdr := "@@ " + h.Header
 			out = append(out, m.st.DiffHunk.Render(truncate(hdr, w)))
 			for _, l := range h.Lines {
-				out = append(out, m.gitDiffLine(l, w))
+				out = append(out, m.gitDiffLine(l, w, g))
 			}
 		}
 	}
@@ -716,18 +717,25 @@ func (m *Model) gitFileLine(f git.FileChange, w int, hover bool) string {
 
 // gitDiffLine draws one diff line: a gutter with both line numbers, the sign,
 // and the text with the changed span picked out.
-func (m *Model) gitDiffLine(l git.Line, w int) string {
+func (m *Model) gitDiffLine(l git.Line, w int, g diffGutter) string {
 	if l.Kind == git.Meta {
 		return m.st.DiffMeta.Render(truncate("  "+l.Text, w))
 	}
 
-	const gutter = 9 // "1234 5678"
-	num := func(n int) string {
+	num := func(n, width int) string {
 		if n == 0 {
-			return "    "
+			return strings.Repeat(" ", width)
 		}
-		return padLeft(strconv.Itoa(n), 4)
+		return padLeft(strconv.Itoa(n), width)
 	}
+	var nums []string
+	if g.old > 0 {
+		nums = append(nums, num(l.Old, g.old))
+	}
+	if g.new > 0 {
+		nums = append(nums, num(l.New, g.new))
+	}
+	gutter := strings.Join(nums, " ")
 
 	// A changed row is tinted end to end — gutter, sign, text and the padding
 	// out to the edge — so a run of additions is a band the eye can measure
@@ -742,8 +750,8 @@ func (m *Model) gitDiffLine(l git.Line, w int) string {
 		sign, style, on, gut = "-", m.st.DiffDelRow, m.st.DiffDelOn, m.st.DiffDelRow
 	}
 
-	room := max(4, w-gutter-2)
-	line := gut.Render(num(l.Old)+" "+num(l.New)) + style.Render(" "+sign) +
+	room := max(4, w-len(gutter)-2)
+	line := gut.Render(gutter) + style.Render(" "+sign) +
 		renderSpans(l.Text, l.Spans, style, on, room)
 	if l.Kind == git.Context {
 		return line
@@ -752,6 +760,31 @@ func (m *Model) gitDiffLine(l git.Line, w int) string {
 		line += style.Render(strings.Repeat(" ", n))
 	}
 	return line
+}
+
+// diffGutter is how wide each line-number column of a file's diff is drawn,
+// zero for a side the file does not have.
+//
+// It was a fixed four and four, which spent eleven columns before the text on
+// every row — and in a pane a third of the screen wide that is a sixth of it,
+// spent mostly on blanks. A new file has no old side and a file of ninety lines
+// no four-digit numbers, so the columns are as wide as the numbers in this
+// file need and no wider, and a side with no numbers at all is not drawn.
+type diffGutter struct{ old, new int }
+
+func gutterOf(f git.File) diffGutter {
+	var g diffGutter
+	for _, h := range f.Hunks {
+		for _, l := range h.Lines {
+			if l.Old > 0 {
+				g.old = max(g.old, len(strconv.Itoa(l.Old)))
+			}
+			if l.New > 0 {
+				g.new = max(g.new, len(strconv.Itoa(l.New)))
+			}
+		}
+	}
+	return g
 }
 
 // renderSpans paints a line, brightening the parts that actually changed.

@@ -80,6 +80,9 @@ func (m *Model) sessionKey(width int) string {
 		b.WriteString(strconv.Itoa(len(s.Messages)))
 		b.WriteByte(';')
 		b.WriteString(relTime(s.Updated))
+		if m.drafted(s) {
+			b.WriteString(";draft")
+		}
 	}
 	// The spinner is a frame of an animation, so a running conversation has to
 	// rebuild — but only a running one.
@@ -194,7 +197,12 @@ func (m *Model) sessionMeta(s *session.Session, width int) string {
 	if st == stateWorking && s.Status != "" {
 		word = s.Status
 	}
-	parts := make([]string, 0, 3)
+	parts := make([]string, 0, 4)
+	// Something half-typed to it is waiting in the prompt for when you come
+	// back, and the list is where you would look for where you left it.
+	if m.drafted(s) {
+		parts = append(parts, "✎ draft")
+	}
 	if e := m.reg.Get(s.Engine); e != nil {
 		parts = append(parts, e.ID())
 	}

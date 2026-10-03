@@ -82,6 +82,8 @@ func (m *Model) closeBtw() {
 		return
 	}
 	m.showBtw = false
+	m.askSide = false
+	m.syncPrompt()
 	if m.focus == focusBtw {
 		m.setFocus(focusInput)
 	}

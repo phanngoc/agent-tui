@@ -23,6 +23,7 @@ import (
 // reindex that move needs has to reach the runtime somehow.
 func (m *Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	_, cmd := m.update(msg)
+	m.syncPrompt()
 	if len(m.deferred) == 0 {
 		return m, cmd
 	}
@@ -250,8 +251,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			return nil
 		}
 		// The side chat closes before the turn stops: it is the thing you
-		// just opened, and the one esc is most likely reaching for.
-		if m.showBtw && m.focus == focusBtw {
+		// just opened, and the one esc is most likely reaching for. Typing to
+		// it counts as being in it — esc there must not stop the turn in the
+		// conversation beside it, which is not the one being talked to.
+		if m.showBtw && (m.focus == focusBtw || m.focus == focusInput && m.askSide) {
 			m.closeBtw()
 			return nil
 		}
@@ -426,6 +429,11 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.inputKey(k)
 	case focusPreview:
 		return m.previewKey(k)
+	case focusBtw:
+		// The side chat has nothing to scroll by key or act on; what is typed
+		// with it in front is for it, and goes to the box addressed to it.
+		m.setFocus(focusInput)
+		return m.inputKey(k)
 	case focusChat:
 		if key == "y" {
 			return m.copyForSlack(m.replyInView(), "the answer in view")
@@ -1310,6 +1318,15 @@ func (m *Model) closeOverlay() {
 
 func (m *Model) setFocus(f focus) {
 	m.focus = f
+	// Going to a conversation's pane is choosing whom the prompt talks to;
+	// going anywhere else leaves that as it was.
+	switch f {
+	case focusBtw:
+		m.askSide = true
+	case focusChat:
+		m.askSide = false
+	}
+	m.syncPrompt()
 	if f == focusInput {
 		m.input.Focus()
 	} else {
@@ -1350,8 +1367,11 @@ func (m *Model) onSessionSwitch() tea.Cmd {
 // A negative index means the newest turn, which is what switching normally
 // wants.
 func (m *Model) onSessionSwitchAt(msg int) tea.Cmd {
-	// Another conversation is read from its newest turn, following.
+	// Another conversation is read from its newest turn, following, and
+	// typed to in its own prompt rather than its side chat's.
 	m.chatAway = false
+	m.askSide = false
+	m.syncPrompt()
 	m.sessSel = m.mgr.ActiveIndex()
 	// Looking at it is what "seen" means.
 	m.mgr.Active().Unseen = false

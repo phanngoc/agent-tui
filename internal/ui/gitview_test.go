@@ -179,13 +179,13 @@ func TestGitOutsideARepositorySaysSo(t *testing.T) {
 // piped through a pager: you can see where in the file you are.
 func TestDiffLineShowsBothLineNumbers(t *testing.T) {
 	m := newTestModel(t)
-	ctx := m.gitDiffLine(git.Line{Kind: git.Context, Old: 36, New: 40, Text: "ok"}, 60)
+	ctx := m.gitDiffLine(git.Line{Kind: git.Context, Old: 36, New: 40, Text: "ok"}, 60, diffGutter{2, 2})
 	plain := stripANSI(ctx)
 	if !strings.Contains(plain, "36") || !strings.Contains(plain, "40") {
 		t.Errorf("context line = %q", plain)
 	}
 
-	add := stripANSI(m.gitDiffLine(git.Line{Kind: git.Added, New: 41, Text: "new"}, 60))
+	add := stripANSI(m.gitDiffLine(git.Line{Kind: git.Added, New: 41, Text: "new"}, 60, diffGutter{2, 2}))
 	if !strings.Contains(add, "+") || !strings.Contains(add, "41") {
 		t.Errorf("added line = %q", add)
 	}
@@ -255,4 +255,32 @@ func repoRoot(t *testing.T) string {
 		t.Fatal(err)
 	}
 	return filepath.Dir(filepath.Dir(wd)) // internal/ui -> internal -> root
+}
+
+// The line numbers take the room their numbers need: a new file of forty lines
+// has no old side to draw and no four-digit numbers to make room for.
+func TestDiffGutterIsAsWideAsItsNumbers(t *testing.T) {
+	m := newTestModel(t)
+	added := git.File{Hunks: []git.Hunk{{Lines: []git.Line{
+		{Kind: git.Added, New: 9, Text: "a"},
+		{Kind: git.Added, New: 42, Text: "b"},
+	}}}}
+	g := gutterOf(added)
+	if g != (diffGutter{0, 2}) {
+		t.Fatalf("gutter of a new file = %+v", g)
+	}
+	if got := stripANSI(m.gitDiffLine(added.Hunks[0].Lines[1], 30, g)); !strings.HasPrefix(got, "42 +b") {
+		t.Errorf("added line = %q", got)
+	}
+	if got := stripANSI(m.gitDiffLine(added.Hunks[0].Lines[0], 30, g)); !strings.HasPrefix(got, " 9 +a") {
+		t.Errorf("numbers are not right-aligned: %q", got)
+	}
+
+	edited := git.File{Hunks: []git.Hunk{{Lines: []git.Line{
+		{Kind: git.Context, Old: 120, New: 98, Text: "x"},
+		{Kind: git.Deleted, Old: 121, Text: "y"},
+	}}}}
+	if g := gutterOf(edited); g != (diffGutter{3, 2}) {
+		t.Errorf("gutter of an edit = %+v", g)
+	}
 }

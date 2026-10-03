@@ -275,6 +275,15 @@ type Model struct {
 	// which is also true of the prompt itself.
 	attach []session.Attachment
 
+	// What is typed belongs to the conversation it is addressed to: promptOf
+	// is the one the box holds the text of, and drafts the others' (drafts.go).
+	promptOf string
+	drafts   map[string]promptDraft
+	// askSide addresses the prompt to the side chat rather than to the
+	// conversation beside it. It is not the focus: the caret goes back to the
+	// box to type, and the box goes on talking to the aside.
+	askSide bool
+
 	// Prompt history, oldest first, shared across sessions like a shell's.
 	history   []string
 	histIdx   int    // len(history) means "not recalling"
@@ -320,7 +329,7 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 	mgr *session.Manager, reg *engine.Registry, tasks *task.Registry) *Model {
 
 	ta := textarea.New()
-	ta.Placeholder = "Ask anything, or press ctrl+p to open a file"
+	ta.Placeholder = promptHint
 	ta.ShowLineNumbers = false
 	ta.Prompt = "❯ "
 	ta.CharLimit = 0
@@ -1094,9 +1103,10 @@ func (m *Model) projectName() string {
 //
 // One prompt box serves both panes rather than two: a second text area would
 // double the input handling — history, completion, attachments, paste — for a
-// pane whose whole point is that it is a quick aside.
+// pane whose whole point is that it is a quick aside. Which one it addresses
+// is chosen by going to a pane, and kept while the caret is in the box.
 func (m *Model) promptTarget() *session.Session {
-	if m.focus == focusBtw {
+	if m.askSide && m.showBtw {
 		if side := m.sideSession(); side != nil {
 			return side
 		}

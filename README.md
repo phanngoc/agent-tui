@@ -338,14 +338,22 @@ sessions here already do.
 The pane shows the aside and not the context it inherited: the agent is given
 all of it, which is the point, but you have it already in the pane next to it.
 The main transcript never learns the aside happened. One prompt serves both
-panes and talks to whichever has the caret; `esc` closes the pane and keeps the
-conversation, so reopening finds the same one. It is not in the session list —
+panes and talks to whichever you last went to: click the side chat, or just
+type with it in front, and the prompt is titled `btw ▸` and sends there until
+you click the transcript again. `esc` while talking to it closes the pane — it
+does not stop the turn beside it — and keeps the conversation, so reopening
+finds the same one. It is not in the session list —
 it belongs to a conversation rather than standing beside them — and closing
 that conversation takes it too.
 
 **Sessions** — conversations run concurrently. Starting a turn in one session
 does not block the others; a session that needs approval pulls itself to the
 front, because its agent is waiting on you.
+
+What is typed belongs to the conversation it is typed to. Each session, and
+each side chat, keeps its own draft — the text and any images pasted into it —
+which is put away when you go to another and brought back when you return. A
+session with a draft waiting says `✎ draft` in the list.
 
 ## Editing
 
