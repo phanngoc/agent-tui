@@ -191,6 +191,7 @@ func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 	switch m.paneAt(e.X, e.Y) {
 	case focusChat:
 		scroll(&m.chat)
+		m.noteChatScroll()
 	case focusPreview:
 		scroll(&m.prev)
 		m.fileLine = m.prev.YOffset() + 1

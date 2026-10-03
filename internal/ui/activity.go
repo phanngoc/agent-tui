@@ -95,7 +95,7 @@ func (m *Model) feedToolOutput() {
 		s.OutputID = t.ToolUse
 		s.Output = strings.Join(lines, "\n")
 		if s == m.mgr.Active() {
-			m.chat.GotoBottom()
+			m.followChat()
 		}
 	}
 }

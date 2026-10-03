@@ -232,6 +232,7 @@ func (m *Model) scrollPane(f focus, dir int) {
 		} else {
 			m.chat.ScrollUp(1)
 		}
+		m.noteChatScroll()
 	case focusPreview:
 		if dir > 0 {
 			m.prev.ScrollDown(1)
