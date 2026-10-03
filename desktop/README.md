@@ -77,6 +77,12 @@ most of it the Direct3D driver's, and about 15 MB of Go heap.
   - `Ctrl+V` pastes text, or passes `Ctrl+V` through so the core can attach a
     picture.
   - Right click pastes.
+  - The wheel scrolls in whole notches, at once, like the console behind
+    PowerShell. One notch is one jump of the lines-per-notch set in Windows'
+    mouse settings, 3 by default. Windows reports the wheel in units of 120 a
+    notch, and those were once divided by a line's pixel height: one notch
+    was six steps, and a high-resolution wheel or touchpad crept a line at a
+    time. Smaller deltas now wait until they add up to a notch.
   - `Shift`+wheel, a tilting wheel or a sideways trackpad swipe scrolls the
     preview sideways. Gio reports all three as horizontal travel with the
     shift removed, so the window passes it on as shift+wheel, which is what

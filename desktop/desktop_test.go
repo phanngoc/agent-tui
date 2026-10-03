@@ -274,3 +274,45 @@ func TestSidewaysReachesTheCoreAsShiftWheel(t *testing.T) {
 		t.Errorf("shift+wheel down sent %q", got)
 	}
 }
+
+// TestOneNotchIsOneJump: the wheel scrolls the way the console does — a
+// notch is a single jump of a few lines, not a run of small steps.
+func TestOneNotchIsOneJump(t *testing.T) {
+	var acc float32
+	if n := wheelSteps(&acc, 120, wheelNotch); n != 1 {
+		t.Errorf("one notch made %d steps, want 1", n)
+	}
+	if n := wheelSteps(&acc, -120, wheelNotch); n != -1 {
+		t.Errorf("one notch up made %d steps, want -1", n)
+	}
+}
+
+// TestFineDeltasDoNotDrift: a high-resolution wheel or a touchpad reports a
+// notch as several small deltas. They add up to one jump when a notch's
+// worth has arrived, and to nothing before — no creeping a line at a time.
+func TestFineDeltasDoNotDrift(t *testing.T) {
+	var acc float32
+	got := []int{}
+	for _, d := range []float32{40, 40, 40, 15, 15} {
+		got = append(got, wheelSteps(&acc, d, wheelNotch))
+	}
+	want := []int{0, 0, 1, 0, 0}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("steps per delta = %v, want %v", got, want)
+		}
+	}
+}
+
+// TestNotchEventsFollowWindowsSettings: lines per notch, as set in Windows,
+// over the three the core scrolls per wheel event.
+func TestNotchEventsFollowWindowsSettings(t *testing.T) {
+	for lines, want := range map[int]int{0: 0, 1: 1, 3: 1, 5: 2, 6: 2, 9: 3, 30: 10} {
+		if got := notchEvents(lines); got != want {
+			t.Errorf("%d lines a notch -> %d events, want %d", lines, got, want)
+		}
+	}
+	if n := wheelLines(); n < 0 {
+		t.Errorf("wheelLines = %d", n)
+	}
+}
