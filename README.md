@@ -276,6 +276,16 @@ The file tree gets about a third of the sidebar and the session list the rest:
 the tree is reached for, the list is read all day. It used to be the other way
 round.
 
+**With no file open, the preview shows what changed.** It lists the working
+tree against the last commit, the way Claude Code does beside its
+conversation: `7 files changed +85 -4`, each file with its counts (new files
+marked `new`), and the selected file's diff with line numbers and the changed
+words picked out. In the preview, `↑↓` picks a file, the wheel or `PgUp`/`PgDn`
+reads its diff, `enter` opens the file at its first change, and `r` reads the
+tree again. `q` on an open file closes it and brings the listing back. It
+refreshes when a tool call or a turn ends and when files move on disk, and
+does no git work while a file is open or the preview is closed.
+
 **The column to the right of the transcript holds one pane, not two.** The
 preview is in it, and a side chat opened with `/btw` stands in its place. They
 were made to sit side by side first, and four panes on a terminal is three

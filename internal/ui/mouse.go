@@ -193,6 +193,10 @@ func (m *Model) onWheel(e tea.Mouse) tea.Cmd {
 		scroll(&m.chat)
 		m.noteChatScroll()
 	case focusPreview:
+		if m.showingChanges() {
+			m.scrollChanges(dir)
+			return nil
+		}
 		scroll(&m.prev)
 		m.fileLine = m.prev.YOffset() + 1
 	case focusExplorer:
@@ -307,6 +311,10 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 			}
 		}
 		m.setFocus(pane)
+		// A click on a file in the changes listing picks it.
+		if pane == focusPreview && m.showingChanges() && m.changesClick(e.Y) {
+			return m.loadChangesPatch(false)
+		}
 		// A press in a pane of text is the start of a selection. Focusing and
 		// selecting are not alternatives: you click into a pane to read it,
 		// and the drag that would have selected in the terminal arrives here.

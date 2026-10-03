@@ -394,6 +394,7 @@ var helpGroups = []struct {
 		{"ctrl+click", "a file link or path in the transcript opens it in the preview"},
 		{"ctrl+end", "back to the newest line · scrolling up stops the transcript following"},
 		{"enter (busy)", "queues the prompt; it goes when the turn ends · ↑ takes it back"},
+		{"no file open", "preview shows git changes · ↑↓ · enter open · r refresh · q back"},
 		{"drag a title", "move a pane: sidebar left/right, preview either side, files above/below"},
 		{"click files", "fold the file tree to one line  ·  drag the rule above it to resize"},
 		{"y", "copy the answer in view for Slack  ·  /copy the last one"},

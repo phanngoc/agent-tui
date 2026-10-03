@@ -287,6 +287,8 @@ type Model struct {
 
 	// History browser, nil until /git opens it.
 	git *gitState
+	// changes is the working tree listing the empty preview shows; changes.go.
+	changes changesState
 
 	// Filesystem target picker.
 	hostFS    vfs.FS
