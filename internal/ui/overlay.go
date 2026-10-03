@@ -102,6 +102,25 @@ func (m *Model) refreshFinder() {
 	m.finderSel = 0
 }
 
+// refreshFinderKeep re-runs the query against an index that changed under it,
+// keeping the selection on the file it was on. The list changing is the index
+// catching up, not the person choosing again — and a row jumping out from under
+// an arrow key is how enter opens the wrong file.
+func (m *Model) refreshFinderKeep() {
+	var was string
+	if m.finderSel < len(m.finderHit) {
+		was = m.finderHit[m.finderSel].Path
+	}
+	m.finderHit = m.idx.Find(m.finderIn.Value(), m.finderRows())
+	m.finderSel = 0
+	for i, h := range m.finderHit {
+		if h.Path == was {
+			m.finderSel = i
+			break
+		}
+	}
+}
+
 func (m *Model) finderRows() int { return clamp(m.h/2, 6, 18) }
 
 func (m *Model) finderKey(k tea.KeyPressMsg) tea.Cmd {

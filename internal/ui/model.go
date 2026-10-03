@@ -423,6 +423,9 @@ func (m *Model) engineIndex(id string) int {
 type indexReadyMsg struct {
 	n    int
 	took time.Duration
+	// quiet is a walk taken to catch up with changes, which is not news: the
+	// first one says how many files there are, the hundredth does not.
+	quiet bool
 }
 
 // pendingApproval is one tool call waiting on the user, tagged with the session
@@ -605,8 +608,9 @@ func (m *Model) Init() tea.Cmd {
 	)
 }
 
-// treeMsg says the file tree changed on disk.
-type treeMsg struct{}
+// treeMsg is the explorer's watch coming round. changed says it found the
+// open directories different from last time.
+type treeMsg struct{ changed bool }
 
 // taskMsg says a background command produced output or changed state.
 type taskMsg struct{}
@@ -631,8 +635,7 @@ func (m *Model) watchTree() tea.Cmd {
 		case <-tree.Changes():
 		case <-time.After(tree.PollInterval()):
 		}
-		tree.Refresh()
-		return treeMsg{}
+		return treeMsg{changed: tree.Refresh()}
 	}
 }
 

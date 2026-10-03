@@ -428,6 +428,22 @@ var pathKeys = []string{
 	"file_path", "path", "notebook_path", "filePath", "target_file", "new_path",
 }
 
+// WrittenPaths are the files a call that writes names, as it named them —
+// relative to the agent's directory or absolute. Nil for every other call,
+// including a shell command, which may well write files but does not say which.
+func (t ToolCall) WrittenPaths() []string {
+	switch strings.ToLower(t.Name) {
+	case "write_file", "edit_file", "write", "edit", "multiedit", "notebookedit":
+	default:
+		return nil
+	}
+	var m map[string]any
+	if len(t.Input) == 0 || json.Unmarshal(t.Input, &m) != nil {
+		return nil
+	}
+	return collectPaths(m, 0)
+}
+
 // PathsInside reports whether every path this call names lies inside root.
 //
 // decided is false when the call names no path at all — a shell command, say —

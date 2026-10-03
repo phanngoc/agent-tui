@@ -1124,6 +1124,21 @@ Measured on an M1, `make bench`:
 | Syntax highlight, 376 KB Go file | 5.5 ms, 9 allocations |
 | Transcript repaint during streaming | 29 µs |
 
+**The file index stays current without walking on every change.** `ctrl+p`,
+`ctrl+f` and the built-in agent's file search read one in-memory list of the
+project's files, walked once at start. A walk on every change would be correct
+and expensive — on WSL or in a container it is a `find` through a process
+boundary — so it is kept up in three steps, cheapest first. A file the agent
+writes (Write, Edit and the built-in write tools) is added by name the moment
+the call finishes: no walk, and it is listed first in an empty `ctrl+p`.
+Anything else that may have changed the tree — a shell command, the end of a
+turn, a directory the explorer sees change — only marks the list stale. The
+walk happens when something is about to read it and it is stale or more than
+30 seconds old: opening the finder or the content search. The old list answers
+at once and the new one replaces it when it lands, with the selection kept on
+the same file. Walks never overlap; one asked for during another makes that one
+go round again.
+
 ### Reading a filesystem that is not ours
 
 Everything that touches files goes through one `vfs.FS`: the explorer, the
