@@ -313,10 +313,11 @@ func (m *Model) changesView(w, h int) string {
 		diff = []string{m.st.Faint.Render("  no text to show (binary, or only a mode change)")}
 	default:
 		for _, pf := range c.patch {
+			g := gutterOf(pf)
 			for _, hk := range pf.Hunks {
 				diff = append(diff, m.st.DiffHunk.Render(truncate("@@ "+hk.Header, w)))
 				for _, l := range hk.Lines {
-					diff = append(diff, m.gitDiffLine(l, w))
+					diff = append(diff, m.gitDiffLine(l, w, g))
 				}
 			}
 		}
