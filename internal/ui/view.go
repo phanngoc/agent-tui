@@ -524,7 +524,8 @@ func (m *Model) statusBar() string {
 		m.st.Faint.Render(engineLabel),
 		m.st.Faint.Render(tokens(s)),
 		m.st.Faint.Render(strconv.Itoa(m.idx.Len())+" files"),
-		m.st.StatusKey.Render(" f1 ")+m.st.Faint.Render(" help"),
+		m.st.StatusKey.Render(" f1 ")+m.st.Faint.Render(" help ")+
+			m.st.StatusKey.Render(" f2 ")+m.st.Faint.Render(" settings"),
 	)
 
 	l := strings.Join(left, "  ")

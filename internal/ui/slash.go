@@ -158,7 +158,7 @@ var slashCmds = []slashCmd{
 			m.layoutCommand(arg)
 			return nil
 		}},
-	{"settings", "", "where new sessions start", func(m *Model, _ string) tea.Cmd {
+	{"settings", "", "defaults, theme, layout, start folder (F2)", func(m *Model, _ string) tea.Cmd {
 		m.openSettings()
 		return nil
 	}},

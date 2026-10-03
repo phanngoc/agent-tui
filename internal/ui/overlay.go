@@ -405,6 +405,7 @@ var helpGroups = []struct {
 		{"/rename", "name this session yourself"},
 		{"ctrl+d", "work on the host, in a container, or in WSL"},
 		{"ctrl+k", "background commands, and their output"},
+		{"f2", "settings: defaults, theme, layout, start folder  ·  or ⚙ in the header"},
 		{"ctrl+w", "close session"},
 		{"alt+1…9", "jump to session"},
 		{"alt+↑/↓", "previous / next session"},

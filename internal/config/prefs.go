@@ -21,6 +21,15 @@ type Prefs struct {
 	StartDir string `json:"start_dir,omitempty"`
 	// StartPath is the folder StartFixed opens.
 	StartPath string `json:"start_path,omitempty"`
+	// Defaults for a new session, chosen on the settings page. Empty means
+	// what it meant before there was a page: the engine follows the one used
+	// last, and the model and mode come from config.json or the flags.
+	Engine string `json:"engine,omitempty"`
+	Model  string `json:"model,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	// Theme is the palette picked on the settings page. It outranks
+	// config.json's, which is the hand-written default the page started from.
+	Theme string `json:"theme,omitempty"`
 	// LastRoot is the folder the app was last opened on. It is what StartLast
 	// reopens: the sessions saved there come back with it, and each of them
 	// remembers the directory it had moved to, so the newest one picks up in

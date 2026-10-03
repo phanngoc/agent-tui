@@ -282,8 +282,16 @@ func (m *Model) paneSwitches(at int) string {
 		at += lipgloss.Width(label)
 		out += style.Render(label)
 	}
-	return out
+	// The way into settings sits with the switches, where a hand already goes
+	// to change how the screen is set out — so the page is found by looking,
+	// not only by knowing F2 or /settings.
+	gear := " ⚙ "
+	m.toggles = append(m.toggles, toggleHit{x0: at, x1: at + lipgloss.Width(gear), pane: settingsSwitch})
+	return out + m.st.Accent.Render(gear)
 }
+
+// settingsSwitch is the header's ⚙: not a pane, but a switch beside them.
+const settingsSwitch focus = 99
 
 // switchAt reports which switch a click landed on.
 func (m *Model) switchAt(x, y int) (focus, bool) {
@@ -303,7 +311,8 @@ func (m *Model) switchAt(x, y int) (focus, bool) {
 func (m *Model) switchesWidth() int {
 	// Measured, not counted: the marks are multi-byte and a byte count would
 	// put the switches two columns off the edge they are meant to sit on.
-	return lipgloss.Width(" ▪ sessions ") + lipgloss.Width(" ▪ files ") + lipgloss.Width(" ▪ preview ")
+	return lipgloss.Width(" ▪ sessions ") + lipgloss.Width(" ▪ files ") + lipgloss.Width(" ▪ preview ") +
+		lipgloss.Width(" ⚙ ")
 }
 
 // switchFor finds a drawn switch, for the tests and for anything that needs to

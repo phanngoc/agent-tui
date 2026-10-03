@@ -38,10 +38,43 @@ menu: *agent-tui*) is a native app written in Go. It runs this same binary,
 unchanged, in a pseudo-console and draws it on the GPU, with its own font,
 input methods, icon and a dark title bar. See [`desktop/`](desktop/README.md).
 
-With no `-C`, where it opens is a setting: `/settings` picks the folder it was
-opened in (the default), wherever the last session left off, or one fixed
-folder. The same choice decides where a session made with `ctrl+t` or `/new`
-starts, and `-C` always wins over it.
+## Settings
+
+Press **F2**, click the **⚙** at the right of the header, or type `/settings`.
+
+```
+┌────────────────────────────────────────────────────────────────────────────┐
+│  ⚙ Settings                                        changes save as you go  │
+│                                                                            │
+│ 1 General       │ Defaults for a session made with ctrl+t or /new. …      │
+│ 2 Agent         │                                                          │
+│ 3 Appearance    │   Engine                               the one used last │
+│ 4 Layout        │     a new session runs on whatever the last one …        │
+│ 5 About         │                                                          │
+│                 │ ▌ Model                                       ‹ Opus 5 › │
+│                 │     1M context · the default, and the strongest …        │
+│                                                                            │
+│  ✓ new sessions run on Opus 5                                              │
+│  ↑↓ move · ←→ change · enter choose · tab section · esc close              │
+└────────────────────────────────────────────────────────────────────────────┘
+```
+
+| section | settings |
+|---|---|
+| **General** | where new sessions start: where `tui` was opened, where the last session was, or a folder you choose |
+| **Agent** | the engine, model and mode a new session gets; each defaults to what it did before the page existed |
+| **Appearance** | the theme, shown as you move through them |
+| **Layout** | sidebar left or right, preview either side, files above or below, the file tree open or folded, reset |
+| **About** | where settings, config, sessions and themes live; enter copies the path |
+
+Every change is made and saved the moment it is chosen, and the footer says
+what it did. An option this machine cannot use, such as an engine that is not
+installed, is listed with the reason and skipped by `←→`. The mouse works too:
+click a section, a setting, or its `‹ value ›`.
+
+What the page saves goes to `prefs.json` in the data directory. It outranks
+`config.json`, the file you write by hand, and a flag outranks both: `-C`,
+`-model`, `-mode` and `-engine` are what you asked for this time.
 
 ## Engines
 
@@ -700,7 +733,7 @@ than sent to the agent. Tab completes them; `/` alone lists them.
 | `/btw [question]` | ask beside this conversation, in a pane of its own |
 | `/split [1\|2\|4]` | watch this many conversations side by side |
 | `/theme [name]` | change the colours, or list what there is |
-| `/settings` | where new sessions start: launch folder, last session, or a fixed folder |
+| `/settings` · F2 · ⚙ | the settings page: start folder, agent defaults, theme, layout |
 | `/copy [md]` | copy the last answer formatted for Slack · `md` copies the markdown |
 | `/layout [what where]` | move panes, fold or size the file tree, or `reset` |
 | `/recall [text]` | search every conversation, in every project |
