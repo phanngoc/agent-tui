@@ -33,6 +33,11 @@ agent-tui -C ~/code/x  # somewhere else
 agent-tui -yes         # skip approval prompts for write and bash
 ```
 
+**On Windows 11 it also has a window of its own.** `agent-tui-desktop` (Start
+menu: *agent-tui*) is a native app written in Go. It runs this same binary,
+unchanged, in a pseudo-console and draws it on the GPU, with its own font,
+input methods, icon and a dark title bar. See [`desktop/`](desktop/README.md).
+
 With no `-C`, where it opens is a setting: `/settings` picks the folder it was
 opened in (the default), wherever the last session left off, or one fixed
 folder. The same choice decides where a session made with `ctrl+t` or `/new`

@@ -35,6 +35,25 @@ try {
 $exe = Join-Path $gobin 'agent-tui.exe'
 Write-Host "binary : $exe (commit $commit)"
 
+# 2b. The desktop window, beside the core it runs: it looks for agent-tui.exe
+#     in its own folder first. A Start menu entry makes it an app you open
+#     rather than a file you find. It is a module of its own (desktop/), so the
+#     core's binary carries none of its dependencies.
+$desk = Join-Path $gobin 'agent-tui-desktop.exe'
+if (Test-Path (Join-Path $Repo 'desktop\go.mod')) {
+    & $go build -C (Join-Path $Repo 'desktop') -trimpath -ldflags="-s -w -H windowsgui" -o $desk .
+    if ($LASTEXITCODE -ne 0) { throw "desktop build failed" }
+    $lnk = Join-Path ([Environment]::GetFolderPath('Programs')) 'agent-tui.lnk'
+    $ws = New-Object -ComObject WScript.Shell
+    $sc = $ws.CreateShortcut($lnk)
+    $sc.TargetPath = $desk
+    $sc.WorkingDirectory = $env:USERPROFILE
+    $sc.IconLocation = "$desk,0"
+    $sc.Description = 'agent-tui'
+    $sc.Save()
+    Write-Host "desktop: $desk  (Start menu: agent-tui)"
+}
+
 # 3. The short alias: a .cmd for PowerShell/cmd/Warp, an extensionless sh
 #    script for Git Bash, which does not resolve .cmd on its own.
 if ($Alias -and $Alias -ne 'agent-tui') {
