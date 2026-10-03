@@ -395,3 +395,15 @@ func forkTitle(base string) string {
 	}
 	return base + marker + ")"
 }
+
+// Get finds an open session by id, or nil.
+func (m *Manager) Get(id string) *Session {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, s := range m.sessions {
+		if s.ID == id {
+			return s
+		}
+	}
+	return nil
+}

@@ -692,6 +692,8 @@ func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
 	s.Busy = true
 	s.Status = "thinking"
 	s.Started = time.Now()
+	s.PhaseAt, s.HeardAt = s.Started, s.Started
+	s.Streamed, s.ThinkTok, s.Thinking = 0, 0, ""
 	s.LastErr = ""
 	s.Partial = ""
 	m.errText = ""

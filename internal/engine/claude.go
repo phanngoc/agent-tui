@@ -27,6 +27,11 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		"--output-format", "stream-json",
 		"--include-partial-messages",
 		"--verbose",
+		// Under -p the thinking deltas arrive empty — a token estimate and no
+		// words — unless this is on. Measured against 2.1.287: without it a
+		// short question streamed 0 deltas with text in them, with it 21. The
+		// words are what tell you where a long turn is.
+		"--settings", `{"showThinkingSummaries":true}`,
 	}
 	if t.Model != "" {
 		a = append(a, "--model", t.Model)
@@ -93,6 +98,11 @@ type claudeDec struct {
 	// cwd is where Claude Code says it is running, from its init event. Its
 	// command output files are filed under it.
 	cwd string
+	// pending are the tool calls of the message being streamed, with their
+	// input as far as it has arrived; pendingAt maps a content block's index
+	// to its place in pending.
+	pending   []session.ToolCall
+	pendingAt map[int]int
 }
 
 func (d *claudeDec) failure() string { return d.fail }
@@ -104,6 +114,8 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 		SessionID string `json:"session_id"`
 		CWD       string `json:"cwd"`
 		TaskID    string `json:"task_id"`
+		ToolUseID string `json:"tool_use_id"`
+		ThinkTok  int    `json:"estimated_tokens_delta"`
 		TaskDesc  string `json:"description"`
 		TaskSum   string `json:"summary"`
 		Status    string `json:"status"`
@@ -134,14 +146,30 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 			}
 		case "permission_denied":
 			emit(agent.EvStatus{Text: "permission denied"})
+		case "status":
+			// Sent as each request to the model goes out. Between a tool
+			// finishing and the first token of the answer to it is the
+			// stretch that otherwise looked like a stall on the tool.
+			switch ev.Status {
+			case "requesting":
+				emit(agent.EvStatus{Text: "waiting for the model"})
+			case "compacting":
+				emit(agent.EvStatus{Text: "compacting the conversation"})
+			}
+		case "thinking_tokens":
+			// The estimate arrives whether or not the words do.
+			if ev.ThinkTok > 0 {
+				emit(agent.EvThinkingDelta{Tokens: ev.ThinkTok})
+			}
 		case "task_started":
 			// Foreground commands arrive here too, not only background ones,
 			// and both are written to a file while they run.
 			emit(agent.EvTask{
-				ID:    ev.TaskID,
-				Label: firstNonEmpty(ev.TaskDesc, ev.TaskSum, "background command"),
-				State: "running",
-				Live:  claudeTaskFiles(d.cwd, ev.SessionID, ev.TaskID),
+				ID:      ev.TaskID,
+				Label:   firstNonEmpty(ev.TaskDesc, ev.TaskSum, "background command"),
+				State:   "running",
+				Live:    claudeTaskFiles(d.cwd, ev.SessionID, ev.TaskID),
+				ToolUse: ev.ToolUseID,
 			})
 		case "task_updated":
 			emit(agent.EvTask{ID: ev.TaskID, State: claudeTaskState(ev.Patch.Status)})
@@ -204,26 +232,84 @@ type claudeUsage struct {
 	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
 }
 
+// streamEvent follows the message as the model writes it.
+//
+// Three moments matter to someone watching, and the stream has all three:
+//
+//   - a tool call being written (content_block_start, then its input arriving
+//     as input_json_delta) — shown at once, half-typed, so a long command is
+//     read as it is written rather than after it has run;
+//   - the message ending (message_stop) — the moment Claude Code starts
+//     running its calls, so it is when they are committed and their clocks
+//     start. Waiting for the results instead put every call on screen already
+//     finished, and a two-minute search looked like nothing at all;
+//   - thinking, which carries words when showThinkingSummaries is set and a
+//     token estimate either way.
 func (d *claudeDec) streamEvent(raw json.RawMessage, emit func(agent.Event)) {
 	var e struct {
-		Type  string `json:"type"`
+		Type         string `json:"type"`
+		Index        int    `json:"index"`
+		ContentBlock struct {
+			Type string `json:"type"`
+			ID   string `json:"id"`
+			Name string `json:"name"`
+		} `json:"content_block"`
 		Delta struct {
-			Type     string `json:"type"`
-			Text     string `json:"text"`
-			Thinking string `json:"thinking"`
+			Type        string `json:"type"`
+			Text        string `json:"text"`
+			Thinking    string `json:"thinking"`
+			PartialJSON string `json:"partial_json"`
 		} `json:"delta"`
 	}
-	if json.Unmarshal(raw, &e) != nil || e.Type != "content_block_delta" {
+	if json.Unmarshal(raw, &e) != nil {
 		return
 	}
-	switch e.Delta.Type {
-	case "text_delta":
-		if e.Delta.Text != "" {
-			emit(agent.EvTextDelta{Text: e.Delta.Text})
+	switch e.Type {
+	case "message_start":
+		d.pending, d.pendingAt = nil, nil
+	case "content_block_start":
+		if e.ContentBlock.Type == "tool_use" {
+			if d.pendingAt == nil {
+				d.pendingAt = map[int]int{}
+			}
+			d.pendingAt[e.Index] = len(d.pending)
+			d.pending = append(d.pending, session.ToolCall{ID: e.ContentBlock.ID, Name: e.ContentBlock.Name})
+			emit(agent.EvToolPending{Calls: d.pendingCalls()})
 		}
-	case "thinking_delta":
-		emit(agent.EvThinkingDelta{Text: e.Delta.Thinking})
+	case "content_block_delta":
+		switch e.Delta.Type {
+		case "text_delta":
+			if e.Delta.Text != "" {
+				emit(agent.EvTextDelta{Text: e.Delta.Text})
+			}
+		case "thinking_delta":
+			if e.Delta.Thinking != "" {
+				emit(agent.EvThinkingDelta{Text: e.Delta.Thinking})
+			}
+		case "input_json_delta":
+			if i, ok := d.pendingAt[e.Index]; ok && e.Delta.PartialJSON != "" {
+				d.pending[i].Input = append(d.pending[i].Input, e.Delta.PartialJSON...)
+				emit(agent.EvToolPending{Calls: d.pendingCalls()})
+			}
+		}
+	case "message_stop":
+		// The calls run now, so they are on screen now, with a clock.
+		if len(d.tools) > 0 {
+			d.flush(emit)
+		}
+		d.pending, d.pendingAt = nil, nil
 	}
+}
+
+// pendingCalls is a copy of the calls being written, for the UI to hold: the
+// decoder goes on appending to its own.
+func (d *claudeDec) pendingCalls() []session.ToolCall {
+	out := make([]session.ToolCall, len(d.pending))
+	for i, c := range d.pending {
+		c.Input = append(json.RawMessage(nil), c.Input...)
+		out[i] = c
+	}
+	return out
 }
 
 func (d *claudeDec) assistant(raw json.RawMessage, emit func(agent.Event)) {

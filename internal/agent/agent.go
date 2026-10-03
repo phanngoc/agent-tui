@@ -29,8 +29,13 @@ type (
 	EvStatus struct{ Text string }
 	// EvTextDelta is a chunk of the assistant's visible answer.
 	EvTextDelta struct{ Text string }
-	// EvThinkingDelta is a chunk of summarised reasoning.
-	EvThinkingDelta struct{ Text string }
+	// EvThinkingDelta is a chunk of summarised reasoning. Tokens, when set,
+	// is how many more tokens of it there are by the engine's estimate — an
+	// engine that hides the words can still say how much is being thought.
+	EvThinkingDelta struct {
+		Text   string
+		Tokens int
+	}
 	// EvAssistant commits a finished assistant turn, tool calls included.
 	EvAssistant struct{ Message session.Message }
 	// EvApproval asks the user to allow a mutating tool. Reply exactly once.
@@ -80,6 +85,9 @@ type (
 		// most likely first; an entry may be a glob pattern. It lets the
 		// output be watched before the agent reports anything about it.
 		Live []string
+		// ToolUse is the tool call the command is running for, when it is
+		// one, so its output can be shown under that call.
+		ToolUse string
 	}
 	// EvDone ends the turn. Err is nil on success. State is whatever the engine
 	// wants handed back on the next turn (SDK message history, an external

@@ -41,6 +41,9 @@ type Task struct {
 	Started time.Time
 	// Owner is the session that started it, so the UI can scope the list.
 	Owner string
+	// ToolUse is the agent's tool call this command runs for, if it is one;
+	// the UI shows the output under that call while it runs.
+	ToolUse string
 
 	mu     sync.RWMutex
 	state  State
