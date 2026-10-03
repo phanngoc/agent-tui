@@ -259,6 +259,9 @@ type Model struct {
 	taskOpen string // id of the task whose output is being read
 	taskAll  bool   // the list shows finished commands too
 
+	// Deleting and closing conversations (sessiondelete.go).
+	del sessDel
+
 	// Project explorer.
 	prevSeq int
 	tree    *explorer.Tree
@@ -721,6 +724,7 @@ func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
 
 // startTurn sends a prompt, with the images that go with it, as a new turn.
 func (m *Model) startTurn(s *session.Session, text string, files []session.Attachment) tea.Cmd {
+	m.bumpSession(s)
 	s.Append(session.Message{Role: session.RoleUser, Text: text, Files: files})
 	s.Busy = true
 	s.Status = "thinking"

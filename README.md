@@ -348,12 +348,29 @@ that conversation takes it too.
 
 **Sessions** — conversations run concurrently. Starting a turn in one session
 does not block the others; a session that needs approval pulls itself to the
-front, because its agent is waiting on you.
+front, because its agent is waiting on you. The list is in order of activity: a
+conversation that starts a turn — sent from the prompt, from its queue, or from
+its side chat — moves to the top, the way a chat app floats the thread that
+just moved, and the list's cursor stays on the conversation it was on.
 
 What is typed belongs to the conversation it is typed to. Each session, and
 each side chat, keeps its own draft — the text and any images pasted into it —
 which is put away when you go to another and brought back when you return. A
 session with a draft waiting says `✎ draft` in the list.
+
+**Deleting and closing.** Two different things, as in a browser or ChatGPT's
+archive. *Closing* (`x` in the list, `ctrl+w`, `/close`) takes a conversation
+out of the list and leaves it in the store: it does not come back on the next
+start, and `/recall` finds it. *Deleting* (`d` or `delete` in the list, the ✕
+that shows on the row under the pointer, `/delete`) takes it out of both —
+at once, with no question first, and `u` in the list or `/undo` brings it back
+where it stood. That is a mail client's undo rather than a confirmation dialog:
+a dialog in front of every delete is answered without being read. The file goes
+to a trash folder in the store, so the way back survives a restart, and the
+trash is emptied of anything older than a week. `space` marks several rows; `d`
+deletes them all and one `u` brings them all back; `esc` clears the marks. The
+one delete that asks is of a conversation that is running, because it stops the
+turn and nothing undoes that: the first `d` says so, the second does it.
 
 ## Editing
 
@@ -859,7 +876,12 @@ block with its columns aligned — in display columns, so Vietnamese and
 Japanese cells line up too. `/copy md` copies the markdown as it is. The HTML
 goes on the clipboard on Windows, WSL and macOS; Linux tools take one format
 at a time, so there it is the mrkdwn. The conversion runs only when something
-is copied, never while drawing.
+is copied, never while drawing. With a selection in the transcript, `y` copies that
+instead: the selection is of what was drawn — wrapped, with its marks
+rendered away — so it is traced back to the markdown lines it came from by
+their words, and those are formatted. A selection inside one line copies
+exactly what was selected, and one the prose does not contain (tool output)
+goes as drawn.
 
 **In the prompt** the same gestures work, and most of them already did without
 being reachable. The textarea binds shift and the arrows to a selection, and

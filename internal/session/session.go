@@ -305,7 +305,10 @@ type Session struct {
 	Target string `json:"target,omitempty"`
 	// Mode is how much this session's agent may do without asking. Empty
 	// means auto, which is what a new session gets.
-	Mode    string    `json:"mode,omitempty"`
+	Mode string `json:"mode,omitempty"`
+	// Closed takes a conversation out of the list without deleting it: the
+	// next start does not restore it, and /recall still finds it.
+	Closed  bool      `json:"closed,omitempty"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 

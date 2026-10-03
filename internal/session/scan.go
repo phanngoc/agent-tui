@@ -163,6 +163,7 @@ func (m *Manager) Open(id string) (*Session, int, error) {
 			return s, i, nil
 		}
 	}
+	delete(m.shut, id)
 	b, err := os.ReadFile(filepath.Join(m.dir, id+".json"))
 	if err != nil {
 		return nil, -1, ErrNoSession
@@ -172,6 +173,8 @@ func (m *Manager) Open(id string) (*Session, int, error) {
 		return nil, -1, ErrNoSession
 	}
 	s.normalise()
+	// Opening is the way back from closing.
+	s.Closed = false
 	m.sessions = append([]*Session{&s}, m.sessions...)
 	if m.active >= 0 {
 		m.active++
