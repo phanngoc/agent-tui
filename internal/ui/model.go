@@ -699,7 +699,7 @@ func (m *Model) sendTo(s *session.Session, text string) tea.Cmd {
 	if s.Busy {
 		return nil
 	}
-	files := m.takeAttachments(fsID(m.sessionFS(s)))
+	files := m.takeAttachments(fsID(m.sessionFS(s)), text)
 	s.Append(session.Message{Role: session.RoleUser, Text: text, Files: files})
 	s.Busy = true
 	s.Status = "thinking"

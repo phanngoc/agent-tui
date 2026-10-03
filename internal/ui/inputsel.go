@@ -34,11 +34,11 @@ func (m *Model) inputArea() (left, top, w, h int, ok bool) {
 	if !m.ready || m.w < 8 {
 		return 0, 0, 0, 0, false
 	}
-	top = headerRows + m.bodyH + 1 + m.attachRows()
+	top = headerRows + m.bodyH + 1
 	mark := lipgloss.Width(m.input.Prompt)
 	left = 1 + mark
 	w = m.w - 2 - mark
-	h = inputRows - 2 - m.attachRows()
+	h = inputRows - 2
 	if w < 1 || h < 1 {
 		return 0, 0, 0, 0, false
 	}

@@ -417,9 +417,6 @@ func (m *Model) inputBox() string {
 		style, ts = m.st.PaneActive, m.st.TitleOn
 	}
 	body := m.input.View()
-	if m.attachRows() > 0 {
-		body = m.attachBar() + "\n" + body
-	}
 
 	path := m.promptPath()
 	k := promptFrame{body: body, path: path, w: m.w, active: m.focus == focusInput}

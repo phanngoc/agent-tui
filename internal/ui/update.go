@@ -1408,7 +1408,7 @@ func (m *Model) resize(w, h int) {
 		inputIn  = 3           // textarea rows
 		inputBox = inputIn + 1 // a rule above the textarea, and none below
 	)
-	bodyH := h - headerH - statusH - inputBox - m.attachRows()
+	bodyH := h - headerH - statusH - inputBox
 	bodyH = max(bodyH, 5)
 
 	// The sidebar claims first, then the column to its right — which holds the
