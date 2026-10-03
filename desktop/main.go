@@ -73,15 +73,18 @@ type shell struct {
 
 	ime       imeBuffer
 	focused   bool
-	asked     bool // focus has been asked for
-	styled    bool // the window frame has been set up
-	scrollAcc float32
-	scrollX   float32 // sideways travel not yet a whole column
-	lastCell  image.Point
-	pressed   vt.MouseButton
-	mode      app.WindowMode
-	sizeDp    image.Point
-	pxPerDp   float32
+	asked     bool    // focus has been asked for
+	styled    bool    // the window frame has been set up
+	scrollAcc float32 // wheel travel not yet a whole notch
+	scrollX   float32 // the same, sideways
+	// notchEvents is how many wheel events one notch sends the core, which
+	// scrolls three lines for each: Windows' lines-per-notch over three.
+	notchEvents int
+	lastCell    image.Point
+	pressed     vt.MouseButton
+	mode        app.WindowMode
+	sizeDp      image.Point
+	pxPerDp     float32
 }
 
 const pad = 6 // dp of margin around the grid
@@ -94,7 +97,21 @@ func newShell(w *app.Window, st *state) *shell {
 		term:  NewTerm(120, 36, oneDark.Fg, oneDark.Bg),
 		args:  os.Args[1:],
 		dir:   startDir(),
+
+		notchEvents: notchEvents(wheelLines()),
 	}
+}
+
+// coreLinesPerWheel is how far the core scrolls for one wheel event.
+const coreLinesPerWheel = 3
+
+// notchEvents turns Windows' lines-per-notch into wheel events for the core:
+// at the default of three, one. A setting of none is honoured as none.
+func notchEvents(lines int) int {
+	if lines <= 0 {
+		return 0
+	}
+	return max(1, (lines+coreLinesPerWheel/2)/coreLinesPerWheel)
 }
 
 func (s *shell) start() {
@@ -371,15 +388,20 @@ func (s *shell) onPointer(gtx layout.Context, e pointer.Event, p int) {
 		}
 		s.term.Mouse(vt.MouseMotion{X: cell.X, Y: cell.Y, Button: s.pressed, Mod: m})
 	case pointer.Scroll:
-		// A wheel notch is a few lines; a trackpad is a stream of fractions.
-		// Both become one wheel event per line's worth of travel.
-		s.wheel(cell, m, wheelSteps(&s.scrollAcc, e.Scroll.Y, float32(ch)))
+		// Scrolling moves in whole notches, at once, the way the console —
+		// and so PowerShell — does: one notch, the lines Windows' mouse
+		// settings say, in a single jump. The travel arrives in wheel units,
+		// 120 a notch, not pixels; it used to be divided by a line's height
+		// in pixels, which made one notch six steps, and turned the small
+		// deltas of a high-resolution wheel or a touchpad into a drift. What
+		// is less than a notch waits for the rest of it.
+		s.wheel(cell, m, s.notchEvents*wheelSteps(&s.scrollAcc, e.Scroll.Y, wheelNotch))
 		// Sideways. Gio turns shift+wheel into horizontal travel and drops the
 		// shift, and a trackpad or a tilting wheel sends it directly; either
 		// way it reaches the core as shift+wheel, which is what Windows
-		// Terminal sends and what the core already scrolls sideways on. A
-		// column's width of travel is one step.
-		s.wheel(cell, m|uv.ModShift, wheelSteps(&s.scrollX, e.Scroll.X, cw))
+		// Terminal sends and what the core already scrolls sideways on. One
+		// notch is one step.
+		s.wheel(cell, m|uv.ModShift, wheelSteps(&s.scrollX, e.Scroll.X, wheelNotch))
 	}
 	s.lastCell = cell
 }

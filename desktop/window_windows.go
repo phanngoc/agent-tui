@@ -106,6 +106,33 @@ func centerWindow(hwnd uintptr) {
 		swpNoSize|swpNoZOrder|swpNoActivate|swpAsync)
 }
 
+// wheelNotch is one detent of a mouse wheel in the units Windows reports it
+// in (WHEEL_DELTA). Gio passes those units through as they are: they are not
+// pixels.
+const wheelNotch = 120
+
+// wheelLines is how many lines one notch scrolls, as set in Windows' mouse
+// settings — the number the console, and so PowerShell, scrolls by. A
+// "one screen at a time" setting comes back as a sentinel; it is read as a
+// generous jump rather than as four billion lines.
+func wheelLines() int {
+	const spiGetWheelScrollLines = 0x0068
+	var n uint32
+	if procSysParams.Find() != nil {
+		return 3
+	}
+	if ret, _, _ := procSysParams.Call(spiGetWheelScrollLines, 0, uintptr(unsafe.Pointer(&n)), 0); ret == 0 {
+		return 3
+	}
+	switch {
+	case n == 0:
+		return 0
+	case n > 100:
+		return 30
+	}
+	return int(n)
+}
+
 func styleWindow(hwnd uintptr, bg color.NRGBA) {
 	setAttr(hwnd, dwmwaUseImmersiveDarkMode, 1)
 	setAttr(hwnd, dwmwaCaptionColor, colorref(bg))
