@@ -26,6 +26,9 @@ Script làm, theo thứ tự, và chạy lại bao nhiêu lần cũng an toàn:
    Không tìm thấy thật thì dừng và gợi ý `winget install GoLang.Go`, đừng tự cài.
 2. **`go install -trimpath -ldflags="-s -w" ./cmd/agent-tui`** → `GOBIN` hoặc
    `%USERPROFILE%\go\bin\agent-tui.exe`. Cùng flag với `make install`.
+2b. **Bản desktop** (`desktop/`, module riêng): `go build -C desktop -ldflags "-s -w -H windowsgui"`
+   → `agent-tui-desktop.exe` cạnh `agent-tui.exe`, và shortcut **agent-tui** trong Start menu.
+   Nó chạy chính `agent-tui.exe` không sửa đổi trong ConPTY, vẽ bằng Gio (GPU, không cgo).
 3. **Lệnh tắt `tui`** trong cùng thư mục bin: `tui.cmd` (PowerShell/cmd/Warp) và
    `tui` không đuôi (Git Bash không tự resolve `.cmd`). Cả hai chuyển mọi tham số
    sang `agent-tui.exe`. Không dùng hardlink/copy exe: `go install` thay file nên
