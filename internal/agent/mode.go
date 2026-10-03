@@ -90,9 +90,30 @@ func (m Mode) Detail() string {
 // let a shell command run, while the broker that answers for Claude Code did
 // not, so the same mode meant two different things depending on which engine
 // happened to be picked.
+//
+// The boundary is for changes, not for looking. A tool that only reads runs
+// wherever it points: auto already runs shell commands anywhere, and a read
+// is less than a command can do. Asking about one stopped a turn on the
+// first thing it did with a pasted image — reading it, from the folder
+// pasted images are kept in, which is not the project and never will be.
 func AutoAllows(call session.ToolCall, root string) bool {
+	if readOnlyTool(call.Name) {
+		return true
+	}
 	inside, decided := call.PathsInside(root)
 	return !decided || inside
+}
+
+// readOnlyTool spots the tools that look and do not touch, by the names the
+// engines give them: the built-in agent's and Claude Code's.
+func readOnlyTool(name string) bool {
+	switch strings.ToLower(name) {
+	case "read", "read_file", "notebookread",
+		"glob", "grep", "ls", "list_dir", "find_files",
+		"webfetch", "websearch":
+		return true
+	}
+	return false
 }
 
 // Writes reports whether the mode allows changing anything at all.
