@@ -462,6 +462,11 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.completeCmd(false)
 
 	case "up", "ctrl+p":
+		// A prompt still waiting in the queue comes back first: it is the
+		// thing just sent, and the likeliest to want changing.
+		if m.editLastQueued() {
+			return nil
+		}
 		// Single-line prompts recall history, the way a shell does; a
 		// multi-line prompt needs the arrows for moving around in it.
 		if !strings.Contains(m.input.Value(), "\n") && m.recallHistory(-1) {
@@ -502,8 +507,13 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 			m.input.Reset()
 			return m.changeDir(dir)
 		}
-		if m.mgr.Active().Busy {
-			m.notice = "still working — ctrl+c to stop"
+		// While a turn runs, the prompt waits for it rather than being
+		// refused: see queue.go.
+		if s := m.promptTarget(); s != nil && s.Busy {
+			m.pushHistory(text)
+			m.input.Reset()
+			m.queuePrompt(s, text)
+			m.toBottom()
 			return nil
 		}
 		m.pushHistory(text)
@@ -1090,6 +1100,10 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		m.mgr.Save(s)
 		m.invalidateChat()
+		// What was queued while this turn ran goes now, if it ended well.
+		if cmd := m.nextQueued(s, e.Err == nil); cmd != nil {
+			return tea.Batch(next, cmd)
+		}
 	}
 	return next
 }

@@ -31,7 +31,7 @@ func (m *Model) transcript(width int) string {
 		m.chatCache, m.chatStarts, m.chatTurn = h.text, h.starts, h.turn
 		m.chatKey = key
 	}
-	if s.Partial == "" && s.LastErr == "" && len(s.Calls) == 0 && s.Output == "" && !s.Busy {
+	if s.Partial == "" && s.LastErr == "" && len(s.Calls) == 0 && s.Output == "" && !s.Busy && len(s.Queued) == 0 {
 		return m.chatCache
 	}
 
@@ -64,6 +64,10 @@ func (m *Model) transcript(width int) string {
 		for _, l := range act {
 			b.WriteString(l + "\n")
 		}
+	}
+	// What was sent while it ran, waiting its turn.
+	for _, l := range m.queuedLines(s, width) {
+		b.WriteString(l + "\n")
 	}
 	if s.LastErr != "" {
 		b.WriteByte('\n')
