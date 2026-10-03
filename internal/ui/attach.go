@@ -85,30 +85,28 @@ func (m *Model) onPasted(msg pastedMsg) {
 	m.attach = append(m.attach, msg.att)
 	// A marker in the text is what makes the attachment referable: "the error
 	// in image #2" only means something if the numbering is visible.
-	marker := "[image #" + strconv.Itoa(len(m.attach)) + "]"
+	marker := attachMarker(len(m.attach))
 	if v := m.input.Value(); v != "" && !strings.HasSuffix(v, " ") && !strings.HasSuffix(v, "\n") {
 		marker = " " + marker
 	}
 	m.input.InsertString(marker + " ")
 	m.errText = ""
-	m.notice = "attached " + byteSize(msg.att.Bytes) + " image"
+	// The marker in the prompt is the only place the image shows before it
+	// is sent. It used to have a line of its own above the prompt as well,
+	// which showed every image twice and pushed the text down a row — and the
+	// caret, the clicks and the layout all had to be told about that row.
+	m.notice = "attached " + byteSize(msg.att.Bytes) + " image · ctrl+u drops it"
 	if msg.warn != "" {
 		m.notice = ""
 		m.errText = msg.warn
 	}
-	// The prompt box grew a row, and the panes above it have to give it up.
-	m.resize(m.w, m.h)
 }
 
 // dropAttachments clears what was staged. Clearing the prompt clears them with
 // it: the markers that referred to them are gone, so keeping the files staged
 // would mean sending pictures nothing in the text points at.
 func (m *Model) dropAttachments() {
-	if len(m.attach) == 0 {
-		return
-	}
 	m.attach = nil
-	m.resize(m.w, m.h)
 }
 
 // takeAttachments hands the staged images to the message being sent.
@@ -119,47 +117,40 @@ func (m *Model) dropAttachments() {
 // image still goes out whole to an engine that can carry one, and an engine
 // that cannot is better told nothing than told where to find a file that is
 // not there.
-func (m *Model) takeAttachments(fs string) []session.Attachment {
+//
+// Only the images whose marker is still in the text go. The marker is the one
+// place an attachment shows before it is sent, so an image whose marker was
+// deleted is one the sender can no longer see — and sending it anyway would be
+// sending something by accident.
+func (m *Model) takeAttachments(fs, text string) []session.Attachment {
 	if len(m.attach) == 0 {
 		return nil
 	}
-	out := m.attach
-	stale := 0
-	for i := range out {
-		if out[i].FS != fs {
-			out[i].Ref, out[i].FS = "", fs
+	var out []session.Attachment
+	stale, dropped := 0, 0
+	for i, a := range m.attach {
+		if !strings.Contains(text, attachMarker(i+1)) {
+			dropped++
+			continue
+		}
+		if a.FS != fs {
+			a.Ref, a.FS = "", fs
 			stale++
 		}
+		out = append(out, a)
 	}
-	if stale > 0 {
+	switch {
+	case dropped > 0:
+		m.notice = plural(dropped, "image") + " left out: its [image #n] was deleted from the prompt"
+	case stale > 0:
 		m.notice = plural(stale, "image") + " was attached before this session moved"
 	}
 	m.attach = nil
-	m.resize(m.w, m.h)
 	return out
 }
 
-// attachRows is how many rows the prompt box needs for the staged images, so
-// the layout can hand them over rather than let them overlap the panes.
-func (m *Model) attachRows() int {
-	if len(m.attach) == 0 {
-		return 0
-	}
-	return 1
-}
-
-// attachBar lists what will go out with the next prompt. An attachment is
-// otherwise invisible — the marker in the text is only a marker — and a thing
-// you cannot see is a thing you will send by accident.
-func (m *Model) attachBar() string {
-	parts := make([]string, 0, len(m.attach)+1)
-	for i, a := range m.attach {
-		parts = append(parts, m.st.MdMark.Render("[image #"+strconv.Itoa(i+1)+"]")+" "+
-			m.st.Dim.Render(byteSize(a.Bytes)))
-	}
-	parts = append(parts, m.st.Faint.Render("ctrl+u drops them"))
-	return clipLine(" "+strings.Join(parts, "   "), max(3, m.w-2))
-}
+// attachMarker is how image n is written in the prompt.
+func attachMarker(n int) string { return "[image #" + strconv.Itoa(n) + "]" }
 
 // attachDir is where staged images live: outside the project, because they are
 // not part of it, and keyed by session so closing one does not orphan another's

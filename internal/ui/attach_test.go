@@ -28,21 +28,42 @@ func stagePNG(t *testing.T, m *Model, bytes int) session.Attachment {
 	return att
 }
 
-// A staged image is announced in the prompt and in the box around it. An
-// attachment nobody can see is one that gets sent by accident.
+// A staged image is marked in the prompt's text, and only there: a line of
+// its own above the prompt showed it twice and moved the prompt down a row.
+// An attachment nobody can see is one that gets sent by accident.
 func TestPastedImageIsVisibleBeforeItIsSent(t *testing.T) {
 	m := newTestModel(t)
 	m.input.SetValue("cái này")
+	m.setFocus(focusInput)
+	m.View()
+	before := m.cursor()
 	stagePNG(t, m, 2048)
 
-	if got := m.input.Value(); !strings.Contains(got, "[image #1]") {
+	if got := m.input.Value(); got != "cái này [image #1] " {
 		t.Errorf("the prompt should mark where the image went, got %q", got)
 	}
-	if m.attachRows() == 0 {
-		t.Error("the prompt box should have made room for the attachment bar")
+	out := stripANSI(m.View().Content)
+	if n := strings.Count(out, "[image #1]"); n != 1 {
+		t.Errorf("the image is shown %d times, want once:\n%s", n, out)
 	}
-	if bar := stripANSI(m.attachBar()); !strings.Contains(bar, "[image #1]") {
-		t.Errorf("the attachment bar shows %q", bar)
+	// Nothing above the prompt moved: the caret is still on the same row.
+	if after := m.cursor(); before == nil || after == nil || after.Position.Y != before.Position.Y {
+		t.Errorf("the caret moved rows when an image was attached: %v -> %v", before, after)
+	}
+}
+
+// TestDeletingTheMarkerLeavesTheImageOut: the marker is the only place an
+// attachment shows, so an image whose marker is gone is not sent.
+func TestDeletingTheMarkerLeavesTheImageOut(t *testing.T) {
+	m := newTestModel(t)
+	stagePNG(t, m, 128)
+	second := stagePNG(t, m, 256)
+	files := m.takeAttachments("host", "only the second [image #2] please")
+	if len(files) != 1 || files[0].Path != second.Path {
+		t.Fatalf("sent %+v, want only image #2", files)
+	}
+	if !strings.Contains(m.notice, "left out") {
+		t.Errorf("notice = %q", m.notice)
 	}
 }
 
@@ -52,7 +73,8 @@ func TestSendCarriesTheStagedImage(t *testing.T) {
 	m := newTestModel(t)
 	att := stagePNG(t, m, 512)
 
-	m.send("xem ảnh này")
+	// What is sent is the prompt as typed, marker and all.
+	m.send(m.input.Value() + "xem ảnh này")
 
 	s := m.mgr.Active()
 	last := s.Last()
@@ -64,9 +86,6 @@ func TestSendCarriesTheStagedImage(t *testing.T) {
 	}
 	if len(m.attach) != 0 {
 		t.Error("the staging area should be empty once the message is sent")
-	}
-	if m.attachRows() != 0 {
-		t.Error("the prompt box should have given its extra row back")
 	}
 }
 
@@ -90,7 +109,7 @@ func TestClearingThePromptDropsAttachments(t *testing.T) {
 func TestTranscriptShowsAttachedImages(t *testing.T) {
 	m := newTestModel(t)
 	stagePNG(t, m, 4096)
-	m.send("xem ảnh này")
+	m.send(m.input.Value() + "xem ảnh này")
 
 	out := stripANSI(m.transcript(80))
 	if !strings.Contains(out, "[image #1]") {
@@ -183,7 +202,7 @@ func TestStaleAttachmentLosesOnlyItsPath(t *testing.T) {
 	stagePNG(t, m, 128)
 	m.attach[0].Ref, m.attach[0].FS = "/tmp/agent-tui/x.png", "docker:old"
 
-	files := m.takeAttachments("host")
+	files := m.takeAttachments("host", "[image #1]")
 
 	if len(files) != 1 {
 		t.Fatalf("got %d attachments, want the image kept", len(files))
