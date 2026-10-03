@@ -613,11 +613,11 @@ func (m *Model) hintFor(f focus) string {
 		}
 		return "preview · e edit · / find · n next · w wrap · ctrl+o switch pane"
 	case focusChat:
-		return "transcript · ↑↓ scroll · y copy for Slack · tab or ctrl+o switch pane"
+		return "transcript · ↑↓ scroll · y copy for Slack (the selection, if any) · tab or ctrl+o switch pane"
 	case focusExplorer:
 		return "files · ↑↓ browse · click to open · ←→ fold · - up a level · r work here"
 	case focusSessions:
-		return "sessions · ↑↓ select · enter open · n new · f fork · d close"
+		return "sessions · enter open · n new · f fork · d delete · u undo · space mark · x close"
 	default:
 		return "enter send · /help for commands · tab complete · ↑↓ history · ctrl+o next pane"
 	}

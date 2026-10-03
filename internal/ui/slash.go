@@ -7,6 +7,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/phanngoc/agent-tui/internal/agent"
+	"github.com/phanngoc/agent-tui/internal/session"
 )
 
 // Slash commands are the typed equivalent of the shortcuts. They exist because
@@ -28,11 +29,14 @@ var slashCmds = []slashCmd{
 	{"fork", "", "branch this session, keeping the agent's context", func(m *Model, _ string) tea.Cmd {
 		return m.forkSession(m.mgr.Active())
 	}},
-	{"close", "", "close this session", func(m *Model, _ string) tea.Cmd {
-		m.mgr.Close(m.mgr.ActiveIndex())
-		cmd := m.onSessionSwitch()
-		m.notice = "session closed"
-		return cmd
+	{"close", "", "close this session (it stays in /recall)", func(m *Model, _ string) tea.Cmd {
+		return m.closeSession(m.mgr.ActiveIndex())
+	}},
+	{"delete", "", "delete this session (/undo brings it back)", func(m *Model, _ string) tea.Cmd {
+		return m.deleteSessions([]*session.Session{m.mgr.Active()})
+	}},
+	{"undo", "", "bring back the last deleted session", func(m *Model, _ string) tea.Cmd {
+		return m.undoDelete()
 	}},
 	// Terminals differ on whether ctrl+v ever reaches an application — many
 	// bind it to their own paste — so the same thing has a name as well.

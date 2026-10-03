@@ -3,6 +3,8 @@ package ui
 import (
 	"charm.land/bubbles/v2/viewport"
 	tea "charm.land/bubbletea/v2"
+
+	"github.com/phanngoc/agent-tui/internal/session"
 )
 
 // The screen is laid out as one header row, then bodyH rows of panes, then the
@@ -123,6 +125,7 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 		// target named in the status line.
 		if m.overlay == overlayNone {
 			m.hoverAt(e.X, e.Y)
+			m.hoverSession(e.X, e.Y)
 		}
 		return nil
 	case tea.MouseReleaseMsg:
@@ -283,6 +286,14 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 
 	case focusSessions:
 		m.setFocus(focusSessions)
+		// The ✕ on the row under the pointer deletes that conversation, the
+		// way the d key does — undoably, and asking once if it is running.
+		if idx, ok := m.sessionDeleteAt(e.X, e.Y); ok {
+			if all := m.mgr.All(); idx < len(all) {
+				m.sessSel = idx
+				return m.deleteSessions([]*session.Session{all[idx]})
+			}
+		}
 		if idx := m.sessionRowAt(e.Y); idx >= 0 {
 			m.sessSel = idx
 			m.mgr.Select(idx)

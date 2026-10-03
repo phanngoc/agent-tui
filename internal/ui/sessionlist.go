@@ -84,6 +84,7 @@ func (m *Model) sessionKey(width int) string {
 			b.WriteString(";draft")
 		}
 	}
+	b.WriteString(m.delKey())
 	// The spinner is a frame of an animation, so a running conversation has to
 	// rebuild — but only a running one.
 	if m.anyRunning() {
@@ -122,6 +123,12 @@ func (m *Model) buildSessionLines(width int) []sessionLine {
 		// a session that was both active and running lost the mark that said
 		// where you were.
 		mark := m.stateMark(s)
+		// A conversation marked for deleting says so in the glyph column; its
+		// state is still on the edge and the line under the title.
+		if m.del.marks[s.ID] {
+			mark = m.st.Accent.Render("✓")
+		}
+		hovered := m.del.hovered && m.del.hover == i
 		style := m.st.Dim
 		if i == active {
 			style = m.st.Bold
@@ -156,10 +163,14 @@ func (m *Model) buildSessionLines(width int) []sessionLine {
 		}
 		rows = append(rows, "  "+m.sessionMeta(s, body))
 
-		for _, row := range rows {
+		for j, row := range rows {
+			row = edge + row
+			if hovered && j == 0 {
+				row = m.withDeleteMark(row, width)
+			}
 			out = append(out, sessionLine{
 				idx:  i,
-				text: m.rowBg(edge+row, width, i == active, selected),
+				text: m.rowBg(row, width, i == active, selected),
 			})
 		}
 		// The gap belongs to the card above it, so a click in it lands there
@@ -397,4 +408,21 @@ func (m *Model) renameView() string {
 	}
 	b.WriteString(gutter + m.st.Faint.Render("enter save · empty clears it · esc cancel"))
 	return m.st.Overlay.Width(w).Render(b.String())
+}
+
+// bumpSession floats a conversation that just started a turn to the top of
+// the list. The list's cursor is an index, so it is carried by the session it
+// was on rather than left on a row that now holds another one.
+func (m *Model) bumpSession(s *session.Session) {
+	all := m.mgr.All()
+	var on *session.Session
+	if m.sessSel >= 0 && m.sessSel < len(all) {
+		on = all[m.sessSel]
+	}
+	m.mgr.Bump(s)
+	if on != nil {
+		if i := m.mgr.IndexOf(on.ID); i >= 0 {
+			m.sessSel = i
+		}
+	}
 }

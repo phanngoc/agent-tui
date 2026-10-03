@@ -257,6 +257,12 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			m.stopFind()
 			return nil
 		}
+		// Marks in the session list are a selection, and go the way one does.
+		if m.focus == focusSessions && len(m.del.marks) > 0 {
+			m.del.marks, m.del.armed = nil, ""
+			m.notice = ""
+			return nil
+		}
 		// The side chat closes before the turn stops: it is the thing you
 		// just opened, and the one esc is most likely reaching for. Typing to
 		// it counts as being in it — esc there must not stop the turn in the
@@ -343,8 +349,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	case "alt+t":
 		return m.forkSession(m.mgr.Active())
 	case "ctrl+w":
-		m.mgr.Close(m.mgr.ActiveIndex())
-		return m.onSessionSwitch()
+		return m.closeSession(m.mgr.ActiveIndex())
 	case "ctrl+pgdown", "alt+down":
 		// The history browser uses these to move the file summary's window, and
 		// switching sessions behind an overlay is not what they would mean
@@ -443,6 +448,10 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		return m.inputKey(k)
 	case focusChat:
 		if key == "y" {
+			// A selection says which part is meant.
+			if cmd, ok := m.copySelection(); ok {
+				return cmd
+			}
 			return m.copyForSlack(m.replyInView(), "the answer in view")
 		}
 		if key == "end" || key == "G" {
@@ -956,10 +965,14 @@ func (m *Model) sessionsKey(key string) tea.Cmd {
 		}
 	case "e":
 		return m.openRename()
-	case "d", "x":
-		m.mgr.Close(m.sessSel)
-		m.sessSel = min(m.sessSel, m.mgr.Len()-1)
-		return m.onSessionSwitch()
+	case "d", "delete":
+		return m.deleteSessions(m.deleteTargets())
+	case "x":
+		return m.closeSession(m.sessSel)
+	case "space":
+		m.toggleMark()
+	case "u":
+		return m.undoDelete()
 	}
 	return nil
 }

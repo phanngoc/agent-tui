@@ -23,6 +23,13 @@ type Manager struct {
 	mu       sync.RWMutex
 	sessions []*Session
 	active   int
+	// gone are the conversations deleted in this run. A save of one may
+	// already be queued, and writing it would bring back a file the trash
+	// has just taken.
+	gone map[string]bool
+	// shut are the conversations closed in this run. A snapshot queued
+	// before the close does not say so, and writing it would undo it.
+	shut map[string]bool
 
 	saves   chan *Session
 	stopped chan struct{}
@@ -72,7 +79,9 @@ func (m *Manager) Restore(limit int) {
 			continue
 		}
 		var s Session
-		if json.Unmarshal(b, &s) != nil || s.Root != m.root || len(s.Messages) == 0 {
+		// A closed conversation stays in the store, for /recall, and out of
+		// the list it was closed from.
+		if json.Unmarshal(b, &s) != nil || s.Root != m.root || len(s.Messages) == 0 || s.Closed {
 			continue
 		}
 		s.normalise()
@@ -90,6 +99,7 @@ func (m *Manager) Restore(limit int) {
 	if len(loaded) == 0 {
 		m.New()
 	}
+	m.PurgeTrash(TrashRetention)
 }
 
 // New creates a session, makes it active and returns it.
@@ -254,6 +264,19 @@ func (m *Manager) Close(i int) {
 
 	if len(victim.Messages) == 0 {
 		_ = os.Remove(m.path(victim))
+	} else {
+		// Closed is said on the file, or the next start would restore it:
+		// a tab you closed coming back on its own is the opposite of closing.
+		// Written now rather than queued: a full queue drops a save, and the
+		// conversation is no longer in the list the shutdown flush walks.
+		victim.Closed = true
+		m.mu.Lock()
+		if m.shut == nil {
+			m.shut = map[string]bool{}
+		}
+		m.shut[victim.ID] = true
+		m.mu.Unlock()
+		m.write(victim.clone())
 	}
 	for _, o := range orphans {
 		_ = os.Remove(m.path(o))
@@ -299,6 +322,15 @@ func (m *Manager) saveLoop() {
 }
 
 func (m *Manager) write(s *Session) {
+	m.mu.RLock()
+	gone, shut := m.gone[s.ID], m.shut[s.ID]
+	m.mu.RUnlock()
+	if gone {
+		return
+	}
+	if shut {
+		s.Closed = true
+	}
 	b, err := json.Marshal(s)
 	if err != nil {
 		return
@@ -406,4 +438,46 @@ func (m *Manager) Get(id string) *Session {
 		}
 	}
 	return nil
+}
+
+// Bump moves a conversation to the top of the list: the one that just started
+// running is the one most likely to be looked for next, the way a chat app
+// floats the thread that just moved. The cursor stays on the conversation it
+// was on, wherever that now is. A side chat moves the conversation it belongs
+// to, since it is not in the list itself.
+func (m *Manager) Bump(s *Session) {
+	if s == nil {
+		return
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if s.SideOf != "" {
+		for _, p := range m.sessions {
+			if p.ID == s.SideOf {
+				s = p
+				break
+			}
+		}
+	}
+	at := -1
+	for i, x := range m.sessions {
+		if x == s {
+			at = i
+			break
+		}
+	}
+	if at <= 0 {
+		return
+	}
+	var active *Session
+	if m.active >= 0 && m.active < len(m.sessions) {
+		active = m.sessions[m.active]
+	}
+	copy(m.sessions[1:at+1], m.sessions[:at])
+	m.sessions[0] = s
+	for i, x := range m.sessions {
+		if x == active {
+			m.active = i
+		}
+	}
 }
