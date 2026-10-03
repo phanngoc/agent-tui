@@ -391,6 +391,7 @@ var helpGroups = []struct {
 		{"ctrl+c", "copy a selection  ·  or stop the agent, or quit when idle"},
 		{"drag", "select text in a pane  ·  releasing copies it"},
 		{"double-click", "select the word under the pointer"},
+		{"ctrl+click", "a file link or path in the transcript opens it in the preview"},
 		{"drag a title", "move a pane: sidebar left/right, preview either side, files above/below"},
 		{"click files", "fold the file tree to one line  ·  drag the rule above it to resize"},
 		{"y", "copy the answer in view for Slack  ·  /copy the last one"},

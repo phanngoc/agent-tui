@@ -813,6 +813,16 @@ Its coordinates are rows the pane drew rather than lines of its content,
 because the transcript soft-wraps: one message is many rows, and the row is the
 only thing the renderer and the mouse both know.
 
+**Ctrl+click to open.** A ctrl+click on a file link in an answer, such as
+`[SKILL.md](/home/me/x/SKILL.md)`, or on a path in its prose, such as
+`ekyc.service.ts:256`, opens that file in the preview. If the path names a line,
+the preview goes to it, and if the preview was closed it opens. A link is
+resolved from the message as it was written, not from what is drawn, so a URL
+the line cut short still opens the whole path. Files are read from the
+session's own filesystem, whether that is WSL, a container or the host. A
+`https://` link opens in the browser. Without ctrl, a click still starts a
+selection.
+
 **For Slack.** `y` in the transcript copies the answer in view, and `/copy`
 the last one, formatted to paste into Slack: the clipboard gets HTML, which
 Slack's composer turns into its own bold, lists, links, quotes and code
