@@ -240,3 +240,37 @@ func BenchmarkFrameFullRedraw(b *testing.B) {
 		g.Layout(gtx, tm, true)
 	}
 }
+
+// ---- scrolling ---------------------------------------------------------------
+
+func TestWheelStepsKeepTheRemainder(t *testing.T) {
+	var acc float32
+	if n := wheelSteps(&acc, 30, 12); n != 2 || acc != 6 {
+		t.Errorf("30px at 12px a step: n=%d acc=%v, want 2 and 6 left", n, acc)
+	}
+	if n := wheelSteps(&acc, 7, 12); n != 1 || acc != 1 {
+		t.Errorf("the remainder was not carried: n=%d acc=%v", n, acc)
+	}
+	if n := wheelSteps(&acc, -25, 12); n != -2 {
+		t.Errorf("upward travel: n=%d acc=%v", n, acc)
+	}
+}
+
+// TestSidewaysReachesTheCoreAsShiftWheel: Gio hands shift+wheel over as
+// horizontal travel with the shift taken off. The core scrolls its preview
+// sideways on shift+wheel, which is what Windows Terminal sends, so that is
+// what horizontal travel must become on the wire.
+func TestSidewaysReachesTheCoreAsShiftWheel(t *testing.T) {
+	tm := NewTerm(80, 24, oneDark.Fg, oneDark.Bg)
+	defer tm.Close()
+	// The core turns on button-event mouse tracking with SGR encoding.
+	tm.Write([]byte("\x1b[?1002h\x1b[?1006h"))
+	s := &shell{term: tm}
+	go s.wheel(image.Pt(10, 5), uv.ModShift, 1)
+	buf := make([]byte, 32)
+	n, _ := tm.Read(buf)
+	// SGR: button 65 (wheel down) + 4 (shift) = 69, at 1-based column 11, row 6.
+	if got := string(buf[:n]); got != "\x1b[<69;11;6M" {
+		t.Errorf("shift+wheel down sent %q", got)
+	}
+}

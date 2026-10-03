@@ -76,6 +76,7 @@ type shell struct {
 	asked     bool // focus has been asked for
 	styled    bool // the window frame has been set up
 	scrollAcc float32
+	scrollX   float32 // sideways travel not yet a whole column
 	lastCell  image.Point
 	pressed   vt.MouseButton
 	mode      app.WindowMode
@@ -197,8 +198,11 @@ func (s *shell) frame(gtx layout.Context) {
 func (s *shell) handle(gtx layout.Context, p int) {
 	filters := append(keyFilters(s),
 		pointer.Filter{
-			Target:  s,
-			Kinds:   pointer.Press | pointer.Release | pointer.Drag | pointer.Move | pointer.Scroll,
+			Target: s,
+			Kinds:  pointer.Press | pointer.Release | pointer.Drag | pointer.Move | pointer.Scroll,
+			// Both axes: without a horizontal range Gio drops sideways
+			// scrolling before it arrives, and shift+wheel is sideways.
+			ScrollX: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20},
 			ScrollY: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20},
 		},
 		transfer.TargetFilter{Target: s, Type: "application/text"},
@@ -369,20 +373,43 @@ func (s *shell) onPointer(gtx layout.Context, e pointer.Event, p int) {
 	case pointer.Scroll:
 		// A wheel notch is a few lines; a trackpad is a stream of fractions.
 		// Both become one wheel event per line's worth of travel.
-		s.scrollAcc += e.Scroll.Y
-		for s.scrollAcc >= float32(ch) {
-			s.scrollAcc -= float32(ch)
-			s.term.Mouse(vt.MouseWheel{X: cell.X, Y: cell.Y, Button: vt.MouseWheelDown, Mod: m})
-		}
-		for s.scrollAcc <= -float32(ch) {
-			s.scrollAcc += float32(ch)
-			s.term.Mouse(vt.MouseWheel{X: cell.X, Y: cell.Y, Button: vt.MouseWheelUp, Mod: m})
-		}
+		s.wheel(cell, m, wheelSteps(&s.scrollAcc, e.Scroll.Y, float32(ch)))
+		// Sideways. Gio turns shift+wheel into horizontal travel and drops the
+		// shift, and a trackpad or a tilting wheel sends it directly; either
+		// way it reaches the core as shift+wheel, which is what Windows
+		// Terminal sends and what the core already scrolls sideways on. A
+		// column's width of travel is one step.
+		s.wheel(cell, m|uv.ModShift, wheelSteps(&s.scrollX, e.Scroll.X, cw))
 	}
 	s.lastCell = cell
 }
 
 func clampInt(v, lo, hi int) int { return max(lo, min(v, hi)) }
+
+// wheelSteps adds travel to what has built up in acc and returns the whole
+// steps it now makes: positive is down (or right), negative up (or left). What
+// is less than a step stays in acc for the next event, so a trackpad's stream
+// of fractions scrolls as far as a wheel's notches do.
+func wheelSteps(acc *float32, travel, step float32) int {
+	if step <= 0 {
+		return 0
+	}
+	*acc += travel
+	n := int(*acc / step)
+	*acc -= float32(n) * step
+	return n
+}
+
+// wheel sends n wheel steps at a cell: down for positive, up for negative.
+func (s *shell) wheel(cell image.Point, mod uv.KeyMod, n int) {
+	b := vt.MouseWheelDown
+	if n < 0 {
+		b, n = vt.MouseWheelUp, -n
+	}
+	for ; n > 0; n-- {
+		s.term.Mouse(vt.MouseWheel{X: cell.X, Y: cell.Y, Button: b, Mod: mod})
+	}
+}
 
 func (s *shell) zoom(by float32) {
 	s.state.FontSize = max(8, min(36, s.state.FontSize+by))
