@@ -43,7 +43,10 @@ type mdDoc struct {
 	sc    *highlight.Scheme
 	w     int
 	quote bool // rendering the inside of a blockquote
-	out   []string
+	// inTable is set while a table's cells are rendered, where a link shows
+	// its text and not its URL.
+	inTable bool
+	out     []string
 }
 
 func mdSplit(s string) []string {
@@ -222,6 +225,8 @@ func (d *mdDoc) table(lines []string, i int) int {
 	head := mdCells(lines[i])
 	n := len(head)
 	align := mdAligns(lines[i+1], n)
+	d.inTable = true
+	defer func() { d.inTable = false }()
 
 	rows := [][]string{d.styleRow(head, n, d.st.MdTableHead)}
 	j := i + 2
@@ -522,10 +527,14 @@ func (d *mdDoc) inline(s string, base lipgloss.Style) string {
 			if text, url, n, ok := mdLink(s, i); ok {
 				flush()
 				out.WriteString(d.inline(text, d.st.MdLink))
-				// The target is kept: a terminal has nothing to click, so a
-				// link whose URL is hidden is a link that was thrown away.
-				if url != "" && url != text {
-					out.WriteString(d.st.Faint.Render(" (" + mdShortURL(url) + ")"))
+				// The target is kept, whole: it is what the link is, and a
+				// URL cut at forty-eight characters was usually cut just
+				// before the part that said which PR. It wraps like any other
+				// text. A table cell is the exception — no URL fits one, and
+				// one cut to fit is noise in a column — so there the text
+				// stands alone; hovering it shows the target in full.
+				if url != "" && url != text && !d.inTable {
+					out.WriteString(d.st.Faint.Render(" (" + url + ")"))
 				}
 				i += n
 				continue
@@ -650,14 +659,6 @@ func mdRun(s string, i int, c byte) int {
 		n++
 	}
 	return n
-}
-
-func mdShortURL(u string) string {
-	const limit = 48
-	if len(u) <= limit {
-		return u
-	}
-	return u[:limit-1] + "…"
 }
 
 func mdIsURL(s string) bool {

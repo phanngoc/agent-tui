@@ -492,7 +492,11 @@ func (m *Model) statusBar() string {
 	s := m.mgr.Active()
 	left := make([]string, 0, 6)
 
-	if s.Busy {
+	// A hovered link says where it goes, ahead of everything else: the
+	// pointer is on it now, and it is gone the moment the pointer moves.
+	if h := m.hoverStatus(); h != "" {
+		left = append(left, h)
+	} else if s.Busy {
 		// The way out is named while there is something to get out of. A turn
 		// that has gone wrong is watched rather than stopped when the key that
 		// stops it is not written anywhere on the screen.

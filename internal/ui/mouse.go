@@ -119,6 +119,11 @@ func (m *Model) onMouse(msg tea.MouseMsg) tea.Cmd {
 		if m.overlay == overlayGit {
 			m.hoverFile(e.X, e.Y)
 		}
+		// Over the transcript, a link under the pointer is underlined and its
+		// target named in the status line.
+		if m.overlay == overlayNone {
+			m.hoverAt(e.X, e.Y)
+		}
 		return nil
 	case tea.MouseReleaseMsg:
 		m.drag = dragNone
