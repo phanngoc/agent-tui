@@ -289,6 +289,8 @@ type Model struct {
 	git *gitState
 	// changes is the working tree listing the empty preview shows; changes.go.
 	changes changesState
+	// hover is the transcript link under the pointer; links.go.
+	hover linkHover
 
 	// Filesystem target picker.
 	hostFS    vfs.FS

@@ -158,7 +158,7 @@ func (m *Model) splitBoxes() []splitBox {
 func (m *Model) splitColumn(chatTitle string, seam seams) string {
 	boxes := m.splitBoxes()
 	if len(boxes) <= 1 {
-		body := m.paintSelection(m.chatView(), focusChat, m.chatW-2)
+		body := m.paintHover(m.paintSelection(m.chatView(), focusChat, m.chatW-2))
 		return m.paneSeam(body, chatTitle, m.chatW, m.bodyH, m.focus == focusChat, seam)
 	}
 
@@ -186,7 +186,7 @@ func (m *Model) splitColumn(chatTitle string, seam seams) string {
 // talked to, a drawn one for the rest.
 func (m *Model) splitCell(b splitBox, chatTitle string) (title, body string) {
 	if b.focused {
-		return chatTitle, m.paintSelection(m.chatView(), focusChat, b.w-2)
+		return chatTitle, m.paintHover(m.paintSelection(m.chatView(), focusChat, b.w-2))
 	}
 	title = b.sess.Label()
 	if st := m.sessionState(b.sess); st != stateIdle && st != stateEmpty {

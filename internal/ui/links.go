@@ -119,6 +119,19 @@ var (
 // findLinkAt works out what a click at a display column of a drawn line
 // points at, using the markdown the line was drawn from.
 func findLinkAt(plain string, col int, src string) (linkTarget, bool) {
+	h, ok := findLinkSpan(plain, col, src)
+	return h.target, ok
+}
+
+// linkHit is a link found under a column: where it goes, and the columns of
+// the line it covers, for underlining it.
+type linkHit struct {
+	target linkTarget
+	lo, hi int
+}
+
+// findLinkSpan is findLinkAt with the span of what was found.
+func findLinkSpan(plain string, col int, src string) (linkHit, bool) {
 	// Links first: they are what the reader was offered as clickable.
 	for _, mt := range mdLinkRe.FindAllStringSubmatch(src, -1) {
 		text := strings.TrimSpace(mdMarks.Replace(mt[1]))
@@ -140,31 +153,45 @@ func findLinkAt(plain string, col int, src string) (linkTarget, bool) {
 				}
 			}
 			if col >= lo && col < hi {
-				return splitLine(url), true
+				return linkHit{splitLine(url), lo, hi}, true
 			}
 		}
 	}
+	var urls []string
+	for _, mt := range mdLinkRe.FindAllStringSubmatch(src, -1) {
+		urls = append(urls, mt[2])
+	}
 	for _, mt := range autoLinkRe.FindAllStringSubmatch(src, -1) {
+		urls = append(urls, mt[1])
 		for _, at := range occurrences(plain, mt[1]) {
 			lo := ansi.StringWidth(plain[:at])
-			if col >= lo && col < lo+ansi.StringWidth(mt[1]) {
-				return splitLine(mt[1]), true
+			if hi := lo + ansi.StringWidth(mt[1]); col >= lo && col < hi {
+				return linkHit{splitLine(mt[1]), lo, hi}, true
 			}
 		}
 	}
 
-	// Then the word under the pointer, if it looks like a path.
-	word := wordAtCol(plain, col)
+	// Then the word under the pointer.
+	lo, hi, word := wordSpanAt(plain, col)
 	if word == "" {
-		return linkTarget{}, false
+		return linkHit{}, false
+	}
+	// A piece of a link's URL — the part that wrapped onto the next line,
+	// say — belongs to that link, and opens all of it.
+	if len(word) >= 8 {
+		for _, u := range urls {
+			if strings.Contains(u, word) {
+				return linkHit{splitLine(u), lo, hi}, true
+			}
+		}
 	}
 	if isWebURL(word) {
-		return linkTarget{path: word}, true
+		return linkHit{linkTarget{path: word}, lo, hi}, true
 	}
 	if !pathish.MatchString(word) {
-		return linkTarget{}, false
+		return linkHit{}, false
 	}
-	return splitLine(word), true
+	return linkHit{splitLine(word), lo, hi}, true
 }
 
 // occurrences lists the byte offsets s is found at in line.
@@ -184,6 +211,24 @@ func occurrences(line, s string) []int {
 // wordAtCol is the run of path characters around a display column, without
 // the punctuation prose wraps around a path.
 func wordAtCol(line string, col int) string {
+	_, _, w := wordSpanAt(line, col)
+	return w
+}
+
+// wordSpanAt is wordAtCol with the display columns the word covers.
+func wordSpanAt(line string, col int) (lo, hi int, word string) {
+	b0, b1 := wordBytesAt(line, col)
+	if b0 >= b1 {
+		return 0, 0, ""
+	}
+	word = strings.TrimRight(line[b0:b1], ".,:;!?…")
+	lo = ansi.StringWidth(line[:b0])
+	return lo, lo + ansi.StringWidth(word), word
+}
+
+// wordBytesAt is the byte range of the run of path characters around a
+// display column; empty when the column is on a stop or past the line.
+func wordBytesAt(line string, col int) (int, int) {
 	isStop := func(r rune) bool {
 		return r == ' ' || r == '\t' || strings.ContainsRune("()[]{}<>\"'`,;|│", r)
 	}
@@ -198,10 +243,10 @@ func wordAtCol(line string, col int) string {
 		w += rw
 	}
 	if at < 0 {
-		return ""
+		return 0, 0
 	}
 	if r, _ := utf8.DecodeRuneInString(line[at:]); isStop(r) {
-		return ""
+		return 0, 0
 	}
 	lo := at
 	for lo > 0 {
@@ -219,7 +264,7 @@ func wordAtCol(line string, col int) string {
 		}
 		hi += size
 	}
-	return strings.TrimRight(line[lo:hi], ".,:;!?…")
+	return lo, hi
 }
 
 // splitLine separates a line number from a path: file.go:42, file.go#L42.
@@ -326,4 +371,84 @@ func openInBrowser(url string) tea.Cmd {
 		_ = cmd.Start()
 		return nil
 	}
+}
+
+// ---- hovering ----------------------------------------------------------------
+
+// linkHover is the link under the pointer, as it was when the pointer got
+// there. It belongs to one drawing of the transcript at one scroll position,
+// and is dropped from view when either has moved on.
+type linkHover struct {
+	on       bool
+	row      int // transcript line
+	lo, hi   int // columns of it
+	target   string
+	ver, top int // the transcript version and scroll it was found at
+	cell     [2]int
+}
+
+// hoverAt follows the pointer over the transcript, finding the link under it.
+// It does the work only when the pointer reaches another cell.
+func (m *Model) hoverAt(x, y int) {
+	if m.hover.on && m.hover.cell == [2]int{x, y} && m.hover.ver == m.chatVer && m.hover.top == m.chat.YOffset() {
+		return
+	}
+	m.hover = linkHover{cell: [2]int{x, y}}
+	left, top, w, h, ok := m.paneBox(focusChat)
+	if !ok || x < left || x >= left+w || y < top || y >= top+h {
+		return
+	}
+	row := m.chat.YOffset() + y - top
+	lines := strings.Split(m.chatSet, "\n")
+	if row < 0 || row >= len(lines) {
+		return
+	}
+	hit, found := findLinkSpan(ansi.Strip(lines[row]), x-left, m.sourceAt(row))
+	if !found {
+		return
+	}
+	target := hit.target.path
+	if hit.target.line > 0 {
+		target += ":" + strconv.Itoa(hit.target.line)
+	}
+	m.hover = linkHover{
+		on: true, row: row, lo: hit.lo, hi: hit.hi, target: target,
+		ver: m.chatVer, top: m.chat.YOffset(), cell: [2]int{x, y},
+	}
+}
+
+// hoverShown reports whether the hovered link is still where it was found.
+func (m *Model) hoverShown() bool {
+	return m.hover.on && m.hover.ver == m.chatVer && m.hover.top == m.chat.YOffset()
+}
+
+// paintHover underlines the hovered link in the drawn transcript.
+func (m *Model) paintHover(view string) string {
+	if !m.hoverShown() {
+		return view
+	}
+	r := m.hover.row - m.chat.YOffset()
+	lines := strings.Split(view, "\n")
+	if r < 0 || r >= len(lines) {
+		return view
+	}
+	l := lines[r]
+	lo, hi := m.hover.lo, m.hover.hi
+	if hi <= lo || lo >= ansi.StringWidth(l) {
+		return view
+	}
+	mid := ansi.Strip(ansi.Cut(l, lo, hi))
+	lines[r] = ansi.Cut(l, 0, lo) + m.st.MdLink.Underline(true).Render(mid) + ansi.TruncateLeft(l, hi, "")
+	return strings.Join(lines, "\n")
+}
+
+// hoverStatus is what the status line says while a link is hovered: where it
+// goes, in full — a link in a table shows only its text, and a long URL may be
+// cut by the pane — and how to follow it.
+func (m *Model) hoverStatus() string {
+	if !m.hoverShown() {
+		return ""
+	}
+	return m.st.MdLink.Render("↗ "+truncateLeft(m.hover.target, max(20, m.w-40))) +
+		m.st.Faint.Render("  ctrl+click opens")
 }

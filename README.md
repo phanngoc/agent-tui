@@ -833,6 +833,12 @@ session's own filesystem, whether that is WSL, a container or the host. A
 `https://` link opens in the browser. Without ctrl, a click still starts a
 selection.
 
+A web link is drawn whole — its text, then the URL in full after it — except in
+a table, where no URL fits a cell and the link shows its text alone. Passing
+the pointer over any link underlines it and names its whole target in the
+status line, which is how the URL of a link in a table is read. A piece of a
+URL that wrapped onto the next row is part of the same link.
+
 **For Slack.** `y` in the transcript copies the answer in view, and `/copy`
 the last one, formatted to paste into Slack: the clipboard gets HTML, which
 Slack's composer turns into its own bold, lists, links, quotes and code

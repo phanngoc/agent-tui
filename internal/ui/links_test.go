@@ -177,3 +177,83 @@ func TestPlainClickStillSelects(t *testing.T) {
 		t.Error("a plain click did not start a selection")
 	}
 }
+
+// ---- remote links ------------------------------------------------------------
+
+const longPR = "https://github.com/framgia/sbi-fpaas-be/pull/1922"
+
+func hoverOver(m *Model, x, y int) {
+	m.onMouse(tea.MouseMotionMsg{X: x, Y: y})
+	m.View()
+}
+
+// TestProseShowsTheWholeURL: a URL cut at forty-eight characters was cut
+// just before the part that said which PR.
+func TestProseShowsTheWholeURL(t *testing.T) {
+	m := newTestModel(t)
+	agentSays(m, "Opened [be#1922]("+longPR+") for the token endpoint.")
+	if out := stripANSI(m.chatSet); !strings.Contains(strings.ReplaceAll(out, "\n", ""), "pull/1922") {
+		t.Errorf("the URL is not shown whole:\n%s", out)
+	}
+}
+
+// TestTableLinksShowTheirText: no URL fits a cell; one cut to fit is noise.
+func TestTableLinksShowTheirText(t *testing.T) {
+	m := newTestModel(t)
+	agentSays(m, "| PR | Test |\n|---|---|\n| [be#1922]("+longPR+") | 4166 passed |\n")
+	out := stripANSI(m.chatSet)
+	if !strings.Contains(out, "be#1922") || strings.Contains(out, "(https://") {
+		t.Errorf("a table cell should show the link's text alone:\n%s", out)
+	}
+}
+
+// TestHoveringALinkUnderlinesItAndNamesIt: the pointer on a link underlines
+// it and puts its whole target in the status line — which is how the URL of a
+// link in a table is seen at all.
+func TestHoveringALinkUnderlinesItAndNamesIt(t *testing.T) {
+	m := newTestModel(t)
+	agentSays(m, "| PR | Test |\n|---|---|\n| [be#1922]("+longPR+") | 4166 passed |\n")
+	x, y := screenAt(t, m, "be#1922")
+	hoverOver(m, x, y)
+
+	if !m.hoverShown() || m.hover.target != longPR {
+		t.Fatalf("hover = %+v", m.hover)
+	}
+	if out := stripANSI(m.View().Content); !strings.Contains(out, "↗ "+longPR) {
+		t.Errorf("the status line does not name the link:\n%s", out)
+	}
+	if plain := m.paintSelection(m.chatView(), focusChat, m.chatW-2); m.paintHover(plain) == plain {
+		t.Error("the hovered link is not drawn differently")
+	}
+
+	// Off the link, the underline and the name go.
+	x2, y2 := screenAt(t, m, "4166")
+	hoverOver(m, x2, y2)
+	if m.hoverShown() {
+		t.Error("hovering plain text left a link hovered")
+	}
+}
+
+// TestCtrlClickARemoteLinkOpensTheBrowser — from a table, where only the
+// link's text is drawn. The command is not run: it would open a browser.
+func TestCtrlClickARemoteLinkOpensTheBrowser(t *testing.T) {
+	m := newTestModel(t)
+	agentSays(m, "| PR | Test |\n|---|---|\n| [be#1922]("+longPR+") | 4166 passed |\n")
+	x, y := screenAt(t, m, "be#1922")
+	if cmd := ctrlClick(m, x, y); cmd == nil {
+		t.Fatal("ctrl+click on a remote link did nothing")
+	}
+	if !strings.Contains(m.notice, "opening "+longPR) {
+		t.Errorf("notice = %q", m.notice)
+	}
+}
+
+// TestAWrappedURLOpensWhole: a piece of a URL that wrapped onto the next line
+// is part of its link.
+func TestAWrappedURLOpensWhole(t *testing.T) {
+	src := "See [the PR](" + longPR + ")."
+	got, ok := findLinkAt("sbi-fpaas-be/pull/1922).", 3, src)
+	if !ok || got.path != longPR {
+		t.Errorf("got %+v ok=%v", got, ok)
+	}
+}
