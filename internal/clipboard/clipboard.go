@@ -21,6 +21,7 @@ import (
 	"os/exec"
 	"runtime"
 	"strings"
+	"unicode/utf16"
 )
 
 // ErrNoImage means the clipboard was readable and held no image. It is the
@@ -159,11 +160,15 @@ exit 3
 
 // fromWindows reads the Windows clipboard, including from inside WSL.
 func fromWindows(ctx context.Context) ([]byte, error) {
-	// -STA because the clipboard API is single-threaded-apartment only, and
-	// -Command - because a script on stdin needs no quoting to survive.
-	cmd := exec.CommandContext(ctx, "powershell.exe",
-		"-NoProfile", "-NonInteractive", "-STA", "-Command", "-")
-	cmd.Stdin = strings.NewReader(winScript)
+	// -STA because the clipboard API is single-threaded-apartment only.
+	//
+	// The script goes in as -EncodedCommand, not on stdin. With -Command -
+	// PowerShell reads stdin as if it were typed at a prompt, a line at a
+	// time, and a function or a block spanning lines never ran: it exited 0
+	// having printed nothing, and every image on the clipboard came back as
+	// "no image on the clipboard". Encoded, the script arrives whole, and
+	// needs no quoting either.
+	cmd := psCommand(ctx, winScript)
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	err := cmd.Run()
@@ -264,4 +269,20 @@ func firstLine(s string) string {
 		return s[:i]
 	}
 	return s
+}
+
+// encodePS is a script as -EncodedCommand takes it: UTF-16LE, base64.
+func encodePS(script string) string {
+	u := utf16.Encode([]rune(script))
+	b := make([]byte, 2*len(u))
+	for i, c := range u {
+		b[2*i], b[2*i+1] = byte(c), byte(c>>8)
+	}
+	return base64.StdEncoding.EncodeToString(b)
+}
+
+// psCommand runs a script in Windows PowerShell, whole, on an STA thread.
+func psCommand(ctx context.Context, script string) *exec.Cmd {
+	return exec.CommandContext(ctx, "powershell.exe",
+		"-NoProfile", "-NonInteractive", "-STA", "-EncodedCommand", encodePS(script))
 }
