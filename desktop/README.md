@@ -77,6 +77,10 @@ most of it the Direct3D driver's, and about 15 MB of Go heap.
   - `Ctrl+V` pastes text, or passes `Ctrl+V` through so the core can attach a
     picture.
   - Right click pastes.
+  - `Shift`+wheel, a tilting wheel or a sideways trackpad swipe scrolls the
+    preview sideways. Gio reports all three as horizontal travel with the
+    shift removed, so the window passes it on as shift+wheel, which is what
+    Windows Terminal sends.
   - `Ctrl+=` / `Ctrl+-` / `Ctrl+0` zoom the font.
   - `F11` toggles full screen.
 - **Lifetime:**
