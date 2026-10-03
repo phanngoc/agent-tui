@@ -202,10 +202,17 @@ type Model struct {
 
 	// The settings page, and what it has saved.
 	prefs      config.Prefs
-	setSel     int
+	setSec     int // the section shown
+	setSel     int // the setting selected in it
 	setIn      textinput.Model
 	setEditing bool
 	setErr     string
+	setSaid    string   // what the last change did, for the footer
+	setCopy    string   // a path an action asked to put on the clipboard
+	setHits    []setHit // where the page drew what a click can land on
+	setInputY  int      // the folder input's line, when it is open
+	setTall    int      // the tallest section, measured at width setTallW
+	setTallW   int
 
 	// File picker overlay.
 	finderIn  textinput.Model

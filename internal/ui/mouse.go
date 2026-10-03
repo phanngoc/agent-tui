@@ -209,6 +209,8 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 		return m.grepClick(e.X, e.Y)
 	case overlayRecall:
 		return m.recallClick(e.X, e.Y)
+	case overlaySettings:
+		return m.settingsClick(e.X, e.Y)
 	case overlayNone:
 	default:
 		return nil // a picker or a prompt, with nothing to aim at
@@ -220,6 +222,8 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 			m.toggleSessions()
 		case focusExplorer:
 			m.switchFiles()
+		case settingsSwitch:
+			m.openSettings()
 		default:
 			m.togglePreview()
 		}

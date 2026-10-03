@@ -280,6 +280,15 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.overlay = overlayGrep
 		m.grepIn.Focus()
 		return nil
+	case "f2":
+		// Settings, from anywhere, and F2 again puts it away — the same
+		// toggle F1 is for help.
+		if m.overlay == overlaySettings {
+			m.closeOverlay()
+		} else {
+			m.openSettings()
+		}
+		return nil
 	case "f1":
 		if m.overlay == overlayHelp {
 			m.overlay = overlayNone

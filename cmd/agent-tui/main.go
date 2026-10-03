@@ -71,8 +71,21 @@ func run() error {
 	// Where to open is a setting only when nobody said: -C is a request for
 	// this folder now, and a preference set weeks ago does not outrank it.
 	var startNote string
+	prefs := config.LoadPrefs()
 	if !flagSet("C") {
-		abs, startNote = config.LoadPrefs().StartRoot(abs)
+		abs, startNote = prefs.StartRoot(abs)
+	}
+	// The settings page outranks config.json, and a flag outranks both: the
+	// file is the default you wrote once, the page is what you chose since,
+	// and a flag is what you asked for this time.
+	if !flagSet("model") && prefs.Model != "" {
+		*model = prefs.Model
+	}
+	if !flagSet("mode") && prefs.Mode != "" {
+		*modeFlag = prefs.Mode
+	}
+	if prefs.Theme != "" {
+		cfg.Theme = prefs.Theme
 	}
 	cfg.Root, cfg.Model, cfg.Effort = abs, *model, *effort
 	cfg.AutoApprove = cfg.AutoApprove || *autoApprove
@@ -114,6 +127,12 @@ func run() error {
 
 	mgr.Active().Mode = mode.String()
 
+	// An engine chosen on the settings page that this machine cannot run now
+	// is passed over rather than refused: unlike a flag, nobody asked for it
+	// today, and failing to start over it would be the wrong way round.
+	if !flagSet("engine") && prefs.Engine != "" && reg.Has(prefs.Engine) {
+		*engineID = prefs.Engine
+	}
 	if *engineID != "" {
 		if !reg.Has(*engineID) {
 			return fmt.Errorf("engine %q is not available; usable now: %s",
