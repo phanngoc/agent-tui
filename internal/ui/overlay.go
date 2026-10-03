@@ -839,25 +839,36 @@ func (m *Model) choiceView() string {
 // back to the list.
 func (m *Model) openTasks() {
 	m.overlay = overlayTasks
-	m.taskSel, m.taskOpen = 0, ""
+	m.taskSel, m.taskOpen, m.taskAll = 0, "", false
 
-	all := m.tasks.All()
-	live := -1
-	for i, t := range all {
-		if t.Live() {
-			if live >= 0 {
-				return // more than one: the list is the answer
-			}
-			live = i
-		}
-	}
-	if live >= 0 {
-		m.taskSel, m.taskOpen = live, all[live].ID
+	if live := m.listedTasks(); len(live) == 1 {
+		m.taskOpen = live[0].ID
 	}
 }
 
-func (m *Model) tasksKey(key string) tea.Cmd {
+// listedTasks are the commands the list shows: the ones still running.
+//
+// It used to show every command the session had run, and a long turn runs
+// dozens — so the few still going sat at the bottom of a column of ticks, and
+// the list answered "what has run" when it was opened to ask "what is
+// running". The finished ones are a key away (a), for the failure whose
+// output you do want to read.
+func (m *Model) listedTasks() []*task.Task {
 	all := m.tasks.All()
+	if m.taskAll {
+		return all
+	}
+	live := make([]*task.Task, 0, len(all))
+	for _, t := range all {
+		if t.Live() {
+			live = append(live, t)
+		}
+	}
+	return live
+}
+
+func (m *Model) tasksKey(key string) tea.Cmd {
+	all := m.listedTasks()
 
 	// Reading one task's output is a second level; esc steps back out of it
 	// rather than closing the whole thing.
@@ -886,6 +897,9 @@ func (m *Model) tasksKey(key string) tea.Cmd {
 		if m.taskSel < len(all) {
 			all[m.taskSel].Stop()
 		}
+	case "a":
+		m.taskAll = !m.taskAll
+		m.taskSel = 0
 	}
 	return nil
 }
@@ -899,7 +913,10 @@ func (m *Model) tasksView() string {
 		return m.taskOutputView(w, inner)
 	}
 
-	all := m.tasks.All()
+	all := m.listedTasks()
+	// A command that finished while the list was open leaves it, and the
+	// selection must not be left pointing past the end.
+	m.taskSel = clamp(m.taskSel, 0, max(0, len(all)-1))
 	var b strings.Builder
 	b.WriteString(m.st.Accent.Render("  Background commands") + "\n\n")
 
@@ -916,7 +933,13 @@ func (m *Model) tasksView() string {
 		b.WriteString(row + "\n")
 	}
 
-	b.WriteString("\n  " + m.st.Faint.Render("enter read · x stop · esc close"))
+	keys := "enter read · x stop · esc close"
+	if m.taskAll {
+		keys = "enter read · x stop · a running only · esc close"
+	} else if done := len(m.tasks.All()) - len(all); done > 0 {
+		b.WriteString("\n" + gutter + m.st.Faint.Render(plural(done, "finished command")+" · a shows them") + "\n")
+	}
+	b.WriteString("\n  " + m.st.Faint.Render(keys))
 	return m.st.Overlay.Width(w).Render(b.String())
 }
 

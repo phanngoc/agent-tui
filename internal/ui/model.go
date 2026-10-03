@@ -257,6 +257,7 @@ type Model struct {
 	tasks    *task.Registry
 	taskSel  int
 	taskOpen string // id of the task whose output is being read
+	taskAll  bool   // the list shows finished commands too
 
 	// Project explorer.
 	prevSeq int
