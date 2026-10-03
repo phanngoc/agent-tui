@@ -119,6 +119,11 @@ func (m *Model) panes() string {
 	if s := m.mgr.Active(); s.Busy && s.Status != "" {
 		chatTitle = s.Status
 	}
+	// Scrolled away from a transcript that is still growing: say there is
+	// more, and how to get back to it.
+	if m.chatBelow() {
+		chatTitle += "  ↓ newer below · ctrl+end"
+	}
 	m.setChatContent(m.transcript(max(10, m.chatWidth())))
 
 	// Every pane after the first leans on its neighbour's right edge, so the

@@ -926,6 +926,12 @@ same row.
   says so in the warning colour: `no word from the engine for 45s`. That is
   what a stall looks like; a long build with its clock going is not one.
 
+**The transcript follows the answer down, until you scroll away.** While you
+are at the bottom, it stays at the bottom as the answer streams. Scroll up to
+reread something and it stays where you put it, and its title says
+`↓ newer below · ctrl+end`. To follow again, scroll back to the bottom, press
+`ctrl+end` (or `End` in the transcript), send a prompt, or switch session.
+
 It used to be a spinner and the last tool's name for as long as the turn took:
 a call that had finished two minutes earlier and a model thinking about its
 result looked the same, and both looked like a hang.

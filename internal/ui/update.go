@@ -303,6 +303,13 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.overlay = overlayTarget
 		m.refreshTargets()
 		return nil
+	case "ctrl+end":
+		// Back to the newest line, following again — from anywhere, since the
+		// caret is usually in the prompt while the transcript is scrolled.
+		if m.overlay == overlayNone {
+			m.toBottom()
+			return nil
+		}
 	case "ctrl+k":
 		m.openTasks()
 		return nil
@@ -412,8 +419,13 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		if key == "y" {
 			return m.copyForSlack(m.replyInView(), "the answer in view")
 		}
+		if key == "end" || key == "G" {
+			m.toBottom()
+			return nil
+		}
 		var cmd tea.Cmd
 		m.chat, cmd = m.chat.Update(k)
+		m.noteChatScroll()
 		return cmd
 	case focusExplorer:
 		return m.explorerKey(k.String())
@@ -480,7 +492,7 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		if line, ok := parseBang(text); ok {
 			m.pushHistory(text)
 			m.input.Reset()
-			m.chat.GotoBottom()
+			m.toBottom()
 			// The tick comes along to keep the command's clock moving; it
 			// stops itself once nothing is running.
 			return tea.Batch(m.runBang(line), tick())
@@ -496,7 +508,7 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		m.pushHistory(text)
 		m.input.Reset()
-		m.chat.GotoBottom()
+		m.toBottom()
 		return m.send(text)
 	case "alt+enter", "ctrl+j":
 		m.input.InsertString("\n")
@@ -927,7 +939,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		s.Thinking = ""
 		setPhase(s, "writing")
 		if foreground {
-			m.chat.GotoBottom()
+			m.followChat()
 		}
 
 	case agent.EvThinkingDelta:
@@ -936,7 +948,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		if e.Text != "" {
 			s.Thinking = tailOf(s.Thinking+e.Text, liveThinkingBytes)
 			if foreground {
-				m.chat.GotoBottom()
+				m.followChat()
 			}
 		}
 
@@ -947,7 +959,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		// fragment, so nothing is cached and nothing is invalidated.
 		s.Calls = e.Calls
 		if foreground {
-			m.chat.GotoBottom()
+			m.followChat()
 		}
 
 	case agent.EvToolOutput:
@@ -956,7 +968,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		s.Output = tailOf(s.Output+e.Text, liveOutputBytes)
 		if foreground {
-			m.chat.GotoBottom()
+			m.followChat()
 		}
 
 	case agent.EvAssistant:
@@ -968,7 +980,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		m.invalidateChat()
 		if foreground {
-			m.chat.GotoBottom()
+			m.followChat()
 		}
 		m.mgr.Save(s)
 
@@ -1001,7 +1013,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		m.invalidateChat()
 		if foreground {
-			m.chat.GotoBottom()
+			m.followChat()
 		}
 		// A write may have changed what the preview is showing.
 		if e.Call.Name == "write_file" || e.Call.Name == "edit_file" {
@@ -1289,6 +1301,8 @@ func (m *Model) onSessionSwitch() tea.Cmd {
 // A negative index means the newest turn, which is what switching normally
 // wants.
 func (m *Model) onSessionSwitchAt(msg int) tea.Cmd {
+	// Another conversation is read from its newest turn, following.
+	m.chatAway = false
 	m.sessSel = m.mgr.ActiveIndex()
 	// Looking at it is what "seen" means.
 	m.mgr.Active().Unseen = false
@@ -1298,6 +1312,9 @@ func (m *Model) onSessionSwitchAt(msg int) tea.Cmd {
 		m.showLatestTurn()
 	} else {
 		m.showMessage(msg)
+		// Landing on an older message from a search is reading it; a turn
+		// still streaming in that session must not carry the view away.
+		m.noteChatScroll()
 	}
 	m.errText = m.mgr.Active().LastErr
 	return cmd

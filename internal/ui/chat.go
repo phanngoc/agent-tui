@@ -91,6 +91,12 @@ func (m *Model) setChatContent(text string) {
 	m.chatSet = text
 	m.chatVer++
 	m.chat.SetContent(text)
+	// A move to the bottom asked for before this text arrived is made now
+	// that it has; see followChat.
+	if m.chatPin && !m.chatAway {
+		m.chat.GotoBottom()
+		m.chatPin = false
+	}
 }
 
 // chatView is the visible part of the transcript, remembered.

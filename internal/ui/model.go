@@ -196,6 +196,11 @@ type Model struct {
 	// first layout lands on the newest exchange and later resizes do not yank
 	// the reader away from what they were reading.
 	placedChat bool
+	// chatAway says the reader scrolled the transcript away from its bottom, so
+	// new output does not pull it back down. See follow.go.
+	chatAway bool
+	// chatPin asks for the bottom once the next transcript text is in place.
+	chatPin bool
 
 	// Renaming a session.
 	renameIn textinput.Model
@@ -782,7 +787,7 @@ func (m *Model) grew(s *session.Session) {
 	// once and nothing follows it, which is why this is the path where it
 	// showed.
 	m.setChatContent(m.transcript(max(10, m.chatW-2)))
-	m.chat.GotoBottom()
+	m.followChat()
 }
 
 // cancelRun stops the active session's turn and drops any approval it was
