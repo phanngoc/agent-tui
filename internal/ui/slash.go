@@ -100,7 +100,7 @@ var slashCmds = []slashCmd{
 		m.finderIn.SetValue("")
 		m.finderIn.Focus()
 		m.refreshFinder()
-		return nil
+		return m.freshenIndex()
 	}},
 	{"search", "[text]", "search file contents", func(m *Model, arg string) tea.Cmd {
 		m.overlay = overlayGrep
@@ -108,9 +108,9 @@ var slashCmds = []slashCmd{
 		m.grepIn.Focus()
 		if strings.TrimSpace(arg) != "" {
 			m.grepBusy = true
-			return m.runGrep(arg)
+			return tea.Batch(m.runGrep(arg), m.freshenIndex())
 		}
-		return nil
+		return m.freshenIndex()
 	}},
 	{"recall", "[text]", "search every conversation, in every project",
 		func(m *Model, arg string) tea.Cmd {

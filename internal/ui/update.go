@@ -57,10 +57,12 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case indexReadyMsg:
-		m.status = ""
-		m.notice = plural(msg.n, "file") + " indexed in " + msg.took.Round(1e6).String()
+		if !msg.quiet {
+			m.status = ""
+			m.notice = plural(msg.n, "file") + " indexed in " + msg.took.Round(1e6).String()
+		}
 		if m.overlay == overlayFinder {
-			m.refreshFinder()
+			m.refreshFinderKeep()
 		}
 		return m, nil
 
@@ -86,7 +88,8 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bangDoneMsg:
 		m.applyBangDone(msg)
-		return m, nil
+		// A command run here can make files as easily as the agent can.
+		return m, m.filesChanged()
 
 	case wslReadyMsg:
 		return m, m.applyWSLReady(msg)
@@ -99,13 +102,17 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case treeMsg:
+		var walk tea.Cmd
+		if msg.changed {
+			walk = m.filesChanged()
+		}
 		// Keep the selection on the same path when rows shift underneath it.
 		if n := len(m.tree.Rows()); m.treeSel >= n {
 			m.treeSel = max(0, n-1)
 		}
 		// Files moved on disk: the changes listing may be out of date. Not
 		// more often than this, since on WSL every look is a wsl.exe.
-		return m, tea.Batch(m.watchTree(), m.refreshChanges(5*time.Second))
+		return m, tea.Batch(m.watchTree(), m.refreshChanges(5*time.Second), walk)
 
 	case completionMsg:
 		return m, m.applyCompletionResult(msg)
@@ -277,7 +284,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		m.finderIn.SetValue("")
 		m.finderIn.Focus()
 		m.refreshFinder()
-		return nil
+		return m.freshenIndex()
 	case "ctrl+f":
 		if m.focus == focusPreview && m.file != nil {
 			m.startFind()
@@ -285,7 +292,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		m.overlay = overlayGrep
 		m.grepIn.Focus()
-		return nil
+		return m.freshenIndex()
 	case "ctrl+g":
 		// Select-all, where there is text to select it in. The file search
 		// keeps ctrl+f, which is the binding it is reached by anyway; this
@@ -296,7 +303,7 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 		m.overlay = overlayGrep
 		m.grepIn.Focus()
-		return nil
+		return m.freshenIndex()
 	case "f2":
 		// Settings, from anywhere, and F2 again puts it away — the same
 		// toggle F1 is for help.
@@ -1042,6 +1049,9 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 
 	case agent.EvToolDone:
 		markTool(s, e.Call)
+		if cmd := m.noteToolFiles(s, e.Call); cmd != nil {
+			next = tea.Batch(next, cmd)
+		}
 		if s.OutputID == e.Call.ID {
 			// The result is on the call now, and its line says how much of it
 			// there was. Keeping the live copy would show it twice.
@@ -1139,6 +1149,9 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		m.mgr.Save(s)
 		m.invalidateChat()
+		// Whatever the turn ran, the files may not be the ones the index
+		// last saw. Saying so costs nothing; the walk waits for a reader.
+		m.idx.MarkStale()
 		// The turn's work is done: show what it changed.
 		if foreground {
 			next = tea.Batch(next, m.refreshChanges(0))

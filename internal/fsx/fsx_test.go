@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+	"time"
 
 	"github.com/phanngoc/agent-tui/internal/vfs"
 )
@@ -69,5 +70,69 @@ func write(t *testing.T, path, body string) {
 	}
 	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// A file written after the walk is findable as soon as it is added by name,
+// and an empty query lists it first.
+func TestAddedFilesAreFoundWithoutAWalk(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "main.go"), "")
+	ix := NewIndex(vfs.NewLocal(root), root, 0)
+	ix.Build()
+
+	ix.Add("docs/plan-push.md")
+	if hits := ix.Find("planpush", 10); len(hits) != 1 || hits[0].Path != "docs/plan-push.md" {
+		t.Errorf("an added file is not found: %v", hits)
+	}
+	if hits := ix.Find("", 10); len(hits) == 0 || hits[0].Path != "docs/plan-push.md" {
+		t.Errorf("an empty query does not list the new file first: %v", hits)
+	}
+	ix.Add("docs/plan-push.md", "main.go")
+	if n := ix.Len(); n != 2 {
+		t.Errorf("adding known files duplicated them: %d files %v", n, ix.Files())
+	}
+}
+
+// The next walk keeps an added file that is on disk and forgets one that is
+// not.
+func TestAWalkForgetsAddedFilesThatAreGone(t *testing.T) {
+	root := t.TempDir()
+	write(t, filepath.Join(root, "kept.md"), "")
+	ix := NewIndex(vfs.NewLocal(root), root, 0)
+	ix.Build()
+	ix.Add("kept.md", "gone.md")
+
+	ix.Build()
+	if hits := ix.Find("gone", 10); len(hits) != 0 {
+		t.Errorf("a file not on disk survived the walk: %v", hits)
+	}
+	if hits := ix.Find("", 10); len(hits) == 0 || hits[0].Path != "kept.md" {
+		t.Errorf("the kept file lost its place: %v", hits)
+	}
+}
+
+// Fresh is what decides whether opening the finder walks: not after a walk,
+// yes once a change is reported, and yes once the index is old.
+func TestFreshness(t *testing.T) {
+	root := t.TempDir()
+	ix := NewIndex(vfs.NewLocal(root), root, 0)
+	if ix.Fresh(time.Hour) {
+		t.Error("an index never walked is fresh")
+	}
+	ix.Build()
+	if !ix.Fresh(time.Hour) {
+		t.Error("a just-walked index is not fresh")
+	}
+	if ix.Fresh(0) {
+		t.Error("an index older than the bound is fresh")
+	}
+	ix.MarkStale()
+	if ix.Fresh(time.Hour) {
+		t.Error("an index marked stale is fresh")
+	}
+	ix.Build()
+	if !ix.Fresh(time.Hour) || ix.Stale() {
+		t.Error("walking did not clear the stale mark")
 	}
 }
