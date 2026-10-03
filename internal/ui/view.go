@@ -426,7 +426,8 @@ func (m *Model) inputBox() string {
 	body := m.input.View()
 
 	path := m.promptPath()
-	k := promptFrame{body: body, path: path, w: m.w, active: m.focus == focusInput}
+	side := m.promptTarget() != m.mgr.Active()
+	k := promptFrame{body: body, path: path, w: m.w, active: m.focus == focusInput, side: side}
 	if k == m.promptKey && m.promptOut != "" {
 		return m.promptOut
 	}
@@ -443,8 +444,15 @@ func (m *Model) inputBox() string {
 	lines := strings.Split(box, "\n")
 	if len(lines) > 0 {
 		inner := max(1, m.w-2)
-		lines[0] = injectTitle(lines[0],
-			ts.Render(" "+truncateLeft(path, max(4, inner-6))+" "))
+		title := ts.Render(" " + truncateLeft(path, max(4, inner-6)) + " ")
+		// Typing to the side chat says so where the typing is: the same box
+		// sends to either conversation, and which one is not otherwise
+		// visible from the caret.
+		if side {
+			title = m.st.Accent.Bold(true).Render(" btw ") + m.st.Faint.Render("▸") +
+				ts.Render(" "+truncateLeft(path, max(4, inner-14))+" ")
+		}
+		lines[0] = injectTitle(lines[0], title)
 	}
 	m.promptKey, m.promptOut = k, strings.Join(lines, "\n")
 	return m.promptOut
@@ -458,6 +466,7 @@ type promptFrame struct {
 	body, path string
 	w          int
 	active     bool
+	side       bool
 }
 
 // promptPath is where the session stands, written the way a shell prompt

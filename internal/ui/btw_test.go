@@ -69,7 +69,7 @@ func TestTheMainTranscriptDoesNotSeeTheSideChat(t *testing.T) {
 }
 
 // The prompt serves both panes, and which one it is talking to is whichever
-// has the caret.
+// was last gone to.
 func TestThePromptFollowsTheFocus(t *testing.T) {
 	m := newTestModel(t)
 	parent := withHistory(m)
