@@ -144,6 +144,9 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case slackCopiedMsg:
 		return m, m.slackCopied(msg)
+
+	case linkResolvedMsg:
+		return m, m.linkResolved(msg)
 	}
 
 	// Everything else (focus changes, spinner ticks) goes to the components.

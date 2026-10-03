@@ -292,6 +292,12 @@ func (m *Model) onClick(e tea.Mouse) tea.Cmd {
 		// A click in one of the other cells is the whole of what a split
 		// needs for a gesture: it says which conversation you are talking to
 		// now. Selecting starts in the cell that answers the prompt.
+		// Ctrl turns a click on a link or a path into opening it.
+		if pane == focusChat && e.Mod&tea.ModCtrl != 0 {
+			if cmd, ok := m.openLinkAt(e.X, e.Y); ok {
+				return cmd
+			}
+		}
 		if pane == focusChat {
 			if s := m.splitAt(e.X, e.Y); s != nil && s != m.mgr.Active() {
 				m.setFocus(focusChat)
