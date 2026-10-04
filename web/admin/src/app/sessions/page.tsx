@@ -3,24 +3,23 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, PanelRightCloseIcon, PanelRightOpenIcon, FolderOpenIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
 import { onEvent, useGateway, useVersion } from "@/lib/store";
-import type { Message, MemoryRecord, Session, SessionState, Summary, Trace, Live, EngineInfo } from "@/lib/types";
-import { Ago, CopyButton, Dot, Empty, ErrorNote, Field, Mono, NativeSelect, Pre } from "@/components/common";
+import type { Message, MemoryRecord, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
+import { Ago, CopyButton, Dot, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
 import { LiveTail, MessageView } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
-import { FolderPicker, describePath, placePath } from "@/components/folder-picker";
+import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { baseName, memoryTypeLabel, tokens } from "@/lib/format";
 
 export default function SessionsPage() {
@@ -35,29 +34,22 @@ function Sessions() {
   const params = useSearchParams();
   const router = useRouter();
   const id = params.get("id") ?? "";
-  const [creating, setCreating] = React.useState(params.get("new") === "1");
   const root = useGateway((s) => s.root);
+  // Each "new" is a fresh draft, even when one is already on screen.
+  const [fresh, setFresh] = React.useState(0);
   return (
     <div className="flex h-full min-h-0">
-      <SessionList selected={id} onSelect={(s) => router.push(`/sessions?id=${s}`)} onNew={() => setCreating(true)} />
+      <SessionList
+        selected={id}
+        onSelect={(s) => router.push(`/sessions?id=${s}`)}
+        onNew={() => {
+          setFresh((n) => n + 1);
+          router.push("/sessions");
+        }}
+      />
       <div className="flex min-w-0 flex-1 flex-col">
-        {id ? (
-          <Conversation key={id} id={id} />
-        ) : (
-          <div className="flex flex-1 items-center justify-center p-6">
-            <Empty title="Pick a conversation, or start one">
-              Every session saved on this machine is listed — the terminal&apos;s and the web&apos;s alike. A prompt sent here to a session open in a terminal runs
-              there, and shows here live.
-              <div className="mt-3">
-                <Button size="sm" onClick={() => setCreating(true)}>
-                  <PlusIcon /> New conversation
-                </Button>
-              </div>
-            </Empty>
-          </div>
-        )}
+        {id ? <Conversation key={id} id={id} /> : <NewChat key={root + fresh} root={root} onCreated={(sid) => router.push(`/sessions?id=${sid}`)} />}
       </div>
-      <NewSessionDialog key={root} open={creating} onOpenChange={setCreating} onCreated={(sid) => router.push(`/sessions?id=${sid}`)} />
     </div>
   );
 }
@@ -329,13 +321,8 @@ function Composer({ busy, owner, target, onSend }: { busy: boolean; owner?: stri
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                e.preventDefault();
-                void go();
-              }
-            }}
-            placeholder={busy ? "A turn is running — this will queue (in a terminal) or wait" : "Ask anything…  (Ctrl+Enter to send)"}
+            onKeyDown={(e) => sendOnEnter(e, () => void go())}
+            placeholder={busy ? "A turn is running — this will queue (in a terminal) or wait" : "Reply…  (Enter to send, Shift+Enter for a new line)"}
             className="max-h-48 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0"
           />
           <Button onClick={go} disabled={sending || !text.trim()} size="icon">
@@ -453,140 +440,5 @@ function DetailsPanel({ s }: { s: Session }) {
         </p>
       </div>
     </div>
-  );
-}
-
-function NewSessionDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: (id: string) => void }) {
-  const root = useGateway((s) => s.root);
-  // Like the terminal, a new conversation starts where the last one was, on
-  // its engine, model and mode — the last in this project when one is picked.
-  const { data: recent } = useFetch<Summary[]>(open ? "/api/sessions" + qs({ root }) : null, [open, root]);
-  const last = recent?.[0];
-  return (
-    <Dialog open={open} onOpenChange={(o) => onOpenChange(o)}>
-      <DialogContent className="sm:max-w-2xl">
-        <DialogHeader>
-          <DialogTitle>New conversation</DialogTitle>
-          <DialogDescription>
-            Runs in the gateway with the project&apos;s memory, skills and MCP servers. It starts from your last conversation&apos;s folder, engine, model and mode.
-          </DialogDescription>
-        </DialogHeader>
-        {open && recent ? (
-          <NewSessionForm key={last?.id ?? "none"} last={last} fallbackRoot={root} onCreated={onCreated} onClose={() => onOpenChange(false)} />
-        ) : (
-          <div className="py-8 text-center text-sm text-muted-foreground">Loading your last conversation…</div>
-        )}
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function NewSessionForm({
-  last,
-  fallbackRoot,
-  onCreated,
-  onClose,
-}: {
-  last?: Summary;
-  fallbackRoot: string;
-  onCreated: (id: string) => void;
-  onClose: () => void;
-}) {
-  const [dir, setDir] = React.useState(() => (last ? placePath({ root: last.root, target: last.target, cwd: last.cwd }) : fallbackRoot));
-  const [engine, setEngine] = React.useState(last?.engine ?? "");
-  const [model, setModel] = React.useState(last?.model ?? "");
-  const [mode, setMode] = React.useState(last?.mode ?? "");
-  const [prompt, setPrompt] = React.useState("");
-  const [picking, setPicking] = React.useState(false);
-  const [err, setErr] = React.useState<string | null>(null);
-  const [busy, setBusy] = React.useState(false);
-  const { data: eng } = useFetch<{ engines: EngineInfo[]; models: { id: string; label: string }[]; modes: string[] }>(
-    dir ? "/api/engines" + qs({ root: dir }) : null,
-    [dir],
-  );
-  const where = describePath(dir);
-
-  const create = async () => {
-    setBusy(true);
-    setErr(null);
-    try {
-      const r = await api.post<{ id: string }>("/api/sessions", { root: dir, engine, model, mode, prompt });
-      onClose();
-      onCreated(r.id);
-    } catch (e) {
-      setErr((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  };
-
-  return (
-    <>
-      <div className="grid gap-3">
-        <Field
-          label="Folder"
-          hint={
-            last ? (
-              <>
-                From your last conversation, “{last.title}” — <Ago at={last.updated} />
-              </>
-            ) : undefined
-          }
-        >
-          <div className="flex gap-2">
-            <Input value={dir} onChange={(e) => setDir(e.target.value)} className="min-w-0 flex-1 font-mono text-xs" placeholder="C:\code\project, or \\wsl.localhost\Ubuntu\home\me\project" />
-            <Button variant="outline" onClick={() => setPicking(true)}>
-              <FolderOpenIcon /> Browse…
-            </Button>
-          </div>
-          {where.where && (
-            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-              <Badge variant="outline" className="font-normal">
-                {where.where}
-              </Badge>
-              runs inside the distribution, in <span className="font-mono text-foreground">{where.dir}</span>
-            </div>
-          )}
-        </Field>
-        <div className="grid grid-cols-3 gap-2">
-          <Field label="Engine">
-            <NativeSelect
-              value={engine}
-              onChange={setEngine}
-              placeholder="from settings"
-              options={(eng?.engines ?? []).map((e) => ({ value: e.id, label: e.label + (e.available ? "" : " (unavailable)"), disabled: !e.available }))}
-            />
-          </Field>
-          <Field label="Model">
-            <NativeSelect value={model} onChange={setModel} placeholder="from settings" options={(eng?.models ?? []).map((m) => ({ value: m.id, label: m.label }))} />
-          </Field>
-          <Field label="Mode">
-            <NativeSelect value={mode} onChange={setMode} placeholder="from settings" options={(eng?.modes ?? []).map((m) => ({ value: m, label: m }))} />
-          </Field>
-        </div>
-        <Field label="First prompt">
-          <Textarea
-            autoFocus
-            value={prompt}
-            onChange={(e) => setPrompt(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && dir && prompt.trim()) {
-                e.preventDefault();
-                void create();
-              }
-            }}
-            rows={5}
-            placeholder="What should the agent do?  (Ctrl+Enter to start)"
-          />
-        </Field>
-        <ErrorNote error={err} />
-      </div>
-      <DialogFooter>
-        <Button disabled={busy || !dir || !prompt.trim()} onClick={create}>
-          {busy ? "Starting…" : "Start"}
-        </Button>
-      </DialogFooter>
-      <FolderPicker open={picking} onOpenChange={setPicking} initial={dir} onPick={setDir} />
-    </>
   );
 }

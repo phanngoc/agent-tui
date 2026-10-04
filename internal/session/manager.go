@@ -306,6 +306,16 @@ func (m *Manager) Save(s *Session) {
 }
 
 // SaveAll flushes every dirty session synchronously, for shutdown.
+// SaveNow writes a session before returning, for a caller that hands its id
+// to someone who will read the file next: the web, opening a conversation it
+// has just started.
+func (m *Manager) SaveNow(s *Session) {
+	if s == nil || len(s.Messages) == 0 {
+		return
+	}
+	m.write(s.clone())
+}
+
 func (m *Manager) SaveAll() {
 	for _, s := range m.All() {
 		if len(s.Messages) > 0 {

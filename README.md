@@ -110,7 +110,10 @@ desktop window runs the same binary, so it joins too. The gateway listens on
 loopback only and refuses any request whose Host is not a loopback name.
 
 **A new conversation starts where the last one was** — its folder, engine,
-model and mode — as a new session does in the terminal. *Browse…* opens a
+model and mode — as a new session does in the terminal. As in the Claude app,
+*+* opens an empty conversation with the composer ready: the folder, engine,
+model and mode are chips under it, and the conversation exists from the first
+message (Enter sends, Shift+Enter is a new line). The folder chip opens a
 folder picker over this machine's drives and every WSL distribution
 (`\\wsl.localhost\…`), with recent places and project folders marked; a WSL
 folder runs its conversation inside that distribution, the way the terminal
