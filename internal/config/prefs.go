@@ -35,6 +35,31 @@ type Prefs struct {
 	// remembers the directory it had moved to, so the newest one picks up in
 	// the very place it was left.
 	LastRoot string `json:"last_root,omitempty"`
+	// Effort for new sessions; empty means config.json's.
+	Effort string `json:"effort,omitempty"`
+	// Learn is the automatic memory: after a turn, what was worth keeping is
+	// extracted and merged into memory. nil means on.
+	Learn *bool `json:"learn,omitempty"`
+	// LearnModel is the model that does the extracting; empty means a small,
+	// cheap one, since it runs after every turn.
+	LearnModel string `json:"learn_model,omitempty"`
+	// LearnSkills lets learning write skills from work that showed a
+	// reusable procedure. nil means on.
+	LearnSkills *bool `json:"learn_skills,omitempty"`
+	// GatewayAutostart starts `agent-tui serve` in the background when the
+	// terminal app finds none, so the web admin always has something to talk
+	// to. nil means on.
+	GatewayAutostart *bool `json:"gateway_autostart,omitempty"`
+	// Instructions are standing orders added to every session's system prompt.
+	Instructions string `json:"instructions,omitempty"`
+}
+
+// LearnOn resolves the global switch with a project's override.
+func (p Prefs) LearnOn(project ProjectSettings) bool {
+	if project.Learn != nil {
+		return *project.Learn
+	}
+	return p.Learn == nil || *p.Learn
 }
 
 // Where a new session begins.

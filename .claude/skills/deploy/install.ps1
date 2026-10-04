@@ -54,6 +54,31 @@ if (Test-Path (Join-Path $Repo 'desktop\go.mod')) {
     Write-Host "desktop: $desk  (Start menu: agent-tui)"
 }
 
+# 2c. The web admin, as a static build in an `admin` folder beside the binary:
+#     `agent-tui serve` (which `tui` starts on its own) serves it from there.
+#     Skipped without npm; the gateway then serves a page saying how to run it.
+#     A gateway already running keeps the old binary and pages until it is
+#     stopped, so it is stopped here and the next `tui` starts the new one.
+$web = Join-Path $Repo 'web\admin'
+$npm = Get-Command npm -ErrorAction SilentlyContinue
+if ((Test-Path (Join-Path $web 'package.json')) -and $npm) {
+    Push-Location $web
+    try {
+        if (-not (Test-Path 'node_modules')) { & npm install --no-audit --no-fund | Out-Null }
+        & npm run build | Out-Null
+        if ($LASTEXITCODE -ne 0) { throw "admin build failed (cd web/admin; npm run build)" }
+    } finally { Pop-Location }
+    $dest = Join-Path $gobin 'admin'
+    if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+    Copy-Item -Recurse (Join-Path $web 'out') $dest
+    Write-Host "admin  : $dest"
+} else {
+    Write-Host "admin  : skipped (npm not found)"
+}
+Get-CimInstance Win32_Process -Filter "Name='agent-tui.exe'" |
+    Where-Object { $_.CommandLine -match '\sserve(\s|$)' } |
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host "gateway: stopped old pid $($_.ProcessId); the next tui starts the new one" }
+
 # 3. The short alias: a .cmd for PowerShell/cmd/Warp, an extensionless sh
 #    script for Git Bash, which does not resolve .cmd on its own.
 if ($Alias -and $Alias -ne 'agent-tui') {

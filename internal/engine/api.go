@@ -79,15 +79,21 @@ func profilePath() string {
 // Run continues the session's own SDK history when there is one, and otherwise
 // rebuilds it from the persisted transcript.
 func (e *apiEngine) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
+	x := t.Resolve(ctx)
 	hist, ok := t.State.([]anthropic.MessageParam)
 	if !ok {
 		// History already ends with this turn's prompt, so replaying it is the
 		// whole conversation. Appending the prompt again would send it twice.
-		e.ag.Run(ctx, agent.Replay(t.History), t.Mode, t.Model, out)
+		e.ag.RunWith(ctx, agent.Replay(t.History), t.Mode, t.Model, x, out)
 		return
 	}
 	if blocks := agent.UserBlocks(t.Prompt, t.Files); len(blocks) > 0 {
 		hist = append(hist, anthropic.NewUserMessage(blocks...))
 	}
-	e.ag.Run(ctx, hist, t.Mode, t.Model, out)
+	e.ag.RunWith(ctx, hist, t.Mode, t.Model, x, out)
 }
+
+// HasAPICredentials reports whether the built-in engine can find a credential:
+// the same test the engine picker uses, for anything else that wants to call
+// the API directly.
+func HasAPICredentials() bool { _, ok := credentials(); return ok }

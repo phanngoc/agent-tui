@@ -76,6 +76,95 @@ What the page saves goes to `prefs.json` in the data directory. It outranks
 `config.json`, the file you write by hand, and a flag outranks both: `-C`,
 `-model`, `-mode` and `-engine` are what you asked for this time.
 
+## The web admin and the gateway
+
+Everything the terminal does can also be seen, and driven, from a browser:
+sessions live as they stream, a chat box, and the agent's memory, skills, MCP
+servers and settings — global and per project.
+
+```sh
+tui                    # starts the gateway in the background if none is running
+open http://127.0.0.1:7788
+# or by hand:
+agent-tui serve        # -addr 127.0.0.1:7788 · -web <folder of the built admin>
+make web               # build web/admin into web/admin/out (the deploy skill copies it beside the binary)
+make web-dev           # the admin with hot reload on :3000, against a running gateway
+```
+
+**One gateway, one vocabulary.** `agent-tui serve` is the gateway. It runs turns
+with the same engine registry, the same project kit (below) and the same
+learner as the terminal, and it is a hub: every process that runs turns
+publishes what happens in them as events — `turn.started`, `text.delta`,
+`tool.start`, `approval.request`, `message`, `turn.done` — and the hub fans
+them out to every page over server-sent events, keeping enough live state that
+a page opened mid-turn shows the turn so far.
+
+**A session has one writer.** Each `tui` joins the gateway as a peer and says
+which sessions it holds. A prompt, a stop or an approval sent from the web for
+one of those is routed to that terminal and handled exactly as if it had been
+typed there, so both views show the same transcript at the same moment. A
+session no terminal holds is run by the gateway itself. The desktop window
+runs the same binary, so it joins too. The gateway listens on loopback only
+and refuses any request whose Host is not a loopback name.
+
+**Nothing is a black box.** For every turn the admin shows what the agent was
+given beyond the transcript: which memories were recalled and with what score,
+the skills it was offered, the MCP servers and tools, the standing rules, and
+the exact system text. *Settings → Context preview* shows the same for a
+prompt you have not sent. Each memory links back to the session and messages
+it was learned from, carries its version history (store, update, merge,
+delete — with what it replaced), and the learner's every step is listed with
+links both ways.
+
+### Skills, memory, MCP — global and per project
+
+| | global | per project |
+|---|---|---|
+| skills | `~/.config/agent-tui/skills/<name>/SKILL.md` | `<project>/.agent-tui/skills/<name>/SKILL.md` |
+| MCP servers | `~/.config/agent-tui/mcp.json` | `<project>/.agent-tui/mcp.json` |
+| settings | `prefs.json` in the data folder | `<project>/.agent-tui/settings.json` |
+| memory | `<data>/memory/` | `<data>/projects/<path-slug>/memory/` |
+
+Skills and MCP servers use Claude Code's formats (`SKILL.md` with `name` and
+`description`; `{"mcpServers": {…}}`), and the admin imports both — and Claude
+Code's memory notes — from this machine and from every WSL distribution. A
+project skill or server replaces a global one of the same name; either can be
+switched off for one project. Project memory stays in the data folder, not the
+repository: what one person's agent noticed is not something to push.
+
+Each turn gets, after the built-in system prompt: your global instructions,
+the project's, the repository's `AGENTS.md`, the list of skills (bodies load
+with the `skill` tool), the persona and project doctrine, standing rules, a
+map of memory scenes, and the memories recalled for this prompt. The built-in
+engine also gets `memory_search`, `memory_read`, `memory_save` and every MCP
+tool as `mcp__<server>__<tool>`. Claude Code is handed the same MCP servers
+plus `agent-tui kit-mcp`, which serves those skill and memory tools to it.
+
+### Automatic learning
+
+Memory learns on its own, in the layers of
+[TencentDB Agent Memory](https://github.com/TencentCloud/TencentDB-Agent-Memory):
+
+- **L1 records** — after a turn (the first at once, then every 2, 4 and 5
+  turns, or after ten idle minutes) a small model reads the new messages and
+  extracts self-contained memories: the user's preferences and rules (global),
+  the project's facts, tasks, methods and artifacts (project). Each is judged
+  against the five nearest existing records — store, skip, update or merge —
+  and a failed judgement stores rather than loses.
+- **L2 scenes** — new records are folded into at most fifteen narrative
+  blocks per store, at most every fifteen minutes.
+- **L3 persona** — the scenes are distilled into a user persona (global) and
+  a project doctrine, rewritten when they change enough. Both are in every
+  prompt.
+- **Skills** — once a session has made ten tool calls, a review decides
+  whether the work showed a reusable procedure, and writes or improves a skill
+  (marked *learned*).
+
+Recall ranks records by BM25 against each prompt and adds the best five. The
+learner uses `ANTHROPIC_API_KEY` when there is one and the `claude` CLI
+otherwise; its model, and whether it runs at all, are settings, globally and
+per project.
+
 ## Engines
 
 The same UI drives four different agents. Press `ctrl+r` to pick one per
