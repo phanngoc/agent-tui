@@ -167,6 +167,9 @@ type Extras struct {
 	Tools []Extension
 	// MCPServers is for an engine that runs MCP servers itself.
 	MCPServers map[string]any
+	// Effort, when set, overrides the agent's for this turn: a project's own
+	// setting, applied without rebuilding the agent other turns share.
+	Effort string
 }
 
 // Extension is a tool defined outside the executor: a skill loader, the
@@ -266,17 +269,7 @@ func New(apiKey string, exec *Executor, model, effort string, maxTokens int64) *
 	if apiKey != "" {
 		opts = append(opts, option.WithAPIKey(apiKey))
 	}
-	ef := anthropic.OutputConfigEffortHigh
-	switch effort {
-	case "low":
-		ef = anthropic.OutputConfigEffortLow
-	case "medium":
-		ef = anthropic.OutputConfigEffortMedium
-	case "xhigh":
-		ef = anthropic.OutputConfigEffortXhigh
-	case "max":
-		ef = anthropic.OutputConfigEffortMax
-	}
+	ef := parseEffort(effort)
 	return &Agent{
 		client:    anthropic.NewClient(opts...),
 		exec:      exec,
@@ -285,6 +278,21 @@ func New(apiKey string, exec *Executor, model, effort string, maxTokens int64) *
 		MaxTokens: maxTokens,
 		MaxSteps:  40,
 	}
+}
+
+// parseEffort reads an effort name; anything unknown is high, the default.
+func parseEffort(effort string) anthropic.OutputConfigEffort {
+	switch effort {
+	case "low":
+		return anthropic.OutputConfigEffortLow
+	case "medium":
+		return anthropic.OutputConfigEffortMedium
+	case "xhigh":
+		return anthropic.OutputConfigEffortXhigh
+	case "max":
+		return anthropic.OutputConfigEffortMax
+	}
+	return anthropic.OutputConfigEffortHigh
 }
 
 const systemPrompt = `You are the coding agent inside agent-tui, a terminal IDE.
@@ -438,7 +446,11 @@ func (a *Agent) RunWith(ctx context.Context, history []anthropic.MessageParam, m
 	// Effort is not universal: a model that does not take one rejects the
 	// request outright rather than ignoring the field.
 	if spec.Effort {
-		params.OutputConfig = anthropic.OutputConfigParam{Effort: a.Effort}
+		ef := a.Effort
+		if x.Effort != "" {
+			ef = parseEffort(x.Effort)
+		}
+		params.OutputConfig = anthropic.OutputConfigParam{Effort: ef}
 	}
 
 	defer func() {

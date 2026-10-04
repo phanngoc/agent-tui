@@ -77,6 +77,9 @@ const (
 	CmdApprove = "approve"
 	CmdChoose  = "choose"
 	CmdReload  = "reload"
+	// CmdOpen tells a terminal working in a project that a conversation in
+	// it was started or continued elsewhere, so it can list it too.
+	CmdOpen = "open"
 )
 
 // Command asks the process holding a session to do something to it.

@@ -83,3 +83,40 @@ func TestFromAgentLeavesQuestionsToTheCaller(t *testing.T) {
 		t.Fatal("verdicts do not round-trip")
 	}
 }
+
+func TestFinishedGatewayTurnsAreOfferedToTerminalsInTheProject(t *testing.T) {
+	h := NewHub()
+	here := h.Join("tui", `C:\code\x`, 1)
+	elsewhere := h.Join("tui", `C:\code\y`, 2)
+	a, b := h.Attach(here), h.Attach(elsewhere)
+	pub := func(busy bool, origin string) {
+		e := New(EvSessionUpdated, "s9", Summary{ID: "s9", Root: "c:/code/x/", Busy: busy})
+		e.Origin = origin
+		h.Publish(e)
+	}
+	pub(true, "gateway")  // mid-turn: not yet
+	pub(false, here.ID)   // a terminal's own update: never
+	pub(false, "gateway") // finished: offered
+	select {
+	case c := <-a:
+		if c.Type != CmdOpen || c.Session != "s9" {
+			t.Fatal(c)
+		}
+	default:
+		t.Fatal("the terminal in the project was not told")
+	}
+	select {
+	case c := <-a:
+		t.Fatalf("offered twice: %+v", c)
+	case c := <-b:
+		t.Fatalf("a terminal in another project was told: %+v", c)
+	default:
+	}
+	h.Hold(here.ID, []string{"s9"})
+	pub(false, "gateway")
+	select {
+	case c := <-a:
+		t.Fatalf("offered a session it already holds: %+v", c)
+	default:
+	}
+}

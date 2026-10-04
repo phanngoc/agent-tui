@@ -30,6 +30,8 @@ import (
 type Runner struct {
 	Hub *Hub
 	Cfg config.Config
+	// Learner, when set, learns from the turns run here.
+	Learner *learn.Learner
 
 	mu    sync.Mutex
 	roots map[string]*project
@@ -204,7 +206,13 @@ func (r *Runner) start(p *project, s *session.Session, prompt string) error {
 		Mode:       agent.ParseMode(s.Mode),
 		Model:      model,
 		FS:         vfs.NewLocal(s.Root),
-		Extras:     kit.Hook(s.Root, s.ID, eng.ID(), prompt),
+	}
+	hook := kit.Hook(s.Root, s.ID, eng.ID(), prompt)
+	effort := cmp.Or(config.LoadProjectSettings(s.Root).Effort, config.LoadPrefs().Effort)
+	t.Extras = func(ctx context.Context) agent.Extras {
+		x := hook(ctx)
+		x.Effort = effort // project › global; the agent's own is config.json's
+		return x
 	}
 	if setter, ok := eng.(interface{ SetFS(vfs.FS) }); ok {
 		setter.SetFS(t.FS)
@@ -256,6 +264,14 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 		case agent.EvSession:
 			s.SetExternalID(engID, e.ExternalID)
 			continue
+		case agent.EvToolDone:
+			// The result belongs on the message that made the call, as the
+			// terminal records it; the event alone would leave it blank on disk.
+			if i := s.MarkTool(e.Call); i >= 0 {
+				p.mgr.Save(s)
+				r.Hub.Publish(Event{Type: EvMessage, Session: s.ID, Root: s.Root,
+					Data: mustJSON(MessageData{Index: i, Message: s.Messages[i]})})
+			}
 		case agent.EvUsage:
 			s.InputTokens += e.In
 			s.OutputTokens += e.Out
@@ -287,7 +303,9 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 				r.Hub.Publish(*out)
 			}
 			r.publishSummary(s, false)
-			learn.Default().Notify(s.Root, s.ID, s.Messages)
+			if r.Learner != nil {
+				r.Learner.Notify(s.Root, s.ID, s.Messages)
+			}
 			continue
 		}
 		if out := FromAgent(s.ID, ev); out != nil {

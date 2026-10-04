@@ -66,13 +66,12 @@ func Alive(addr string) bool {
 	return resp.StatusCode == http.StatusOK
 }
 
-// Find returns the address of a running gateway.
+// Find returns the address of the running gateway of this data folder. It
+// does not probe the default port: a gateway there may belong to another
+// data folder, and joining it would show sessions it cannot read.
 func Find() (string, bool) {
 	if i, ok := ReadInfo(); ok && Alive(i.Addr) {
 		return i.Addr, true
-	}
-	if Alive(DefaultAddr) {
-		return DefaultAddr, true
 	}
 	return "", false
 }

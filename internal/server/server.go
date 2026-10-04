@@ -56,6 +56,7 @@ func New(cfg config.Config, version, webDir string) *Server {
 	s := &Server{Hub: hub, Cfg: cfg, Version: version, WebDir: webDir, started: time.Now().UTC(),
 		cache: map[string]cached{}}
 	s.Runner = gateway.NewRunner(hub, cfg)
+	s.Runner.Learner = learn.Default()
 	hub.Local = s.Runner
 	s.routes()
 	return s

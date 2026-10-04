@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,7 @@ func (h *Hub) Publish(e Event) Event {
 		h.ring = append([]Event(nil), h.ring[len(h.ring)-ringSize/2:]...)
 	}
 	h.apply(e)
+	h.offer(e)
 	for id, ch := range h.subs {
 		select {
 		case ch <- e:
@@ -199,6 +201,35 @@ func (h *Hub) apply(e Event) {
 		*l = Live{Session: e.Session, Owner: owner, Error: d.Error}
 		h.liveOf(e.Session, "")
 	}
+}
+
+// offer tells the terminals working in a project about a conversation the
+// gateway ran there, once its turn is over, so it shows in their lists and
+// later prompts go to them. mu is held.
+func (h *Hub) offer(e Event) {
+	if e.Type != EvSessionUpdated || e.Origin != h.ID {
+		return
+	}
+	var sum Summary
+	if json.Unmarshal(e.Data, &sum) != nil || sum.Busy || sum.Root == "" {
+		return
+	}
+	for _, p := range h.peers {
+		if p.held[sum.ID] || !samePath(p.Root, sum.Root) {
+			continue
+		}
+		select {
+		case p.cmds <- Command{Type: CmdOpen, Session: sum.ID, From: h.ID}:
+		default:
+		}
+	}
+}
+
+func samePath(a, b string) bool {
+	clean := func(s string) string {
+		return strings.TrimRight(strings.ToLower(strings.ReplaceAll(s, "\\", "/")), "/")
+	}
+	return clean(a) == clean(b)
 }
 
 // Subscribe returns the events after seq still in the ring, and a channel of
