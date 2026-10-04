@@ -4,7 +4,8 @@ import * as React from "react";
 import { ChevronRightIcon, WrenchIcon, BrainCircuitIcon, UserIcon, BotIcon, TerminalSquareIcon, XCircleIcon, ShieldAlertIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Live, Message, ToolCall } from "@/lib/types";
-import { Pre, Text } from "@/components/common";
+import { Pre } from "@/components/common";
+import { Markdown } from "@/components/markdown";
 import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 
@@ -62,7 +63,22 @@ function Thinking({ text, live }: { text: string; live?: boolean }) {
   );
 }
 
+/** Body renders a message as Markdown, or as the text it was written in. */
+function Body({ text, raw }: { text: string; raw: boolean }) {
+  if (raw) return <Pre max="max-h-[40rem]">{text}</Pre>;
+  return <Markdown text={text} />;
+}
+
+function RawToggle({ raw, setRaw }: { raw: boolean; setRaw: (r: boolean) => void }) {
+  return (
+    <button className="opacity-0 hover:text-foreground hover:underline group-hover:opacity-100" onClick={() => setRaw(!raw)}>
+      {raw ? "rendered" : "raw"}
+    </button>
+  );
+}
+
 export function MessageView({ m, index, onTrace }: { m: Message; index: number; onTrace?: (index: number) => void }) {
+  const [raw, setRaw] = React.useState(false);
   if (m.role === "user") {
     return (
       <div className="group flex gap-3" id={`m${index}`}>
@@ -74,6 +90,7 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
             <span className="font-medium text-foreground">you</span>
             <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
             <span className="opacity-0 group-hover:opacity-100">#{index}</span>
+            {!m.shell && <RawToggle raw={raw} setRaw={setRaw} />}
             {onTrace && (
               <button className="opacity-0 hover:text-foreground hover:underline group-hover:opacity-100" onClick={() => onTrace(index)}>
                 what the agent was given →
@@ -89,7 +106,7 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
             </div>
           ) : (
             <div className="rounded-xl bg-muted/60 px-3 py-2">
-              <Text text={m.text ?? ""} />
+              <Body text={m.text ?? ""} raw={raw} />
             </div>
           )}
           {m.files && m.files.length > 0 && <div className="mt-1 text-xs text-muted-foreground">attached: {m.files.map((f) => f.path).join(", ")}</div>}
@@ -107,9 +124,10 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
           <span className="font-medium text-foreground">agent</span>
           <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
           <span className="opacity-0 group-hover:opacity-100">#{index}</span>
+          {m.text && <RawToggle raw={raw} setRaw={setRaw} />}
         </div>
         {m.thinking && <Thinking text={m.thinking} />}
-        {m.text && <Text text={m.text} />}
+        {m.text && <Body text={m.text} raw={raw} />}
         {m.tools && m.tools.length > 0 && (
           <div className="space-y-1">
             {m.tools.map((t) => (
@@ -152,7 +170,7 @@ export function LiveTail({
           {live.status || "working"}
         </div>
         {live.thinking && <Thinking text={live.thinking} live />}
-        {live.partial && <Text text={live.partial} />}
+        {live.partial && <Markdown text={live.partial} />}
         {Object.values(live.running).map((c) => (
           <ToolRow key={c.id} call={c} output={live.output[c.id]} running />
         ))}

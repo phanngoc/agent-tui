@@ -211,8 +211,11 @@ func serve(cfg config.Config, args []string) error {
 	web := fs.String("web", "", "folder of a static build of the admin to serve at /")
 	_ = fs.Parse(args)
 
-	if a, ok := gateway.Find(); ok {
-		return fmt.Errorf("a gateway is already running on http://%s", a)
+	// One gateway per data folder: a second would overwrite the first's
+	// discovery file and split the terminals between them. Another folder's
+	// gateway (another XDG_DATA_HOME) is not this one's business.
+	if i, ok := gateway.ReadInfo(); ok && gateway.Alive(i.Addr) {
+		return fmt.Errorf("a gateway is already running on http://%s", i.Addr)
 	}
 	prefs := config.LoadPrefs()
 	if prefs.Model != "" {

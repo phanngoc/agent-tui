@@ -103,7 +103,10 @@ a page opened mid-turn shows the turn so far.
 which sessions it holds. A prompt, a stop or an approval sent from the web for
 one of those is routed to that terminal and handled exactly as if it had been
 typed there, so both views show the same transcript at the same moment. A
-session no terminal holds is run by the gateway itself. The desktop window
+session no terminal holds is run by the gateway itself; once its turn ends it
+is offered to every terminal open on that project, so a conversation started
+on the web appears in the terminal's list and its next prompt runs there. The
+desktop window
 runs the same binary, so it joins too. The gateway listens on loopback only
 and refuses any request whose Host is not a loopback name.
 

@@ -161,6 +161,17 @@ func (m *Model) publishResolved(s *session.Session, typ, id, verdict string, ind
 func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 	next := m.listenGateway()
 	s := m.mgr.Get(c.Session)
+	if c.Type == gateway.CmdOpen {
+		if s == nil {
+			// A conversation in this project, started or continued on the
+			// web: list it here too. Open puts it behind the one on screen.
+			if opened, _, err := m.mgr.Open(c.Session); err == nil {
+				m.notice = "from the web: " + firstLineOf(opened.Label())
+				m.invalidateChat()
+			}
+		}
+		return next
+	}
 	if s == nil {
 		return next
 	}

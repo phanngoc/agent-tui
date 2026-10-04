@@ -29,7 +29,11 @@ Zustand), gateway nối TUI với web, và cơ chế tự học theo TencentDB A
 - **Một người ghi cho mỗi session.** TUI báo cho hub danh sách session nó đang
   giữ (`Hold`). Lệnh từ web cho các session đó được chuyển về TUI và xử lý như
   khi gõ trực tiếp (prompt → `startTurn`, approve → trả lời đúng approval đang
-  chờ theo id). Session không TUI nào giữ thì gateway tự chạy.
+  chờ theo id). Session không TUI nào giữ thì gateway tự chạy; khi turn đó xong,
+  hub gửi lệnh `open` cho mọi TUI đang mở cùng project → session hiện trong
+  sidebar của TUI và prompt kế tiếp từ web sẽ chạy trong TUI.
+- **Kết quả tool** được ghi vào message bằng cùng một hàm `Session.MarkTool`
+  ở cả TUI lẫn gateway; web vá transcript ngay khi nhận `tool.done`.
 - **Realtime.** Web nghe `/api/events` (SSE, có replay theo `Last-Event-ID`);
   `/api/live` cho trạng thái turn đang chạy khi trang mở giữa chừng.
 - **Tự khởi động.** `tui` không thấy gateway (`<data>/gateway.json` hoặc

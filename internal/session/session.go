@@ -504,3 +504,35 @@ type Queued struct {
 	Text  string
 	Files []Attachment
 }
+
+// MarkTool records a finished call on the message that made it, and reports
+// which message that was (-1 if none).
+//
+// It merges rather than replaces: an engine's completion event often carries
+// only the id and the result, because the name and arguments were already sent
+// with the call. Overwriting would blank them out of the transcript.
+func (s *Session) MarkTool(call ToolCall) int {
+	for i := len(s.Messages) - 1; i >= 0; i-- {
+		for j := range s.Messages[i].Tools {
+			cur := &s.Messages[i].Tools[j]
+			if cur.ID != call.ID {
+				continue
+			}
+			if call.Name != "" {
+				cur.Name = call.Name
+			}
+			if len(call.Input) > 0 {
+				cur.Input = call.Input
+			}
+			cur.Result, cur.IsError, cur.Done = call.Result, call.IsError, call.Done
+			if call.Denied {
+				cur.Denied = true
+			}
+			if call.Elapsed > 0 {
+				cur.Elapsed = call.Elapsed
+			}
+			return i
+		}
+	}
+	return -1
+}

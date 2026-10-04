@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -143,6 +143,22 @@ function Conversation({ id }: { id: string }) {
   const summary = useGateway((s) => s.summaries[id]);
   const [traceFor, setTraceFor] = React.useState<number | null>(null);
   const [tab, setTab] = React.useState("context");
+  // The side panel can be folded away to give a long reply the width.
+  const [panel, setPanel] = React.useState(() => {
+    try {
+      return typeof window === "undefined" || localStorage.getItem("agent-tui.panel") !== "closed";
+    } catch {
+      return true;
+    }
+  });
+  const togglePanel = () => {
+    setPanel((p) => {
+      try {
+        localStorage.setItem("agent-tui.panel", p ? "closed" : "open");
+      } catch {}
+      return !p;
+    });
+  };
   const bottom = React.useRef<HTMLDivElement>(null);
 
   // Messages arrive as events; a turn's end refetches to settle on disk.
@@ -155,6 +171,19 @@ function Conversation({ id }: { id: string }) {
             if (!d) return d;
             const msgs: Message[] = [...d.session.messages];
             msgs[e.data.index] = e.data.message;
+            return { ...d, session: { ...d.session, messages: msgs } };
+          });
+        }
+        if (e.type === "tool.done") {
+          // A finished call's result belongs on the message that made it.
+          setData((d) => {
+            if (!d) return d;
+            const call = e.data.call;
+            const msgs = d.session.messages.map((m) =>
+              m.tools?.some((t) => t.id === call.id)
+                ? { ...m, tools: m.tools.map((t) => (t.id === call.id ? { ...t, ...call, name: call.name || t.name, input: call.input ?? t.input } : t)) }
+                : m,
+            );
             return { ...d, session: { ...d.session, messages: msgs } };
           });
         }
@@ -229,11 +258,14 @@ function Conversation({ id }: { id: string }) {
             <Button size="icon-sm" variant="ghost" title="Reload from disk" onClick={() => reload()}>
               <RefreshCwIcon />
             </Button>
+            <Button size="icon-sm" variant="ghost" title={panel ? "Hide the side panel" : "Show context trace, learned memories and details"} onClick={togglePanel}>
+              {panel ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
+            </Button>
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-          <div className="mx-auto max-w-3xl space-y-5">
+          <div className={cn("mx-auto space-y-5", panel ? "max-w-3xl" : "max-w-5xl")}>
             {s.messages.map((m, i) => (
               <MessageView
                 key={i}
@@ -242,6 +274,7 @@ function Conversation({ id }: { id: string }) {
                 onTrace={(idx) => {
                   setTraceFor(idx);
                   setTab("context");
+                  if (!panel) togglePanel();
                 }}
               />
             ))}
@@ -253,7 +286,7 @@ function Conversation({ id }: { id: string }) {
         <Composer busy={busy} owner={owner} target={s.target} onSend={send} />
       </div>
 
-      <aside className="flex w-[26rem] shrink-0 flex-col border-l">
+      <aside className={cn("w-[26rem] shrink-0 flex-col border-l", panel ? "flex" : "hidden")}>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="flex min-h-0 flex-1 flex-col gap-0">
           <div className="border-b px-3 py-2">
             <TabsList>
