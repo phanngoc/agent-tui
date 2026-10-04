@@ -245,34 +245,67 @@ func (d *mdDoc) table(lines []string, i int) int {
 	used = min(used, d.w)
 
 	d.blank()
-	d.push(d.row(rows[0], w, align))
+	for _, l := range d.row(rows[0], w, align) {
+		d.push(l)
+	}
 	d.push(d.st.MdRule.Render(strings.Repeat("─", used)))
 	for _, r := range rows[1:] {
-		d.push(d.row(r, w, align))
+		for _, l := range d.row(r, w, align) {
+			d.push(l)
+		}
 	}
 	d.blank()
 	return j
 }
 
-func (d *mdDoc) row(cells []string, w, align []int) string {
-	var b strings.Builder
+// row lays a table row out over as many lines as its tallest cell needs.
+//
+// A cell that did not fit its column used to be cut with an ellipsis, and the
+// cut was usually the part worth reading: a summary column is the widest one,
+// so it is the one the pane takes room from, and its sentences lost their
+// ends. A cell now wraps within its column, and the row grows downwards —
+// a table is read across, and a taller row is still read across.
+func (d *mdDoc) row(cells []string, w, align []int) []string {
+	wrapped := make([][]string, len(w))
+	height := 1
 	for c := range w {
-		if c > 0 {
-			b.WriteString("  ")
-		}
-		b.WriteString(d.pad(cells[c], w[c], align[c]))
+		wrapped[c] = d.wrapCell(cells[c], w[c])
+		height = max(height, len(wrapped[c]))
 	}
-	return strings.TrimRight(b.String(), " ")
+	out := make([]string, height)
+	for k := range height {
+		var b strings.Builder
+		for c := range w {
+			if c > 0 {
+				b.WriteString("  ")
+			}
+			part := ""
+			if k < len(wrapped[c]) {
+				part = wrapped[c][k]
+			}
+			b.WriteString(d.pad(part, w[c], align[c]))
+		}
+		out[k] = strings.TrimRight(b.String(), " ")
+	}
+	return out
 }
 
-// pad fits one cell into its column, padding on the side the alignment asks
-// for and eliding what does not fit.
+// wrapCell breaks a styled cell into lines no wider than its column, at
+// spaces where it can and through a word only where one is wider than the
+// column on its own — a URL or a path.
+func (d *mdDoc) wrapCell(s string, w int) []string {
+	if lipgloss.Width(s) <= w {
+		return []string{s}
+	}
+	return strings.Split(lipgloss.Wrap(s, max(1, w), ""), "\n")
+}
+
+// pad fits one cell's line into its column, padding on the side the alignment
+// asks for. A line is wrapped to fit before it gets here; the cut is for the
+// column too narrow for even one character of it.
 func (d *mdDoc) pad(s string, w, align int) string {
 	if lipgloss.Width(s) > w {
-		if w <= 1 {
-			return d.st.Faint.Render("…")
-		}
-		return clipLine(s, w-1) + d.st.Faint.Render("…")
+		return clipLine(s, w)
 	}
 	gap := w - lipgloss.Width(s)
 	switch align {

@@ -180,7 +180,9 @@ shows every call in every turn, and again puts them back.
 
 An answer is markdown, and a terminal has no renderer for it, so the transcript
 renders it rather than printing it. Headings become coloured rules, tables
-become aligned columns with the header underlined, fenced code becomes an
+become aligned columns with the header underlined — a cell too long for its
+column wraps within it and the row grows downwards, rather than being cut with
+an ellipsis at the part worth reading — fenced code becomes an
 indented block through the same highlighter the preview pane uses, and
 emphasis, links, quotes and lists become the terminal's own equivalents. Half a
 document renders too — the streaming tail is re-rendered on every delta, so an
