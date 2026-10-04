@@ -229,6 +229,12 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 			m.input.ClearSelection()
 			return cmd
 		}
+		// Something typed is cleared before anything is stopped or quit:
+		// a long prompt used to go with the program. It comes back with
+		// ctrl+z, and the next ctrl+c does what this one used to.
+		if m.focus == focusInput && m.overlay == overlayNone && m.clearPrompt() {
+			return nil
+		}
 		if m.mgr.Active().Busy {
 			m.cancelRun()
 			return nil
@@ -349,6 +355,12 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 	case "alt+t":
 		return m.forkSession(m.mgr.Active())
 	case "ctrl+w":
+		// In a prompt with something in it, ctrl+w is the shell's: delete
+		// the word before the caret. Closing the session on a habit, half
+		// way through a sentence, is the alternative.
+		if m.focus == focusInput && m.overlay == overlayNone && m.input.Value() != "" {
+			return m.inputKey(k)
+		}
 		return m.closeSession(m.mgr.ActiveIndex())
 	case "ctrl+pgdown", "alt+down":
 		// The history browser uses these to move the file summary's window, and
@@ -471,6 +483,13 @@ func (m *Model) onKey(k tea.KeyPressMsg) tea.Cmd {
 }
 
 func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
+	// Ctrl+Backspace reaches a program on Windows as ctrl+h — Windows
+	// Terminal and the pseudo-console both send the one byte for it — and the
+	// textarea reads ctrl+h as a single backspace, the emacs way. Deleting a
+	// word is what the key says on the keycap, so that is what it does.
+	if k.String() == "ctrl+h" {
+		k = tea.KeyPressMsg{Code: tea.KeyBackspace, Mod: tea.ModCtrl}
+	}
 	key := k.String()
 
 	// The completion menu takes the keys that drive it, and any other key
@@ -513,12 +532,33 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		}
 	}
 
+	// Deleting is undoable: each deletion takes a snapshot first.
+	switch {
+	case key == "ctrl+z":
+		if !m.undoPrompt() {
+			m.notice = "nothing to undo in the prompt"
+		}
+		return nil
+	case key == "ctrl+y":
+		m.redoPrompt()
+		return nil
+	case wordKill(key):
+		m.snapPrompt("word")
+	case (key == "backspace" || key == "delete") && m.input.HasSelection():
+		m.snapPrompt("")
+	default:
+		m.promptRun = ""
+	}
+
 	switch key {
 	case "enter":
 		text := strings.TrimSpace(m.input.Value())
 		if text == "" {
 			return nil
 		}
+		// What was deleted from a prompt that has gone is not worth getting
+		// back into the next one.
+		m.forgetPromptEdits()
 		// Commands are acted on rather than sent to the agent: they are
 		// requests to move this session, not questions for it.
 		if name, arg, ok := parseSlash(text); ok {
@@ -555,12 +595,11 @@ func (m *Model) inputKey(k tea.KeyPressMsg) tea.Cmd {
 		m.input.Reset()
 		m.toBottom()
 		return m.send(text)
-	case "alt+enter", "ctrl+j":
+	case "alt+enter", "ctrl+j", "shift+enter":
 		m.input.InsertString("\n")
 		return nil
 	case "ctrl+u":
-		m.input.Reset()
-		m.dropAttachments()
+		m.clearPrompt()
 		return nil
 	case "ctrl+v":
 		// A terminal does not deliver an image paste, so this reads the

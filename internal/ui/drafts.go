@@ -58,6 +58,7 @@ func (m *Model) syncPrompt() {
 	m.inputDrag = false
 	m.closeCompletion()
 	m.histIdx, m.histDraft = len(m.history), ""
+	m.forgetPromptEdits()
 	m.promptOf = s.ID
 	m.input.Placeholder = promptHint
 	if s.SideOf != "" {
