@@ -74,6 +74,14 @@ most of it the Direct3D driver's, and about 15 MB of Go heap.
   follows the cursor the core draws.
 - **Keys and mouse:** encoded by the emulator according to the modes the core
   set: SGR mouse, application cursor keys, bracketed paste.
+  - Named keys held with `Ctrl` or `Shift` are encoded here, because the
+    emulator writes nothing for them: xterm's `CSI 1;mod X` / `CSI n;mod ~`
+    for arrows, Home/End, Delete, PgUp/PgDn and F-keys, so word movement,
+    `Ctrl+Delete` and selecting in the prompt work. `Ctrl+Backspace` goes in
+    win32-input-mode and arrives as `ctrl+h` (as from Windows Terminal; the
+    byte 0x08 brought a stray `ctrl+space`), and `Shift`/`Ctrl+Enter` as
+    `Alt+Enter`, the newline, since the pseudo-console drops those modifiers.
+    All of this was measured with a probe in a pseudo-console, not assumed.
   - `Ctrl+V` pastes text, or passes `Ctrl+V` through so the core can attach a
     picture.
   - Right click pastes.

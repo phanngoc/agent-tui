@@ -316,3 +316,38 @@ func TestNotchEventsFollowWindowsSettings(t *testing.T) {
 		t.Errorf("wheelLines = %d", n)
 	}
 }
+
+// TestModifiedKeysReachTheCore: the emulator wrote nothing for a named key
+// held with Ctrl or Shift, so deleting and moving by word, and selecting in
+// the prompt, did nothing in the window. The sequences are the ones a probe in
+// a pseudo-console showed arriving as the right keys.
+func TestModifiedKeysReachTheCore(t *testing.T) {
+	cases := []struct {
+		k    uv.KeyPressEvent
+		want string
+	}{
+		{uv.KeyPressEvent{Code: uv.KeyDelete, Mod: uv.ModCtrl}, "\x1b[3;5~"},
+		{uv.KeyPressEvent{Code: uv.KeyLeft, Mod: uv.ModCtrl}, "\x1b[1;5D"},
+		{uv.KeyPressEvent{Code: uv.KeyRight, Mod: uv.ModShift}, "\x1b[1;2C"},
+		{uv.KeyPressEvent{Code: uv.KeyHome, Mod: uv.ModCtrl | uv.ModShift}, "\x1b[1;6H"},
+		{uv.KeyPressEvent{Code: uv.KeyPgDown, Mod: uv.ModCtrl}, "\x1b[6;5~"},
+		{uv.KeyPressEvent{Code: uv.KeyF5, Mod: uv.ModShift}, "\x1b[15;2~"},
+		{uv.KeyPressEvent{Code: uv.KeyBackspace, Mod: uv.ModCtrl}, "\x1b[8;14;8;1;8;1_"},
+		{uv.KeyPressEvent{Code: uv.KeyBackspace, Mod: uv.ModShift}, "\x7f"},
+		{uv.KeyPressEvent{Code: uv.KeyEnter, Mod: uv.ModShift}, "\x1b\r"},
+	}
+	for _, c := range cases {
+		got, ok := modifiedKey(c.k)
+		if !ok || got != c.want {
+			t.Errorf("%v: got %q ok=%v, want %q", c.k, got, ok, c.want)
+		}
+	}
+	// Plain keys and Alt alone are the emulator's to encode.
+	for _, k := range []uv.KeyPressEvent{
+		{Code: uv.KeyDelete}, {Code: uv.KeyUp, Mod: uv.ModAlt}, {Code: 'a', Mod: uv.ModCtrl},
+	} {
+		if got, ok := modifiedKey(k); ok {
+			t.Errorf("%v was encoded here as %q", k, got)
+		}
+	}
+}

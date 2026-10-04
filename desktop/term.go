@@ -76,7 +76,11 @@ func (t *Term) Resize(cols, rows int) bool {
 // Key, Mouse and Paste encode input under the lock, for the reason above.
 func (t *Term) Key(k uv.KeyPressEvent) {
 	t.mu.Lock()
-	t.emu.SendKey(k)
+	if seq, ok := modifiedKey(k); ok {
+		t.emu.SendText(seq)
+	} else {
+		t.emu.SendKey(k)
+	}
 	t.mu.Unlock()
 }
 
