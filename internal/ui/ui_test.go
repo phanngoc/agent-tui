@@ -83,7 +83,7 @@ func mustWrite(t *testing.T, p, body string) {
 var namedKeys = map[string]rune{
 	"enter": tea.KeyEnter, "esc": tea.KeyEscape, "tab": tea.KeyTab,
 	"up": tea.KeyUp, "down": tea.KeyDown, "left": tea.KeyLeft, "right": tea.KeyRight,
-	"space": tea.KeySpace, "backspace": tea.KeyBackspace,
+	"space": tea.KeySpace, "backspace": tea.KeyBackspace, "delete": tea.KeyDelete,
 	"home": tea.KeyHome, "end": tea.KeyEnd, "f1": tea.KeyF1, "f2": tea.KeyF2,
 }
 

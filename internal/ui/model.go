@@ -293,6 +293,10 @@ type Model struct {
 	histIdx   int    // len(history) means "not recalling"
 	histDraft string // what was typed before recall started
 
+	// The prompt's own undo, for deletions (promptedit.go).
+	promptUndo, promptRedo []promptSnap
+	promptRun              string // the kind of deletion the last snapshot began
+
 	// Engine picker.
 	engineSel  int
 	modelSel   int

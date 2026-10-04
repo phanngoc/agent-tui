@@ -619,6 +619,11 @@ func (m *Model) hintFor(f focus) string {
 	case focusSessions:
 		return "sessions · enter open · n new · f fork · d delete · u undo · space mark · x close"
 	default:
+		// With something typed, the ways to take it back out are what is
+		// worth knowing; with nothing, the ways to start.
+		if m.input.Value() != "" {
+			return "enter send · ctrl+⌫ delete word · ctrl+u clear · ctrl+z undo · shift+enter newline"
+		}
 		return "enter send · /help for commands · tab complete · ↑↓ history · ctrl+o next pane"
 	}
 }

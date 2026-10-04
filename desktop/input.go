@@ -1,6 +1,7 @@
 package main
 
 import (
+	"strconv"
 	"strings"
 	"unicode/utf8"
 
@@ -161,4 +162,110 @@ func mouseButton(b pointer.Buttons) vt.MouseButton {
 		return vt.MouseMiddle
 	}
 	return vt.MouseNone
+}
+
+// modifiedKey encodes a named key held with Ctrl or Shift, which the
+// emulator does not: it matches keys exactly, has a case for Shift+Tab and
+// none for the rest, and writes nothing for a key it has no case for. So
+// Ctrl+Backspace, Ctrl+Delete, Ctrl+arrows and Shift+arrows — deleting and
+// moving by word, selecting in the prompt — reached the core as nothing.
+//
+// They are written the way xterm writes them: CSI with a modifier parameter,
+// 1 plus 1 for Shift, 2 for Alt and 4 for Ctrl. The pseudo-console reads
+// those and hands the core the key with its modifiers.
+//
+// Backspace and Enter have no such form, and what does reach the core was
+// measured rather than assumed — a probe in a pseudo-console, reading keys
+// the way the core does:
+//
+//   - Ctrl+Backspace arrives as ctrl+h whatever is sent, which is also what
+//     Windows Terminal delivers, and what the core reads as deleting a word.
+//     Sent as the byte 0x08 it brings a stray ctrl+space along; sent in the
+//     console's own encoding (win32-input-mode) it arrives alone.
+//   - Shift or Ctrl on Enter does not survive at all: the core sees enter,
+//     and sends. So they go as Alt+Enter, the newline the core already knows.
+func modifiedKey(k uv.KeyPressEvent) (string, bool) {
+	if k.Mod&(uv.ModCtrl|uv.ModShift) == 0 {
+		return "", false // plain, or Alt alone: the emulator's ESC prefix is right
+	}
+	mod := 1
+	if k.Mod&uv.ModShift != 0 {
+		mod++
+	}
+	if k.Mod&uv.ModAlt != 0 {
+		mod += 2
+	}
+	if k.Mod&uv.ModCtrl != 0 {
+		mod += 4
+	}
+	m := strconv.Itoa(mod)
+	switch k.Code {
+	case uv.KeyUp:
+		return "\x1b[1;" + m + "A", true
+	case uv.KeyDown:
+		return "\x1b[1;" + m + "B", true
+	case uv.KeyRight:
+		return "\x1b[1;" + m + "C", true
+	case uv.KeyLeft:
+		return "\x1b[1;" + m + "D", true
+	case uv.KeyHome:
+		return "\x1b[1;" + m + "H", true
+	case uv.KeyEnd:
+		return "\x1b[1;" + m + "F", true
+	case uv.KeyInsert:
+		return "\x1b[2;" + m + "~", true
+	case uv.KeyDelete:
+		return "\x1b[3;" + m + "~", true
+	case uv.KeyPgUp:
+		return "\x1b[5;" + m + "~", true
+	case uv.KeyPgDown:
+		return "\x1b[6;" + m + "~", true
+	case uv.KeyF1:
+		return "\x1b[1;" + m + "P", true
+	case uv.KeyF2:
+		return "\x1b[1;" + m + "Q", true
+	case uv.KeyF3:
+		return "\x1b[1;" + m + "R", true
+	case uv.KeyF4:
+		return "\x1b[1;" + m + "S", true
+	case uv.KeyBackspace:
+		if k.Mod&uv.ModCtrl == 0 {
+			return "\x7f", true // Shift+Backspace is a backspace
+		}
+		return win32Key(0x08, 0x0e, 0x08, k.Mod), true
+	case uv.KeyEnter:
+		return "\x1b\r", true
+	}
+	if n, ok := fnTilde[k.Code]; ok {
+		return "\x1b[" + strconv.Itoa(n) + ";" + m + "~", true
+	}
+	return "", false
+}
+
+// fnTilde are the function keys xterm writes as CSI n ~.
+var fnTilde = map[rune]int{
+	uv.KeyF5: 15, uv.KeyF6: 17, uv.KeyF7: 18, uv.KeyF8: 19,
+	uv.KeyF9: 20, uv.KeyF10: 21, uv.KeyF12: 24,
+}
+
+// win32Key is one key press in win32-input-mode: virtual key, scan code,
+// character, down, control-key state, repeat count.
+func win32Key(vk, scan, char int, mods uv.KeyMod) string {
+	const (
+		leftAlt  = 0x0002
+		leftCtrl = 0x0008
+		shift    = 0x0010
+	)
+	state := 0
+	if mods&uv.ModAlt != 0 {
+		state |= leftAlt
+	}
+	if mods&uv.ModCtrl != 0 {
+		state |= leftCtrl
+	}
+	if mods&uv.ModShift != 0 {
+		state |= shift
+	}
+	return "\x1b[" + strconv.Itoa(vk) + ";" + strconv.Itoa(scan) + ";" + strconv.Itoa(char) +
+		";1;" + strconv.Itoa(state) + ";1_"
 }

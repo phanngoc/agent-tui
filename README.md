@@ -895,6 +895,20 @@ the same as everywhere else. The drag is the keyboard's own selection driven by
 how far the pointer moved, because the textarea offers no way to begin one at a
 point — one selection with one set of rules, however it was begun.
 
+**Deleting in the prompt**, with the keys already in people's fingers:
+`ctrl+backspace` the word before the caret and `ctrl+delete` the word after
+(every Windows and Linux text field; `alt` on a Mac), `ctrl+w` and `alt+d` as in
+a shell, `ctrl+u` the whole prompt with anything attached, and select-all
+(`ctrl+g`) then backspace. `ctrl+w` used to close the session even mid-sentence;
+in a prompt with text it now deletes a word, and only an empty prompt closes.
+`ctrl+c` with something typed clears it, as in Claude Code, where it used to quit
+with the prompt; the next `ctrl+c` quits. All of it is undoable the way an
+editor is rather than a shell: each deletion takes a snapshot, a run of word
+deletions is one step, `ctrl+z` goes back and `ctrl+y` forward, and sending
+forgets them. On Windows `ctrl+backspace` arrives as `ctrl+h` — Windows
+Terminal and the pseudo-console both send one byte for it — so in the prompt
+`ctrl+h` deletes a word too. `shift+enter` is a newline beside `alt+enter`.
+
 **Pasting** lands wherever typing would have — the prompt, a search box, an
 open buffer — which it did not before: every text field here is a component,
 and a paste that is not routed to one disappears without a word.
