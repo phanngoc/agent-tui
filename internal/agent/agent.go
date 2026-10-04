@@ -147,6 +147,46 @@ type Turn struct {
 	FS vfs.FS
 	// Files are what the user attached to this prompt.
 	Files []session.Attachment
+	// Extras, when set, supplies what the project adds to this turn: memory,
+	// skills, standing instructions, MCP servers. It is a function so the
+	// work — recalling memory, connecting to servers — happens on the
+	// engine's goroutine, never on the caller's.
+	Extras func(ctx context.Context) Extras
+	// System is Extras' system text, filled in by an engine that resolved
+	// them, for the argv builders of the CLIs.
+	System string
+	// MCPServers is Extras' servers in Claude Code's --mcp-config shape.
+	MCPServers map[string]any
+}
+
+// Extras is what a project adds to a turn beyond the transcript.
+type Extras struct {
+	// System is appended to the system prompt.
+	System string
+	// Tools are offered alongside the built-in ones.
+	Tools []Extension
+	// MCPServers is for an engine that runs MCP servers itself.
+	MCPServers map[string]any
+}
+
+// Extension is a tool defined outside the executor: a skill loader, the
+// memory, a tool of an MCP server.
+type Extension struct {
+	Def  anthropic.ToolUnionParam
+	Name string
+	// Mutating tools are confirmed in ask mode and left out of plan mode.
+	Mutating bool
+	Run      func(ctx context.Context, input json.RawMessage) (string, bool)
+}
+
+// Resolve calls Extras when there is one.
+func (t *Turn) Resolve(ctx context.Context) Extras {
+	if t.Extras == nil {
+		return Extras{}
+	}
+	x := t.Extras(ctx)
+	t.System, t.MCPServers = x.System, x.MCPServers
+	return x
 }
 
 // PromptText is the prompt as an engine that can only be handed text should see
@@ -350,6 +390,11 @@ func Replay(msgs []session.Message) []anthropic.MessageParam {
 // updated history comes back on EvDone, so the caller can store it from its own
 // goroutine and nothing is shared across the boundary.
 func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode Mode, model string, out chan<- Event) {
+	a.RunWith(ctx, history, mode, model, Extras{}, out)
+}
+
+// RunWith is Run with a project's extras: more system text, more tools.
+func (a *Agent) RunWith(ctx context.Context, history []anthropic.MessageParam, mode Mode, model string, x Extras, out chan<- Event) {
 	defer close(out)
 
 	// Trust granted at an approval prompt lasts for this run and no longer.
@@ -376,6 +421,19 @@ func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode 
 		Tools:    a.exec.Defs(mode),
 		Thinking: thinkingFor(spec, a.MaxTokens),
 		Messages: history,
+	}
+	// The project's part comes after the cached block: it changes from turn
+	// to turn (recalled memories) and would otherwise void the cache.
+	if strings.TrimSpace(x.System) != "" {
+		params.System = append(params.System, anthropic.TextBlockParam{Text: x.System})
+	}
+	ext := map[string]Extension{}
+	for _, e := range x.Tools {
+		if e.Mutating && !mode.Writes() {
+			continue
+		}
+		ext[e.Name] = e
+		params.Tools = append(params.Tools, e.Def)
 	}
 	// Effort is not universal: a model that does not take one rejects the
 	// request outright rather than ignoring the field.
@@ -447,7 +505,7 @@ func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode 
 
 		results := make([]anthropic.ContentBlockParamUnion, 0, len(pending))
 		for _, call := range pending {
-			done := a.runTool(ctx, call, mode, &trusted, send)
+			done := a.runTool(ctx, call, mode, &trusted, ext, send)
 			results = append(results, anthropic.NewToolResultBlock(done.ID, done.Result, done.IsError))
 		}
 		params.Messages = append(params.Messages, anthropic.NewUserMessage(results...))
@@ -461,12 +519,16 @@ func (a *Agent) Run(ctx context.Context, history []anthropic.MessageParam, mode 
 
 // runTool asks for approval when needed, executes, and reports both ends.
 func (a *Agent) runTool(ctx context.Context, call session.ToolCall, mode Mode,
-	trusted *bool, send func(Event) bool) session.ToolCall {
+	trusted *bool, ext map[string]Extension, send func(Event) bool) session.ToolCall {
 
 	if call.Name == askUserTool {
 		return a.askUser(ctx, call, send)
 	}
+	e, isExt := ext[call.Name]
 	ask, reason := a.exec.ShouldAsk(call, mode, *trusted)
+	if isExt {
+		ask, reason = e.Mutating && mode == ModeAsk && !*trusted, "ask mode confirms every MCP call"
+	}
 	if ask {
 		reply := make(chan Verdict, 1)
 		if !send(EvApproval{Call: call, Reason: reason, Reply: reply}) {
@@ -498,9 +560,17 @@ func (a *Agent) runTool(ctx context.Context, call session.ToolCall, mode Mode,
 	// The sink is how a command's output reaches the transcript while it still
 	// has somewhere to go. Only bash writes to it; every other tool answers in
 	// one piece and has nothing to stream.
-	res, isErr := a.exec.Run(ctx, call.Name, call.Input, func(chunk string) {
-		send(EvToolOutput{ID: call.ID, Text: chunk})
-	})
+	var (
+		res   string
+		isErr bool
+	)
+	if isExt {
+		res, isErr = e.Run(ctx, call.Input)
+	} else {
+		res, isErr = a.exec.Run(ctx, call.Name, call.Input, func(chunk string) {
+			send(EvToolOutput{ID: call.ID, Text: chunk})
+		})
+	}
 	call.Result, call.IsError = res, isErr
 	call.Elapsed = time.Since(start)
 	call.Done = true

@@ -113,17 +113,19 @@ func (b *broker) serve(conn net.Conn, ask func(session.ToolCall) bool) {
 
 // MCPConfig is the --mcp-config payload that points the CLI at this broker.
 func (b *broker) MCPConfig() string {
-	self := b.self
 	cfg := map[string]any{
-		"mcpServers": map[string]any{
-			brokerServerName: map[string]any{
-				"command": self,
-				"args":    []string{"--permission-broker", b.path},
-			},
-		},
+		"mcpServers": map[string]any{brokerServerName: b.server()},
 	}
 	out, _ := json.Marshal(cfg)
 	return string(out)
+}
+
+// server is the broker's own entry in an MCP server list.
+func (b *broker) server() map[string]any {
+	return map[string]any{
+		"command": b.self,
+		"args":    []string{"--permission-broker", b.path},
+	}
 }
 
 // ToolRef is the fully qualified MCP tool name the CLI should call.

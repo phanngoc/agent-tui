@@ -11,6 +11,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 
 	"github.com/phanngoc/agent-tui/internal/agent"
+	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/search"
 	"github.com/phanngoc/agent-tui/internal/session"
 	"github.com/phanngoc/agent-tui/internal/task"
@@ -41,6 +42,12 @@ func (m *Model) defer_(cmd tea.Cmd) {
 
 func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
+
+	case gwCmdMsg:
+		return m, m.onGatewayCommand(msg.cmd)
+
+	case gwTickMsg:
+		return m, m.onGatewayTick()
 
 	case tea.WindowSizeMsg:
 		m.resize(msg.Width, msg.Height)
@@ -1026,6 +1033,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 	// Anything at all from the engine is a sign of life. A long gap between
 	// two of them is what a stall looks like, and the activity line says so.
 	s.HeardAt = time.Now()
+	m.publishAgent(s, msg.ev)
 
 	switch e := msg.ev.(type) {
 	case agent.EvStatus:
@@ -1200,6 +1208,7 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 			}
 		}
 		m.mgr.Save(s)
+		m.afterTurn(s)
 		m.invalidateChat()
 		// Whatever the turn ran, the files may not be the ones the index
 		// last saw. Saying so costs nothing; the walk waits for a reader.
@@ -1220,7 +1229,9 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 // a time; a request from a background session pulls that session to the front,
 // since its agent is blocked until the user answers.
 func (m *Model) queueApproval(s *session.Session, ev agent.EvApproval) {
-	m.approvals = append(m.approvals, pendingApproval{sess: s, ev: ev})
+	p := pendingApproval{sess: s, ev: ev, id: gwID()}
+	m.approvals = append(m.approvals, p)
+	m.publishApproval(s, p)
 	if m.overlay == overlayApproval {
 		return
 	}
@@ -1230,7 +1241,9 @@ func (m *Model) queueApproval(s *session.Session, ev agent.EvApproval) {
 // queueChoice parks a question from the agent. Like an approval it is modal,
 // and it pulls its session to the front because that agent is waiting.
 func (m *Model) queueChoice(s *session.Session, ev agent.EvChoice) {
-	m.choices = append(m.choices, pendingChoice{sess: s, ev: ev})
+	p := pendingChoice{sess: s, ev: ev, id: gwID()}
+	m.choices = append(m.choices, p)
+	m.publishChoice(s, p)
 	if m.overlay == overlayChoice {
 		return
 	}
@@ -1268,6 +1281,7 @@ func (m *Model) choiceKey(key string) tea.Cmd {
 		head := m.choices[0]
 		m.choices = m.choices[1:]
 		replyChoice(head.ev.Reply, pick)
+		m.publishResolved(head.sess, gateway.EvChoiceDone, head.id, "", pick, "tui")
 		m.showNextChoice()
 	}
 
@@ -1353,6 +1367,7 @@ func (m *Model) approvalKey(key string) tea.Cmd {
 		head := m.approvals[0]
 		m.approvals = m.approvals[1:]
 		replyOnce(head.ev.Reply, v)
+		m.publishResolved(head.sess, gateway.EvApprovalDone, head.id, gateway.VerdictName(v), 0, "tui")
 		m.showNextApproval()
 	}
 	switch key {

@@ -4,13 +4,16 @@
 package main
 
 import (
+	"context"
 	"errors"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"runtime/debug"
 	"strings"
+	"syscall"
 
 	tea "charm.land/bubbletea/v2"
 	"github.com/charmbracelet/x/term"
@@ -19,8 +22,12 @@ import (
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/engine"
 	"github.com/phanngoc/agent-tui/internal/fsx"
+	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/highlight"
+	"github.com/phanngoc/agent-tui/internal/kit"
+	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/preview"
+	"github.com/phanngoc/agent-tui/internal/server"
 	"github.com/phanngoc/agent-tui/internal/session"
 	"github.com/phanngoc/agent-tui/internal/task"
 	"github.com/phanngoc/agent-tui/internal/theme"
@@ -37,6 +44,20 @@ func main() {
 
 func run() error {
 	cfg := config.Load()
+
+	// `agent-tui serve` is the gateway: the web admin's server, and the hub
+	// every terminal app connects to.
+	if len(os.Args) > 1 && os.Args[1] == "serve" {
+		return serve(cfg, os.Args[2:])
+	}
+	// `agent-tui kit-mcp -root R` serves a project's skill and memory tools
+	// over MCP on stdio, for an engine that runs as a separate CLI.
+	if len(os.Args) > 1 && os.Args[1] == "kit-mcp" {
+		fs := flag.NewFlagSet("kit-mcp", flag.ExitOnError)
+		root := fs.String("root", "", "project root")
+		_ = fs.Parse(os.Args[2:])
+		return kit.ServeMCP(context.Background(), *root, os.Stdin, os.Stdout)
+	}
 
 	var (
 		root        = flag.String("C", ".", "project root directory")
@@ -78,12 +99,22 @@ func run() error {
 	// The settings page outranks config.json, and a flag outranks both: the
 	// file is the default you wrote once, the page is what you chose since,
 	// and a flag is what you asked for this time.
-	if !flagSet("model") && prefs.Model != "" {
-		*model = prefs.Model
+	// A project's own settings (.agent-tui/settings.json, written by the web
+	// admin) sit between the two: more specific than the page, less than a flag.
+	proj := config.LoadProjectSettings(abs)
+	pick := func(name string, flagVal *string, project, global string) {
+		if flagSet(name) {
+			return
+		}
+		if project != "" {
+			*flagVal = project
+		} else if global != "" {
+			*flagVal = global
+		}
 	}
-	if !flagSet("mode") && prefs.Mode != "" {
-		*modeFlag = prefs.Mode
-	}
+	pick("model", model, proj.Model, prefs.Model)
+	pick("mode", modeFlag, proj.Mode, prefs.Mode)
+	pick("effort", effort, proj.Effort, prefs.Effort)
 	if prefs.Theme != "" {
 		cfg.Theme = prefs.Theme
 	}
@@ -130,8 +161,13 @@ func run() error {
 	// An engine chosen on the settings page that this machine cannot run now
 	// is passed over rather than refused: unlike a flag, nobody asked for it
 	// today, and failing to start over it would be the wrong way round.
-	if !flagSet("engine") && prefs.Engine != "" && reg.Has(prefs.Engine) {
-		*engineID = prefs.Engine
+	if !flagSet("engine") {
+		for _, want := range []string{proj.Engine, prefs.Engine} {
+			if want != "" && reg.Has(want) {
+				*engineID = want
+				break
+			}
+		}
 	}
 	if *engineID != "" {
 		if !reg.Has(*engineID) {
@@ -146,6 +182,13 @@ func run() error {
 	}
 
 	m := ui.New(cfg, styles, idx, loader, mgr, reg, tasks)
+	// Join the gateway, starting one if there is none, so the web admin sees
+	// this terminal's sessions live and can drive them.
+	gw := gateway.Join("tui", abs, prefs.GatewayAutostart == nil || *prefs.GatewayAutostart)
+	defer gw.Close()
+	m.SetGateway(gw)
+	m.SetLearner(learn.Default())
+	m.UseKit()
 	if startNote != "" {
 		m.Notice(startNote)
 	}
@@ -159,6 +202,57 @@ func run() error {
 	mgr.Shutdown()
 	config.RememberRoot(abs)
 	return err
+}
+
+// serve runs the gateway until interrupted.
+func serve(cfg config.Config, args []string) error {
+	fs := flag.NewFlagSet("serve", flag.ExitOnError)
+	addr := fs.String("addr", gateway.DefaultAddr, "address to listen on (loopback only)")
+	web := fs.String("web", "", "folder of a static build of the admin to serve at /")
+	_ = fs.Parse(args)
+
+	if a, ok := gateway.Find(); ok {
+		return fmt.Errorf("a gateway is already running on http://%s", a)
+	}
+	prefs := config.LoadPrefs()
+	if prefs.Model != "" {
+		cfg.Model = prefs.Model
+	}
+	if prefs.Mode != "" {
+		cfg.Mode = prefs.Mode
+	}
+	if prefs.Effort != "" {
+		cfg.Effort = prefs.Effort
+	}
+	if *web == "" {
+		// A build next to the binary, or in the repository it came from.
+		for _, cand := range webCandidates() {
+			if st, err := os.Stat(filepath.Join(cand, "index.html")); err == nil && !st.IsDir() {
+				*web = cand
+				break
+			}
+		}
+	}
+	srv := server.New(cfg, version(), *web)
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
+	go func() {
+		<-sig
+		srv.Shutdown()
+		os.Exit(0)
+	}()
+	return srv.ListenAndServe(*addr)
+}
+
+func webCandidates() []string {
+	var out []string
+	if exe, err := os.Executable(); err == nil {
+		out = append(out, filepath.Join(filepath.Dir(exe), "admin"))
+	}
+	if wd, err := os.Getwd(); err == nil {
+		out = append(out, filepath.Join(wd, "web", "admin", "out"))
+	}
+	return out
 }
 
 // flagSet reports whether a flag was given on the command line, as opposed to

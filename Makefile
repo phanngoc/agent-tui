@@ -9,7 +9,7 @@ PKG     := ./cmd/agent-tui
 GOFLAGS := -trimpath
 LDFLAGS := -s -w
 
-.PHONY: all build run test race bench lint fmt tidy install clean
+.PHONY: all build run test race bench lint fmt tidy install clean web web-dev serve
 
 all: build
 
@@ -48,3 +48,15 @@ install:
 
 clean:
 	rm -rf bin
+
+## the web admin: a static export the gateway serves (web/admin/out)
+web:
+	cd web/admin && npm install --no-audit --no-fund && npm run build
+
+## the admin with hot reload on :3000, talking to a gateway on :7788
+web-dev:
+	cd web/admin && npm run dev
+
+## the gateway: admin API, event stream, and the hub terminals join
+serve: build
+	./$(BIN) serve

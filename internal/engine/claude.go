@@ -33,6 +33,28 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		// words are what tell you where a long turn is.
 		"--settings", `{"showThinkingSummaries":true}`,
 	}
+	if sys := t.System; sys != "" {
+		// A Windows command line holds 32767 characters in all; the
+		// project's context is cut well short of that rather than losing the
+		// whole turn to "the filename or extension is too long".
+		if len(sys) > 16000 {
+			sys = sys[:16000] + "\n…"
+		}
+		a = append(a, "--append-system-prompt", sys)
+	}
+	servers := map[string]any{}
+	for k, v := range t.MCPServers {
+		servers[k] = v
+	}
+	if br != nil && t.Mode != agent.ModePlan {
+		servers[brokerServerName] = br.server()
+	}
+	if len(servers) > 0 {
+		cfg, _ := json.Marshal(map[string]any{"mcpServers": servers})
+		// Followed by a flag of its own, since --mcp-config takes a list and
+		// would swallow the prompt.
+		a = append(a, "--mcp-config", string(cfg), "--verbose")
+	}
 	if t.Model != "" {
 		a = append(a, "--model", t.Model)
 	}
@@ -59,7 +81,6 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		a = append(a,
 			"--permission-mode", mode,
 			"--permission-prompts", "host",
-			"--mcp-config", br.MCPConfig(),
 			"--permission-prompt-tool", br.ToolRef())
 	case t.Mode == agent.ModeAsk:
 		// Asking was wanted but no broker came up. Deny rather than silently

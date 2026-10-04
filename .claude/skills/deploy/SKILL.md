@@ -29,6 +29,9 @@ Script làm, theo thứ tự, và chạy lại bao nhiêu lần cũng an toàn:
 2b. **Bản desktop** (`desktop/`, module riêng): `go build -C desktop -ldflags "-s -w -H windowsgui"`
    → `agent-tui-desktop.exe` cạnh `agent-tui.exe`, và shortcut **agent-tui** trong Start menu.
    Nó chạy chính `agent-tui.exe` không sửa đổi trong ConPTY, vẽ bằng Gio (GPU, không cgo).
+2c. **Web admin** (`web/admin`, Next.js): nếu có `npm` thì `npm run build` (static export) rồi copy
+   `web/admin/out` → thư mục `admin` cạnh `agent-tui.exe`; `agent-tui serve` tự phục vụ từ đó.
+   Gateway (`agent-tui serve`) đang chạy bản cũ bị dừng để `tui` lần sau khởi động bản mới.
 3. **Lệnh tắt `tui`** trong cùng thư mục bin: `tui.cmd` (PowerShell/cmd/Warp) và
    `tui` không đuôi (Git Bash không tự resolve `.cmd`). Cả hai chuyển mọi tham số
    sang `agent-tui.exe`. Không dùng hardlink/copy exe: `go install` thay file nên

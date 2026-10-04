@@ -21,7 +21,10 @@ import (
 	"github.com/phanngoc/agent-tui/internal/engine"
 	"github.com/phanngoc/agent-tui/internal/explorer"
 	"github.com/phanngoc/agent-tui/internal/fsx"
+	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/highlight"
+	"github.com/phanngoc/agent-tui/internal/kit"
+	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/preview"
 	"github.com/phanngoc/agent-tui/internal/search"
 	"github.com/phanngoc/agent-tui/internal/session"
@@ -319,6 +322,14 @@ type Model struct {
 	// every piece of run state is keyed by session rather than held globally.
 	runs      map[string]context.CancelFunc
 	approvals []pendingApproval
+	// gw is the connection to the gateway; nil when there is none.
+	gw      *gateway.Client
+	gwHeld  string
+	gwSaid  bool
+	learner *learn.Learner
+	// useKit gives turns the project's memory, skills and MCP servers. Off
+	// unless the app turns it on, so tests never read the real ones.
+	useKit    bool
 	choices   []pendingChoice
 	choiceSel int
 
@@ -441,6 +452,8 @@ type indexReadyMsg struct {
 type pendingApproval struct {
 	sess *session.Session
 	ev   agent.EvApproval
+	// id names it to the gateway, so the web can answer it too.
+	id string
 }
 
 // pendingChoice is a question the agent put to the user. It queues the same way
@@ -449,6 +462,7 @@ type pendingApproval struct {
 type pendingChoice struct {
 	sess *session.Session
 	ev   agent.EvChoice
+	id   string
 }
 
 // agentMsg carries one event, tagged with the session and channel it came from
@@ -613,6 +627,8 @@ func (m *Model) Init() tea.Cmd {
 		m.spin.Tick,
 		m.watchTree(),
 		m.watchTasks(),
+		m.listenGateway(),
+		m.gatewayTick(),
 	)
 }
 
@@ -768,6 +784,12 @@ func (m *Model) startTurn(s *session.Session, text string, files []session.Attac
 		FS:         fsys,
 		Files:      files,
 	}
+	if m.useKit {
+		// Memory, skills, instructions and MCP servers: the same assembly
+		// the gateway uses for a turn it runs.
+		turn.Extras = kit.Hook(s.Root, s.ID, eng.ID(), text)
+	}
+	m.publishTurnStart(s, eng.ID(), text)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	if m.runs == nil {
@@ -843,6 +865,7 @@ func (m *Model) dropApprovals(s *session.Session) {
 	for _, p := range m.approvals {
 		if p.sess == s {
 			replyOnce(p.ev.Reply, agent.Deny)
+			m.publishResolved(s, gateway.EvApprovalDone, p.id, "deny", 0, "tui")
 			continue
 		}
 		kept = append(kept, p)
@@ -859,6 +882,7 @@ func (m *Model) dropChoices(s *session.Session) {
 	for _, p := range m.choices {
 		if p.sess == s {
 			replyChoice(p.ev.Reply, -1)
+			m.publishResolved(s, gateway.EvChoiceDone, p.id, "", -1, "tui")
 			continue
 		}
 		kept = append(kept, p)
