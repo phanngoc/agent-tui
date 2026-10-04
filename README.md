@@ -51,10 +51,10 @@ Press **F2**, click the **⚙** at the right of the header, or type `/settings`.
 │ 3 Appearance    │   Engine                               the one used last │
 │ 4 Layout        │     a new session runs on whatever the last one …        │
 │ 5 About         │                                                          │
-│                 │ ▌ Model                                       ‹ Opus 5 › │
+│                 │ ▌ Model                                     ‹ Opus 5.5 › │
 │                 │     1M context · the default, and the strongest …        │
 │                                                                            │
-│  ✓ new sessions run on Opus 5                                              │
+│  ✓ new sessions run on Opus 5.5                                            │
 │  ↑↓ move · ←→ change · enter choose · tab section · esc close              │
 └────────────────────────────────────────────────────────────────────────────┘
 ```
@@ -106,9 +106,15 @@ typed there, so both views show the same transcript at the same moment. A
 session no terminal holds is run by the gateway itself; once its turn ends it
 is offered to every terminal open on that project, so a conversation started
 on the web appears in the terminal's list and its next prompt runs there. The
-desktop window
-runs the same binary, so it joins too. The gateway listens on loopback only
-and refuses any request whose Host is not a loopback name.
+desktop window runs the same binary, so it joins too. The gateway listens on
+loopback only and refuses any request whose Host is not a loopback name.
+
+**A new conversation starts where the last one was** — its folder, engine,
+model and mode — as a new session does in the terminal. *Browse…* opens a
+folder picker over this machine's drives and every WSL distribution
+(`\\wsl.localhost\…`), with recent places and project folders marked; a WSL
+folder runs its conversation inside that distribution, the way the terminal
+runs a session aimed at one.
 
 **Nothing is a black box.** For every turn the admin shows what the agent was
 given beyond the transcript: which memories were recalled and with what score,
@@ -760,10 +766,12 @@ who has not been following version numbers means by it.
 
 | | |
 |---|---|
-| `opus` | 1M context · the default, and the strongest all-round coding model |
-| `fable` | 1M context · the most capable, and the most expensive |
-| `sonnet` | 1M context · faster and cheaper than Opus |
-| `haiku` | 200K context · the cheapest |
+| `opus` | Opus 5.5 · 1M context · the default: the current Opus, stronger and cheaper than Opus 5 |
+| `fable` | Fable 5.1 · 1M context · the most capable, and the most expensive |
+| `sonnet` | Sonnet 5.5 · 1M context · faster and cheaper than Opus |
+| `haiku` | Haiku 4.5 · 200K context · the cheapest |
+
+Opus 5 and Sonnet 5 stay in the picker for anyone who wants them by name.
 
 Unlike switching engine, changing model keeps the conversation: the model reads
 the transcript it is handed, where an engine is a different program with its
@@ -898,7 +906,7 @@ retry it.
 
 ```json
 {
-  "model": "claude-opus-5",
+  "model": "claude-opus-5-5",
   "effort": "high",
   "engine": "api",
   "mode": "auto",

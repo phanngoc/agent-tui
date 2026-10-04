@@ -40,11 +40,13 @@ func TestResolveModel(t *testing.T) {
 		want string
 	}{
 		// Bare family names mean the current generation of that family.
-		{"opus", "claude-opus-5"},
-		{"sonnet", "claude-sonnet-5"},
+		{"opus", "claude-opus-5-5"},
+		{"sonnet", "claude-sonnet-5-5"},
 		{"haiku", "claude-haiku-4-5"},
 		{"fable", "claude-fable-5-1"},
-		{"OPUS", "claude-opus-5"},
+		{"OPUS", "claude-opus-5-5"},
+		{"Opus 5.5", "claude-opus-5-5"},
+		{"sonnet-5.5", "claude-sonnet-5-5"},
 		// Labels, ids, and the separators nobody remembers.
 		{"Opus 5", "claude-opus-5"},
 		{"opus-5", "claude-opus-5"},

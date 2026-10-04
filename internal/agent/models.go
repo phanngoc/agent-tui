@@ -36,8 +36,8 @@ type Model struct {
 // default a new install gets.
 var Models = []Model{
 	{
-		ID: "claude-opus-5", Label: "Opus 5",
-		Note:   "1M context · the default, and the strongest all-round coding model",
+		ID: "claude-opus-5-5", Label: "Opus 5.5",
+		Note:   "1M context · the default: the current Opus, stronger and cheaper than Opus 5",
 		Effort: true, Adaptive: true,
 	},
 	{
@@ -46,8 +46,18 @@ var Models = []Model{
 		Effort: true, Adaptive: true,
 	},
 	{
+		ID: "claude-sonnet-5-5", Label: "Sonnet 5.5",
+		Note:   "1M context · the current Sonnet: faster and cheaper than Opus",
+		Effort: true, Adaptive: true,
+	},
+	{
+		ID: "claude-opus-5", Label: "Opus 5",
+		Note:   "1M context · the previous Opus",
+		Effort: true, Adaptive: true,
+	},
+	{
 		ID: "claude-sonnet-5", Label: "Sonnet 5",
-		Note:   "1M context · faster and cheaper than Opus",
+		Note:   "1M context · the previous Sonnet",
 		Effort: true, Adaptive: true,
 	},
 	{
@@ -58,7 +68,7 @@ var Models = []Model{
 }
 
 // DefaultModel is what a session runs on when nothing has chosen otherwise.
-const DefaultModel = "claude-opus-5"
+const DefaultModel = "claude-opus-5-5"
 
 // ModelFor describes a model id, including one that is not in the catalogue.
 //
@@ -88,9 +98,9 @@ func ResolveModel(name string) (Model, bool) {
 	}
 	switch want {
 	case "opus":
-		return ModelFor("claude-opus-5"), true
+		return ModelFor("claude-opus-5-5"), true
 	case "sonnet":
-		return ModelFor("claude-sonnet-5"), true
+		return ModelFor("claude-sonnet-5-5"), true
 	case "haiku":
 		return ModelFor("claude-haiku-4-5"), true
 	case "fable":

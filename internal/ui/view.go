@@ -542,21 +542,35 @@ func (m *Model) statusBar() string {
 		right = append(right, m.st.Accent.Render("●"+strconv.Itoa(n)+" running")+
 			m.st.Faint.Render(" ctrl+k"))
 	}
-	right = append(right,
-		m.st.Faint.Render(engineLabel),
+	right = append(right, m.st.Faint.Render(engineLabel))
+	// The rest is the first to go when the line is short: what the mode, the
+	// running commands and the model are matters more than the counts and the
+	// key reminders, which are also on the help page.
+	extra := []string{
 		m.st.Faint.Render(tokens(s)),
-		m.st.Faint.Render(strconv.Itoa(m.idx.Len())+" files"),
-		m.st.StatusKey.Render(" f1 ")+m.st.Faint.Render(" help ")+
-			m.st.StatusKey.Render(" f2 ")+m.st.Faint.Render(" settings"),
-	)
+		m.st.Faint.Render(strconv.Itoa(m.idx.Len()) + " files"),
+		m.st.StatusKey.Render(" f1 ") + m.st.Faint.Render(" help ") +
+			m.st.StatusKey.Render(" f2 ") + m.st.Faint.Render(" settings"),
+	}
 
 	l := strings.Join(left, "  ")
-	r := strings.Join(right, m.st.Faint.Render(" · "))
-	gap := m.w - lipgloss.Width(l) - lipgloss.Width(r) - 2
-	if gap < 1 {
+	sep := m.st.Faint.Render(" · ")
+	for keep := len(extra); keep >= 0; keep-- {
+		r := strings.Join(append(append([]string(nil), right...), extra[:keep]...), sep)
+		gap := m.w - lipgloss.Width(l) - lipgloss.Width(r) - 2
+		if gap >= 1 {
+			return " " + l + strings.Repeat(" ", gap) + r + " "
+		}
+	}
+	// Still too long: the left gives way, since it says the least lasting
+	// thing on the line.
+	r := strings.Join(right, sep)
+	room := m.w - lipgloss.Width(r) - 3
+	if room < 12 {
 		return clipLine(" "+l, m.w)
 	}
-	return " " + l + strings.Repeat(" ", gap) + r + " "
+	l = clipLine(l, room)
+	return " " + l + strings.Repeat(" ", max(1, m.w-lipgloss.Width(l)-lipgloss.Width(r)-2)) + r + " "
 }
 
 // modeBadge shows what the agent may do, coloured by how much rope that is. It

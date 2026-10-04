@@ -56,6 +56,8 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 	m.HandleFunc("POST /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Root   string `json:"root"`
+			Target string `json:"target"`
+			CWD    string `json:"cwd"`
 			Engine string `json:"engine"`
 			Model  string `json:"model"`
 			Mode   string `json:"mode"`
@@ -69,7 +71,7 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			fail(w, http.StatusBadRequest, errors.New("a new conversation starts with a prompt"))
 			return
 		}
-		sess, err := s.Runner.NewSession(in.Root, in.Engine, in.Model, in.Mode, in.Prompt)
+		sess, err := s.Runner.NewSession(in.Root, in.Target, in.CWD, in.Engine, in.Model, in.Mode, in.Prompt)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return

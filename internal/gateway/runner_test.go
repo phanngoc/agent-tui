@@ -10,6 +10,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/engine"
 	"github.com/phanngoc/agent-tui/internal/session"
+	"github.com/phanngoc/agent-tui/internal/vfs"
 )
 
 // script is an engine that plays back a fixed turn.
@@ -48,11 +49,11 @@ func TestRunnerRecordsToolResultsAndRoutesApprovals(t *testing.T) {
 	h := NewHub()
 	r := NewRunner(h, config.Default())
 	h.Local = r
-	r.roots[root] = &project{root: root, mgr: session.NewManager(config.DataDir(), root, "m"), reg: engine.NewRegistryWith(eng)}
+	r.roots[root] = &project{root: root, fs: vfs.NewLocal(root), dir: root, mgr: session.NewManager(config.DataDir(), root, "m"), reg: engine.NewRegistryWith(eng)}
 	_, events, cancel := h.Subscribe(0)
 	defer cancel()
 
-	s, err := r.NewSession(root, "api", "", "ask", "list the files")
+	s, err := r.NewSession(root, "", "", "api", "", "ask", "list the files")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,5 +88,21 @@ func TestRunnerRecordsToolResultsAndRoutesApprovals(t *testing.T) {
 	}
 	if h.Busy(s.ID) {
 		t.Fatal("still busy after the turn")
+	}
+}
+
+func TestWSLPath(t *testing.T) {
+	for in, want := range map[string][2]string{
+		`\\wsl.localhost\Ubuntu-24.04\home\me\x`: {"Ubuntu-24.04", "/home/me/x"},
+		`//wsl$/Debian/srv`:                      {"Debian", "/srv"},
+		`\\wsl.localhost\Ubuntu`:                 {"Ubuntu", "/"},
+	} {
+		d, l, ok := WSLPath(in)
+		if !ok || d != want[0] || l != want[1] {
+			t.Errorf("WSLPath(%q) = %q %q %v", in, d, l, ok)
+		}
+	}
+	if _, _, ok := WSLPath(`C:\code\x`); ok {
+		t.Error("a host path read as WSL")
 	}
 }

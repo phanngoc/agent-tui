@@ -104,6 +104,7 @@ type Summary struct {
 	Model    string    `json:"model,omitempty"`
 	Mode     string    `json:"mode,omitempty"`
 	Target   string    `json:"target,omitempty"`
+	CWD      string    `json:"cwd,omitempty"`
 	Messages int       `json:"messages"`
 	Created  time.Time `json:"created"`
 	Updated  time.Time `json:"updated"`
@@ -120,7 +121,7 @@ type Summary struct {
 func SummaryOf(s *session.Session) Summary {
 	return Summary{
 		ID: s.ID, Title: s.Label(), Root: s.Root, Engine: s.Engine, Model: s.Model, Mode: s.Mode,
-		Target: s.Target, Messages: len(s.Messages), Created: s.Created, Updated: s.Updated,
+		Target: s.Target, CWD: s.CWD, Messages: len(s.Messages), Created: s.Created, Updated: s.Updated,
 		Busy: s.Busy, Status: s.Status, InTokens: s.InputTokens, OutToks: s.OutputTokens,
 		Closed: s.Closed, SideOf: s.SideOf,
 	}

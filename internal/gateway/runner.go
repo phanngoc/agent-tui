@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,9 +41,16 @@ type Runner struct {
 
 type project struct {
 	root string
-	mgr  *session.Manager
-	reg  *engine.Registry
+	// fs is where the work happens: the host, or a WSL distribution or
+	// container the session targets; dir is the folder there.
+	fs  vfs.FS
+	dir string
+	mgr *session.Manager
+	reg *engine.Registry
 }
+
+// isHost reports whether a target means this machine.
+func isHost(target string) bool { return target == "" || target == "host" }
 
 type turn struct {
 	s         *session.Session
@@ -56,31 +64,68 @@ func NewRunner(h *Hub, cfg config.Config) *Runner {
 	return &Runner{Hub: h, Cfg: cfg, roots: map[string]*project{}, turns: map[string]*turn{}}
 }
 
-func (r *Runner) project(root string) *project {
+// project assembles the engines for one place work happens: a host folder,
+// or a folder inside a WSL distribution or container — the same vfs the
+// terminal opens for such a session. Each place has its own registry, since
+// a CLI engine is pointed at its filesystem.
+func (r *Runner) project(root, target, cwd string) (*project, error) {
+	key := root
+	if !isHost(target) {
+		key += "|" + target + "|" + cwd
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	if p, ok := r.roots[root]; ok {
-		return p
+	if p, ok := r.roots[key]; ok {
+		return p, nil
 	}
-	fs := vfs.NewLocal(root)
+	var fs vfs.FS = vfs.NewLocal(root)
+	dir := root
+	if !isHost(target) {
+		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+		fs = vfs.Open(ctx, target, root)
+		cancel()
+		if fs.ID() != target {
+			return nil, fmt.Errorf("%s is not reachable from here", target)
+		}
+		dir = cmp.Or(cwd, fs.DefaultDir())
+	}
 	exec := &agent.Executor{
 		FS:       fs,
 		Tasks:    task.NewRegistry(),
-		Root:     root,
-		Index:    fsx.NewIndex(fs, root, r.Cfg.IndexLimit),
+		Root:     dir,
+		Index:    fsx.NewIndex(fs, dir, r.Cfg.IndexLimit),
 		MaxBytes: int64(r.Cfg.MaxFileKB) << 10,
 		Workers:  r.Cfg.Workers,
 	}
 	ag := agent.New(os.Getenv("ANTHROPIC_API_KEY"), exec, r.Cfg.Model, r.Cfg.Effort, r.Cfg.MaxTokens)
-	p := &project{root: root, mgr: session.NewManager(config.DataDir(), root, r.Cfg.Model),
+	p := &project{root: root, fs: fs, dir: dir, mgr: session.NewManager(config.DataDir(), root, r.Cfg.Model),
 		reg: engine.NewRegistry(engine.NewAPI(ag, r.Cfg.Model), root)}
-	r.roots[root] = p
-	return p
+	r.roots[key] = p
+	return p, nil
+}
+
+// WSLPath reads a Windows path into a WSL distribution — \\wsl.localhost\D\x
+// or \\wsl$\D\x — as the distribution and the Linux path inside it.
+func WSLPath(p string) (distro, linux string, ok bool) {
+	s := strings.ReplaceAll(p, "/", `\`)
+	for _, pre := range []string{`\\wsl.localhost\`, `\\wsl$\`} {
+		if len(s) > len(pre) && strings.EqualFold(s[:len(pre)], pre) {
+			distro, rest, _ := strings.Cut(s[len(pre):], `\`)
+			if distro == "" {
+				return "", "", false
+			}
+			return distro, "/" + strings.ReplaceAll(rest, `\`, "/"), true
+		}
+	}
+	return "", "", false
 }
 
 // Engines lists the engines usable for a project.
 func (r *Runner) Engines(root string) []map[string]any {
-	p := r.project(root)
+	p, err := r.project(root, "", "")
+	if err != nil {
+		return nil
+	}
 	var out []map[string]any
 	for _, e := range p.reg.All() {
 		out = append(out, map[string]any{"id": e.ID(), "label": e.Label(), "detail": e.Detail(),
@@ -103,14 +148,33 @@ func Load(id string) (*session.Session, error) {
 }
 
 // NewSession creates a session in a project and runs its first prompt.
-func (r *Runner) NewSession(root, engineID, model, mode, prompt string) (*session.Session, error) {
+//
+// A root inside a WSL distribution (\\wsl.localhost\…) runs there, the way the
+// terminal runs a session aimed at a distribution: target wsl:<name>, the
+// Linux folder as its directory. target and cwd say so explicitly, for a
+// location copied from an earlier session.
+func (r *Runner) NewSession(root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
+	// One spelling per folder: it is the project's identity for memory,
+	// skills and settings.
+	root = filepath.Clean(root)
+	if isHost(target) {
+		if d, linux, ok := WSLPath(root); ok {
+			target, cwd = "wsl:"+d, linux
+		}
+	}
 	if !config.IsDir(root) {
 		return nil, fmt.Errorf("%s is not a folder", root)
 	}
-	p := r.project(root)
+	p, err := r.project(root, target, cwd)
+	if err != nil {
+		return nil, err
+	}
 	prefs := config.LoadPrefs()
 	ps := config.LoadProjectSettings(root)
 	s := p.mgr.New()
+	if !isHost(target) {
+		s.Target, s.CWD = target, p.dir
+	}
 	s.Engine = cmp.Or(engineID, ps.Engine, prefs.Engine, r.Cfg.Engine, "api")
 	s.Model = cmp.Or(model, ps.Model, prefs.Model, r.Cfg.Model)
 	s.Mode = cmp.Or(mode, ps.Mode, prefs.Mode, r.Cfg.Mode)
@@ -134,10 +198,15 @@ func (r *Runner) Handle(cmd Command) error {
 		if err != nil {
 			return err
 		}
-		if s.Target != "" && s.Target != "host" {
-			return fmt.Errorf("this session runs in %s; continue it in the terminal app", s.Target)
+		cwd := ""
+		if !isHost(s.Target) {
+			cwd = s.CWD
 		}
-		return r.start(r.project(s.Root), s, cmd.Text)
+		p, err := r.project(s.Root, s.Target, cwd)
+		if err != nil {
+			return err
+		}
+		return r.start(p, s, cmd.Text)
 	case CmdCancel:
 		r.mu.Lock()
 		t := r.turns[cmd.Session]
@@ -202,10 +271,10 @@ func (r *Runner) start(p *project, s *session.Session, prompt string) error {
 		History:    append([]session.Message(nil), s.Messages...),
 		ExternalID: s.StateFor(eng.ID()).ExternalID,
 		Fork:       s.ForkPending,
-		Root:       cmp.Or(s.CWD, s.Root),
+		Root:       cmp.Or(s.CWD, p.dir),
 		Mode:       agent.ParseMode(s.Mode),
 		Model:      model,
-		FS:         vfs.NewLocal(s.Root),
+		FS:         p.fs,
 	}
 	hook := kit.Hook(s.Root, s.ID, eng.ID(), prompt)
 	effort := cmp.Or(config.LoadProjectSettings(s.Root).Effort, config.LoadPrefs().Effort)

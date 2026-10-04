@@ -34,7 +34,7 @@ type Config struct {
 
 func Default() Config {
 	return Config{
-		Model:      "claude-opus-5",
+		Model:      "claude-opus-5-5",
 		Effort:     "high",
 		MaxTokens:  32000,
 		MaxFileKB:  2048,

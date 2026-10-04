@@ -27,7 +27,7 @@ func TestSlashModelOpensThePicker(t *testing.T) {
 	}
 
 	out := stripANSI(m.modelView())
-	for _, want := range []string{"Opus 5", "Sonnet 5", "Haiku 4.5", "Fable 5.1"} {
+	for _, want := range []string{"Opus 5.5", "Sonnet 5.5", "Opus 5", "Haiku 4.5", "Fable 5.1"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the picker does not offer %q:\n%s", want, out)
 		}
@@ -56,10 +56,10 @@ func TestSlashModelWithAName(t *testing.T) {
 	if m.overlay != overlayNone {
 		t.Error("naming a model still opened the picker")
 	}
-	if got := m.mgr.Active().Model; got != "claude-sonnet-5" {
-		t.Errorf("session model = %q, want claude-sonnet-5", got)
+	if got := m.mgr.Active().Model; got != "claude-sonnet-5-5" {
+		t.Errorf("session model = %q, want claude-sonnet-5-5", got)
 	}
-	if !strings.Contains(m.notice, "Sonnet 5") {
+	if !strings.Contains(m.notice, "Sonnet 5.5") {
 		t.Errorf("notice = %q", m.notice)
 	}
 }
@@ -98,7 +98,7 @@ func TestModelIsPerSession(t *testing.T) {
 	if first.Model != "claude-haiku-4-5" {
 		t.Errorf("the first session moved to %q", first.Model)
 	}
-	if second.Model != "claude-opus-5" {
+	if second.Model != "claude-opus-5-5" {
 		t.Errorf("the second session is on %q", second.Model)
 	}
 }

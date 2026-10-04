@@ -51,6 +51,7 @@ export interface Summary {
   model?: string;
   mode?: string;
   target?: string;
+  cwd?: string;
   messages: number;
   created: string;
   updated: string;
