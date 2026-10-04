@@ -128,8 +128,55 @@ func TestMarkdownTableFitsNarrowPane(t *testing.T) {
 			t.Fatalf("line %q is wider than the pane", l)
 		}
 	}
-	if !strings.Contains(out, "…") {
-		t.Errorf("a squeezed cell should be elided, not dropped:\n%s", out)
+	// A squeezed cell wraps within its column rather than losing its end:
+	// every word is still there, and still in its column.
+	for _, want := range []string{"mail.fpaas-", "asterisk.vn", "SES domain", "a long note"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the squeezed table lost %q:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "…") {
+		t.Errorf("a cell was cut rather than wrapped:\n%s", out)
+	}
+	lines := strings.Split(out, "\n")
+	col := -1
+	for _, l := range lines {
+		if i := strings.Index(l, "SES domain"); i >= 0 {
+			col = lipgloss.Width(l[:i])
+		}
+	}
+	for _, l := range lines {
+		if i := strings.Index(l, "a long note"); i >= 0 && lipgloss.Width(l[:i]) != col {
+			t.Errorf("a wrapped line left its column:\n%s", out)
+		}
+	}
+}
+
+// A row that wraps in one column keeps the others on its first line, so the
+// table still reads across.
+func TestMarkdownTableRowsGrowDownwards(t *testing.T) {
+	src := strings.Join([]string{
+		"| Phần | Nội dung |",
+		"|---|---|",
+		"| Vấn đề | 3 điểm: WHERE 3 cột vs unique key 4 cột, application_id không dùng, không LIMIT |",
+		"| Repro | Timeline T1→T4 |",
+	}, "\n")
+	out := mdPlain(t, src, 40)
+	lines := strings.Split(out, "\n")
+	at := -1
+	for i, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "Vấn đề") {
+			at = i
+		}
+	}
+	if at < 0 || at+1 >= len(lines) {
+		t.Fatalf("no wrapped row:\n%s", out)
+	}
+	if strings.HasPrefix(strings.TrimSpace(lines[at+1]), "Repro") {
+		t.Errorf("the long cell did not wrap onto a second line:\n%s", out)
+	}
+	if !strings.Contains(out, "không LIMIT") {
+		t.Errorf("the end of the long cell is missing:\n%s", out)
 	}
 }
 
