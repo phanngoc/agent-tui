@@ -256,7 +256,7 @@ func (r *Runner) start(p *project, s *session.Session, prompt string) error {
 	}
 	s.Engine = eng.ID()
 	s.Append(session.Message{Role: session.RoleUser, Text: prompt, At: time.Now()})
-	p.mgr.Save(s)
+	p.mgr.SaveNow(s)
 
 	brief := ""
 	if end := len(s.Messages) - 1; end > 0 {
