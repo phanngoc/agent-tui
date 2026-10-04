@@ -22,6 +22,16 @@ import (
 // DefaultAddr is where `agent-tui serve` listens unless told otherwise.
 const DefaultAddr = "127.0.0.1:7788"
 
+// ListenAddr is where a gateway listens: AGENT_TUI_GATEWAY_ADDR when set —
+// for a second data folder beside the usual one — or DefaultAddr. A gateway
+// a terminal starts inherits the variable, so both agree.
+func ListenAddr() string {
+	if a := os.Getenv("AGENT_TUI_GATEWAY_ADDR"); a != "" {
+		return a
+	}
+	return DefaultAddr
+}
+
 // Info is the gateway's discovery file, written while it runs.
 type Info struct {
 	Addr    string    `json:"addr"`
