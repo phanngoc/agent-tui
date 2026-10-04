@@ -151,6 +151,7 @@ func (s *Server) routes() {
 	s.mcpRoutes(m)
 	s.memoryRoutes(m)
 	s.settingsRoutes(m)
+	s.fsRoutes(m)
 
 	m.HandleFunc("/", s.static)
 }

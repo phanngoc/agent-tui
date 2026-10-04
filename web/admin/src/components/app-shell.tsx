@@ -23,6 +23,7 @@ import type { Project } from "@/lib/types";
 import { Dot } from "@/components/common";
 import { baseName } from "@/lib/format";
 import { Toaster } from "@/components/ui/sonner";
+import { FolderPicker } from "@/components/folder-picker";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
@@ -110,8 +111,7 @@ function TopBar() {
   const setRoot = useGateway((s) => s.setRoot);
   const v = useVersion("sessions", "peers");
   const { data: projects } = useFetch<Project[]>("/api/projects", [v]);
-  const [custom, setCustom] = React.useState(false);
-  const [path, setPath] = React.useState("");
+  const [picking, setPicking] = React.useState(false);
 
   const options = React.useMemo(() => {
     const list = (projects ?? []).filter((p) => p.exists);
@@ -122,50 +122,30 @@ function TopBar() {
   return (
     <header className="flex h-12 shrink-0 items-center gap-3 border-b px-6">
       <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Project</span>
-      {custom ? (
-        <form
-          className="flex items-center gap-2"
-          onSubmit={(e) => {
-            e.preventDefault();
-            if (path.trim()) setRoot(path.trim());
-            setCustom(false);
+      <div className="flex min-w-0 items-center gap-2">
+        {root ? <FolderIcon className="size-4 text-muted-foreground" /> : <GlobeIcon className="size-4 text-muted-foreground" />}
+        <select
+          value={root}
+          onChange={(e) => {
+            if (e.target.value === "__custom") setPicking(true);
+            else setRoot(e.target.value);
           }}
+          className="h-8 max-w-[28rem] truncate rounded-lg border bg-background px-2 text-sm outline-none dark:bg-input/30"
         >
-          <input
-            autoFocus
-            value={path}
-            onChange={(e) => setPath(e.target.value)}
-            placeholder="C:\\code\\my-project"
-            className="h-8 w-96 rounded-lg border bg-background px-2 font-mono text-xs outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50"
-          />
-          <button className="text-xs text-muted-foreground hover:text-foreground" type="button" onClick={() => setCustom(false)}>
-            cancel
-          </button>
-        </form>
-      ) : (
-        <div className="flex min-w-0 items-center gap-2">
-          {root ? <FolderIcon className="size-4 text-muted-foreground" /> : <GlobeIcon className="size-4 text-muted-foreground" />}
-          <select
-            value={root}
-            onChange={(e) => {
-              if (e.target.value === "__custom") {
-                setPath(root);
-                setCustom(true);
-              } else setRoot(e.target.value);
-            }}
-            className="h-8 max-w-[28rem] truncate rounded-lg border bg-background px-2 text-sm outline-none dark:bg-input/30"
-          >
-            <option value="">Global only — no project</option>
-            {options.map((p) => (
-              <option key={p.root} value={p.root}>
-                {p.name} — {p.root}
-                {p.peers?.length ? "  ● open in a terminal" : ""}
-              </option>
-            ))}
-            <option value="__custom">Other folder…</option>
-          </select>
-        </div>
-      )}
+          <option value="">Global only — no project</option>
+          {options.map((p) => (
+            <option key={p.root} value={p.root}>
+              {p.name} — {p.root}
+              {p.peers?.length ? "  ● open in a terminal" : ""}
+            </option>
+          ))}
+          <option value="__custom">Browse for a folder…</option>
+        </select>
+        <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)} title="Browse folders, WSL included">
+          browse…
+        </button>
+      </div>
+      <FolderPicker open={picking} onOpenChange={setPicking} initial={root} onPick={setRoot} title="Choose the project to look at" />
       <span className="ml-auto truncate text-xs text-muted-foreground">
         {root ? "Project scope: settings, skills and MCP in .agent-tui · memory in the data folder" : "Showing global scope only"}
       </span>

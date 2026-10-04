@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, PanelRightCloseIcon, PanelRightOpenIcon, FolderOpenIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -14,6 +14,7 @@ import { Ago, CopyButton, Dot, Empty, ErrorNote, Field, Mono, NativeSelect, Pre 
 import { OwnerBadge } from "@/components/owner-badge";
 import { LiveTail, MessageView } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
+import { FolderPicker, describePath, placePath } from "@/components/folder-picker";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -345,7 +346,7 @@ function Composer({ busy, owner, target, onSend }: { busy: boolean; owner?: stri
           {owner?.startsWith("tui")
             ? "This session is open in a terminal: your prompt runs there, exactly as if typed, and streams here."
             : target && target !== "host"
-              ? `This session works inside ${target}; only a terminal can reach it. Open it in tui and prompts sent here will run there.`
+              ? `No terminal holds this session: the gateway runs it inside ${target}, with the same engines, memory, skills and MCP servers.`
               : "No terminal holds this session: the gateway runs it, with the same engines, memory, skills and MCP servers."}
         </div>
       </div>
@@ -457,25 +458,60 @@ function DetailsPanel({ s }: { s: Session }) {
 
 function NewSessionDialog({ open, onOpenChange, onCreated }: { open: boolean; onOpenChange: (o: boolean) => void; onCreated: (id: string) => void }) {
   const root = useGateway((s) => s.root);
-  const [dir, setDir] = React.useState(root);
-  const [engine, setEngine] = React.useState("");
-  const [model, setModel] = React.useState("");
-  const [mode, setMode] = React.useState("");
+  // Like the terminal, a new conversation starts where the last one was, on
+  // its engine, model and mode — the last in this project when one is picked.
+  const { data: recent } = useFetch<Summary[]>(open ? "/api/sessions" + qs({ root }) : null, [open, root]);
+  const last = recent?.[0];
+  return (
+    <Dialog open={open} onOpenChange={(o) => onOpenChange(o)}>
+      <DialogContent className="sm:max-w-2xl">
+        <DialogHeader>
+          <DialogTitle>New conversation</DialogTitle>
+          <DialogDescription>
+            Runs in the gateway with the project&apos;s memory, skills and MCP servers. It starts from your last conversation&apos;s folder, engine, model and mode.
+          </DialogDescription>
+        </DialogHeader>
+        {open && recent ? (
+          <NewSessionForm key={last?.id ?? "none"} last={last} fallbackRoot={root} onCreated={onCreated} onClose={() => onOpenChange(false)} />
+        ) : (
+          <div className="py-8 text-center text-sm text-muted-foreground">Loading your last conversation…</div>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
+function NewSessionForm({
+  last,
+  fallbackRoot,
+  onCreated,
+  onClose,
+}: {
+  last?: Summary;
+  fallbackRoot: string;
+  onCreated: (id: string) => void;
+  onClose: () => void;
+}) {
+  const [dir, setDir] = React.useState(() => (last ? placePath({ root: last.root, target: last.target, cwd: last.cwd }) : fallbackRoot));
+  const [engine, setEngine] = React.useState(last?.engine ?? "");
+  const [model, setModel] = React.useState(last?.model ?? "");
+  const [mode, setMode] = React.useState(last?.mode ?? "");
   const [prompt, setPrompt] = React.useState("");
+  const [picking, setPicking] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
   const { data: eng } = useFetch<{ engines: EngineInfo[]; models: { id: string; label: string }[]; modes: string[] }>(
-    open && dir ? "/api/engines" + qs({ root: dir }) : null,
-    [dir, open],
+    dir ? "/api/engines" + qs({ root: dir }) : null,
+    [dir],
   );
+  const where = describePath(dir);
 
   const create = async () => {
     setBusy(true);
     setErr(null);
     try {
       const r = await api.post<{ id: string }>("/api/sessions", { root: dir, engine, model, mode, prompt });
-      onOpenChange(false);
-      setPrompt("");
+      onClose();
       onCreated(r.id);
     } catch (e) {
       setErr((e as Error).message);
@@ -485,43 +521,72 @@ function NewSessionDialog({ open, onOpenChange, onCreated }: { open: boolean; on
   };
 
   return (
-    <Dialog open={open} onOpenChange={(o) => onOpenChange(o)}>
-      <DialogContent className="sm:max-w-xl">
-        <DialogHeader>
-          <DialogTitle>New conversation</DialogTitle>
-          <DialogDescription>Runs in the gateway with the project&apos;s memory, skills and MCP servers. Empty choices follow the project, then global, settings.</DialogDescription>
-        </DialogHeader>
-        <div className="grid gap-3">
-          <Field label="Project folder">
-            <Input value={dir} onChange={(e) => setDir(e.target.value)} className="font-mono text-xs" placeholder="C:\\code\\project" />
-          </Field>
-          <div className="grid grid-cols-3 gap-2">
-            <Field label="Engine">
-              <NativeSelect
-                value={engine}
-                onChange={setEngine}
-                placeholder="settings"
-                options={(eng?.engines ?? []).map((e) => ({ value: e.id, label: e.label + (e.available ? "" : " (unavailable)"), disabled: !e.available }))}
-              />
-            </Field>
-            <Field label="Model">
-              <NativeSelect value={model} onChange={setModel} placeholder="settings" options={(eng?.models ?? []).map((m) => ({ value: m.id, label: m.label }))} />
-            </Field>
-            <Field label="Mode">
-              <NativeSelect value={mode} onChange={setMode} placeholder="settings" options={(eng?.modes ?? []).map((m) => ({ value: m, label: m }))} />
-            </Field>
+    <>
+      <div className="grid gap-3">
+        <Field
+          label="Folder"
+          hint={
+            last ? (
+              <>
+                From your last conversation, “{last.title}” — <Ago at={last.updated} />
+              </>
+            ) : undefined
+          }
+        >
+          <div className="flex gap-2">
+            <Input value={dir} onChange={(e) => setDir(e.target.value)} className="min-w-0 flex-1 font-mono text-xs" placeholder="C:\code\project, or \\wsl.localhost\Ubuntu\home\me\project" />
+            <Button variant="outline" onClick={() => setPicking(true)}>
+              <FolderOpenIcon /> Browse…
+            </Button>
           </div>
-          <Field label="First prompt">
-            <Textarea value={prompt} onChange={(e) => setPrompt(e.target.value)} rows={5} placeholder="What should the agent do?" />
+          {where.where && (
+            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
+              <Badge variant="outline" className="font-normal">
+                {where.where}
+              </Badge>
+              runs inside the distribution, in <span className="font-mono text-foreground">{where.dir}</span>
+            </div>
+          )}
+        </Field>
+        <div className="grid grid-cols-3 gap-2">
+          <Field label="Engine">
+            <NativeSelect
+              value={engine}
+              onChange={setEngine}
+              placeholder="from settings"
+              options={(eng?.engines ?? []).map((e) => ({ value: e.id, label: e.label + (e.available ? "" : " (unavailable)"), disabled: !e.available }))}
+            />
           </Field>
-          <ErrorNote error={err} />
+          <Field label="Model">
+            <NativeSelect value={model} onChange={setModel} placeholder="from settings" options={(eng?.models ?? []).map((m) => ({ value: m.id, label: m.label }))} />
+          </Field>
+          <Field label="Mode">
+            <NativeSelect value={mode} onChange={setMode} placeholder="from settings" options={(eng?.modes ?? []).map((m) => ({ value: m, label: m }))} />
+          </Field>
         </div>
-        <DialogFooter>
-          <Button disabled={busy || !dir || !prompt.trim()} onClick={create}>
-            {busy ? "Starting…" : "Start"}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+        <Field label="First prompt">
+          <Textarea
+            autoFocus
+            value={prompt}
+            onChange={(e) => setPrompt(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && dir && prompt.trim()) {
+                e.preventDefault();
+                void create();
+              }
+            }}
+            rows={5}
+            placeholder="What should the agent do?  (Ctrl+Enter to start)"
+          />
+        </Field>
+        <ErrorNote error={err} />
+      </div>
+      <DialogFooter>
+        <Button disabled={busy || !dir || !prompt.trim()} onClick={create}>
+          {busy ? "Starting…" : "Start"}
+        </Button>
+      </DialogFooter>
+      <FolderPicker open={picking} onOpenChange={setPicking} initial={dir} onPick={setDir} />
+    </>
   );
 }
