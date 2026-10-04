@@ -207,7 +207,7 @@ func run() error {
 // serve runs the gateway until interrupted.
 func serve(cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
-	addr := fs.String("addr", gateway.DefaultAddr, "address to listen on (loopback only)")
+	addr := fs.String("addr", gateway.ListenAddr(), "address to listen on (loopback only; or AGENT_TUI_GATEWAY_ADDR)")
 	web := fs.String("web", "", "folder of a static build of the admin to serve at /")
 	_ = fs.Parse(args)
 
