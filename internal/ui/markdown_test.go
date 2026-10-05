@@ -323,3 +323,10 @@ func TestTranscriptRendersAgentMarkdownOnly(t *testing.T) {
 		t.Errorf("want the rendered heading and bullet:\n%s", out)
 	}
 }
+
+func TestMermaidFenceNamesWhereItIsDrawn(t *testing.T) {
+	out := mdPlain(t, "```mermaid\nsequenceDiagram\n  A->>B: hi\n```", 80)
+	if !strings.Contains(out, "web admin") || !strings.Contains(out, "sequenceDiagram") {
+		t.Fatalf("mermaid block:\n%s", out)
+	}
+}

@@ -178,6 +178,11 @@ func (d *mdDoc) code(lines []string, i int) int {
 	}
 
 	d.blank()
+	if strings.EqualFold(info, "mermaid") {
+		// A terminal cannot draw it; the web admin does, from the same
+		// transcript, so the source here is not the only way to read it.
+		d.push("  " + d.st.Faint.Render(clipLine("◇ mermaid diagram — open this session in the web admin to see it drawn", d.w-2)))
+	}
 	src := strings.Join(body, "\n")
 	for _, l := range highlight.Render(d.sc, highlight.Detect(mdLangFile(info)), []byte(src)) {
 		d.push("  " + clipLine(l, d.w-2))

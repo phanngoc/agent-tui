@@ -15,6 +15,8 @@ import {
   FolderIcon,
   GlobeIcon,
   TerminalIcon,
+  PanelLeftCloseIcon,
+  PanelLeftOpenIcon,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useGateway, useVersion } from "@/lib/store";
@@ -24,6 +26,7 @@ import { Dot } from "@/components/common";
 import { baseName } from "@/lib/format";
 import { Toaster } from "@/components/ui/sonner";
 import { FolderPicker } from "@/components/folder-picker";
+import { isTyping, useLayout } from "@/lib/layout";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
@@ -41,18 +44,50 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const connected = useGateway((s) => s.connected);
   const peers = useGateway((s) => s.peers);
   const busy = useGateway((s) => Object.values(s.live).filter((l) => l.busy).length);
+  const load = useLayout((s) => s.load);
+  const navCollapsed = useLayout((s) => s.navCollapsed);
+  const toggleNav = useLayout((s) => s.toggleNav);
+  const focus = useLayout((s) => s.focus);
+  const setFocus = useLayout((s) => s.setFocus);
+  React.useEffect(() => load(), [load]);
+
+  // Ctrl/⌘+B folds the navigation, as in an editor; Alt+\ is focus mode.
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && e.key.toLowerCase() === "b" && !isTyping(e)) {
+        e.preventDefault();
+        toggleNav();
+      } else if (e.altKey && !e.ctrlKey && !e.metaKey && (e.code === "Backslash" || e.code === "IntlBackslash") && !isTyping(e)) {
+        e.preventDefault();
+        setFocus(!useLayout.getState().focus);
+      } else if (e.key === "Escape" && useLayout.getState().focus && !isTyping(e) && !document.querySelector("[role=dialog]")) {
+        setFocus(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleNav, setFocus]);
+
+  const rail = navCollapsed || focus;
 
   return (
     <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
-      <aside className="flex w-56 shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
-        <div className="flex items-center gap-2 px-4 py-4">
-          <div className="flex size-7 items-center justify-center rounded-lg bg-primary text-primary-foreground">
+      <aside
+        className={cn(
+          "flex shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
+          rail ? "w-14" : "w-56",
+        )}
+      >
+        <div className={cn("flex items-center gap-2 py-4", rail ? "justify-center px-2" : "px-4")}>
+          <div className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground" title="agent-tui admin">
             <TerminalIcon className="size-4" />
           </div>
-          <div className="leading-tight">
-            <div className="text-sm font-semibold">agent-tui</div>
-            <div className="text-[11px] text-muted-foreground">admin · gateway</div>
-          </div>
+          {!rail && (
+            <div className="min-w-0 leading-tight">
+              <div className="text-sm font-semibold">agent-tui</div>
+              <div className="text-[11px] text-muted-foreground">admin · gateway</div>
+            </div>
+          )}
         </div>
         <nav className="flex flex-col gap-0.5 px-2">
           {NAV.map((n) => {
@@ -62,37 +97,62 @@ export function AppShell({ children }: { children: React.ReactNode }) {
               <Link
                 key={n.href}
                 href={n.href}
+                title={rail ? n.label : undefined}
                 className={cn(
-                  "flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-sm transition-colors",
+                  "relative flex items-center gap-2.5 rounded-lg py-1.5 text-sm transition-colors",
+                  rail ? "justify-center px-0" : "px-2.5",
                   active ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground" : "text-muted-foreground hover:bg-sidebar-accent/60 hover:text-foreground",
                 )}
               >
-                <Icon className="size-4" />
-                <span className="flex-1">{n.label}</span>
-                {n.href === "/sessions" && busy > 0 && (
-                  <span className="rounded-full bg-emerald-500/15 px-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">{busy}</span>
-                )}
+                <Icon className="size-4 shrink-0" />
+                {!rail && <span className="flex-1 truncate">{n.label}</span>}
+                {n.href === "/sessions" && busy > 0 &&
+                  (rail ? (
+                    <span className="absolute top-1 right-2 size-2 rounded-full bg-emerald-500" />
+                  ) : (
+                    <span className="rounded-full bg-emerald-500/15 px-1.5 text-[11px] font-medium text-emerald-600 dark:text-emerald-400">{busy}</span>
+                  ))}
               </Link>
             );
           })}
         </nav>
-        <div className="mt-auto space-y-2 border-t px-4 py-3 text-xs">
-          <div className="flex items-center gap-2">
+        <div className={cn("mt-auto space-y-2 border-t py-3 text-xs", rail ? "flex flex-col items-center px-2" : "px-4")}>
+          <div className="flex items-center gap-2" title={connected ? "Gateway connected" : "Gateway offline"}>
             <Dot on={connected} pulse />
-            <span className={connected ? "" : "text-muted-foreground"}>{connected ? "Gateway connected" : "Gateway offline"}</span>
+            {!rail && <span className={connected ? "" : "text-muted-foreground"}>{connected ? "Gateway connected" : "Gateway offline"}</span>}
           </div>
-          <div className="flex items-center gap-2 text-muted-foreground" title={peers.map((p) => `${p.id} · ${p.root}`).join("\n")}>
+          <div
+            className="flex items-center gap-2 text-muted-foreground"
+            title={peers.length ? peers.map((p) => `${p.id} · ${p.root}`).join("\n") : "no terminal attached"}
+          >
             <TerminalIcon className="size-3.5" />
-            {peers.length === 0 ? "no terminal attached" : `${peers.length} terminal${peers.length > 1 ? "s" : ""} attached`}
+            {!rail && (peers.length === 0 ? "no terminal attached" : `${peers.length} terminal${peers.length > 1 ? "s" : ""} attached`)}
+            {rail && peers.length > 0 && <span className="tabular-nums">{peers.length}</span>}
           </div>
-          <ThemeToggle />
+          <ThemeToggle compact={rail} />
+          <button
+            onClick={() => (focus ? setFocus(false) : toggleNav())}
+            title={focus ? "Leave focus mode (Alt+\\ or Esc)" : rail ? "Expand the navigation (Ctrl+B)" : "Collapse the navigation (Ctrl+B)"}
+            className="flex items-center gap-2 text-muted-foreground hover:text-foreground"
+          >
+            {rail ? <PanelLeftOpenIcon className="size-3.5" /> : <PanelLeftCloseIcon className="size-3.5" />}
+            {!rail && "Collapse"}
+          </button>
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        <TopBar />
+        {!focus && <TopBar />}
         {!connected && <OfflineBanner />}
         <main className="min-h-0 flex-1 overflow-auto">{children}</main>
       </div>
+      {focus && (
+        <button
+          onClick={() => setFocus(false)}
+          className="fixed bottom-4 left-1/2 z-40 -translate-x-1/2 rounded-full border bg-background/90 px-3 py-1.5 text-xs text-muted-foreground shadow-md backdrop-blur hover:text-foreground"
+        >
+          Focus mode · Esc or Alt+\ to bring the panels back
+        </button>
+      )}
       <Toaster position="bottom-right" />
     </div>
   );
@@ -153,7 +213,7 @@ function TopBar() {
   );
 }
 
-function ThemeToggle() {
+function ThemeToggle({ compact }: { compact?: boolean }) {
   // The class on <html> is the state: the label follows it through CSS, so
   // there is nothing to keep in sync and nothing to mismatch on hydration.
   React.useEffect(() => {
@@ -175,8 +235,12 @@ function ThemeToggle() {
     >
       <MoonIcon className="size-3.5 dark:hidden" />
       <SunIcon className="hidden size-3.5 dark:inline" />
-      <span className="dark:hidden">Dark theme</span>
-      <span className="hidden dark:inline">Light theme</span>
+      {!compact && (
+        <>
+          <span className="dark:hidden">Dark theme</span>
+          <span className="hidden dark:inline">Light theme</span>
+        </>
+      )}
     </button>
   );
 }

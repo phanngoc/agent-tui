@@ -119,6 +119,22 @@ folder picker over this machine's drives and every WSL distribution
 folder runs its conversation inside that distribution, the way the terminal
 runs a session aimed at one.
 
+**Diagrams are drawn.** A ```` ```mermaid ```` block in a reply renders the way
+ChatGPT renders one: a card naming the diagram's kind, a Diagram / Code switch,
+copy, download (SVG, PNG or the source) and a full-screen view that zooms and
+pans. It follows the light or dark theme; while a reply streams, the code
+shows until it parses. A sequence diagram whose actor is named like a keyword
+(`AND` for Android reads as `and`) is repaired by renaming the actor, and says
+so; anything else that does not parse shows its source and the parser's
+message. The terminal, which cannot draw, says where the drawing is.
+
+**Panels fold away.** The navigation folds to an icon rail (Ctrl/⌘+B). On
+Sessions, Skills and MCP the list on the left and the details on the right
+drag wider or narrower, fold (their button, Alt+[ and Alt+], or dragging them
+shut) and come back at the width they had; each page remembers its layout,
+and a narrow window starts with them folded. Focus mode (Alt+\, Esc to leave)
+folds everything for reading.
+
 **Nothing is a black box.** For every turn the admin shows what the agent was
 given beyond the transcript: which memories were recalled and with what score,
 the skills it was offered, the MCP servers and tools, the standing rules, and

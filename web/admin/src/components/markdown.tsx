@@ -5,11 +5,20 @@ import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
 import { CopyButton } from "@/components/common";
+import { MermaidBlock } from "@/components/mermaid-block";
 
 // Agent replies are Markdown — tables, headings, quotes, code — and read far
 // better rendered. Links open in a new tab; code keeps a copy button; wide
 // tables scroll inside their own box instead of stretching the transcript.
-const components: Components = {
+// A fenced block's language, read off the <code> inside a <pre>.
+function languageOf(children: React.ReactNode): string {
+  const kid = React.Children.toArray(children)[0];
+  if (!React.isValidElement(kid)) return "";
+  const cls = (kid.props as { className?: string }).className ?? "";
+  return /language-([\w-]+)/.exec(cls)?.[1] ?? "";
+}
+
+const base: Components = {
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noreferrer" className="text-primary underline underline-offset-2">
       {children}
@@ -53,7 +62,21 @@ function extractText(node: React.ReactNode): string {
   return "";
 }
 
-export function Markdown({ text, className }: { text: string; className?: string }) {
+export function Markdown({ text, className, streaming }: { text: string; className?: string; streaming?: boolean }) {
+  // Diagrams are drawn, not shown as code: a ```mermaid block becomes a
+  // rendered diagram with its source a click away.
+  const components = React.useMemo<Components>(
+    () => ({
+      ...base,
+      pre: (props) => {
+        if (languageOf(props.children) === "mermaid") {
+          return <MermaidBlock code={extractText(props.children).replace(/\n$/, "")} streaming={streaming} />;
+        }
+        return base.pre ? (base.pre as (p: typeof props) => React.ReactNode)(props) : <pre>{props.children}</pre>;
+      },
+    }),
+    [streaming],
+  );
   return (
     <div
       className={cn(

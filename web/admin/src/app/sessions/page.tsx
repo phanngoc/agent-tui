@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -14,6 +14,8 @@ import { Ago, CopyButton, Dot, Empty, ErrorNote, Mono, Pre } from "@/components/
 import { OwnerBadge } from "@/components/owner-badge";
 import { LiveTail, MessageView } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
+import { PaneToggle, RightPane, Workspace, useWorkspace } from "@/components/workspace";
+import { FocusButton } from "@/components/focus-button";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -37,20 +39,44 @@ function Sessions() {
   const root = useGateway((s) => s.root);
   // Each "new" is a fresh draft, even when one is already on screen.
   const [fresh, setFresh] = React.useState(0);
+  const list = (
+    <SessionList
+      selected={id}
+      onSelect={(s) => router.push(`/sessions?id=${s}`)}
+      onNew={() => {
+        setFresh((n) => n + 1);
+        router.push("/sessions");
+      }}
+    />
+  );
   return (
-    <div className="flex h-full min-h-0">
-      <SessionList
-        selected={id}
-        onSelect={(s) => router.push(`/sessions?id=${s}`)}
-        onNew={() => {
-          setFresh((n) => n + 1);
-          router.push("/sessions");
-        }}
-      />
-      <div className="flex min-w-0 flex-1 flex-col">
-        {id ? <Conversation key={id} id={id} /> : <NewChat key={root + fresh} root={root} onCreated={(sid) => router.push(`/sessions?id=${sid}`)} />}
-      </div>
-    </div>
+    <Workspace
+      id="sessions"
+      left={{ node: list, defaultSize: 300, minSize: 220, maxSize: 520, foldBelow: 960, label: "session list" }}
+      right={{
+        node: id ? null : <SidePlaceholder />,
+        defaultSize: 400,
+        minSize: 300,
+        maxSize: 720,
+        foldBelow: 1400,
+        label: "side panel",
+      }}
+    >
+      {id ? (
+        <Conversation key={id} id={id} />
+      ) : (
+        <>
+          <div className="flex items-center gap-1 px-3 pt-2">
+            <PaneToggle side="left" />
+            <div className="ml-auto flex items-center gap-1">
+              <FocusButton />
+              <PaneToggle side="right" />
+            </div>
+          </div>
+          <NewChat key={root + fresh} root={root} onCreated={(sid) => router.push(`/sessions?id=${sid}`)} />
+        </>
+      )}
+    </Workspace>
   );
 }
 
@@ -63,7 +89,7 @@ function SessionList({ selected, onSelect, onNew }: { selected: string; onSelect
   const { data, error } = useFetch<Summary[]>("/api/sessions" + qs({ root: all ? "" : root, q }), [v]);
 
   return (
-    <div className="flex w-80 shrink-0 flex-col border-r">
+    <div className="flex h-full min-w-0 flex-col">
       <div className="space-y-2 border-b p-3">
         <div className="flex items-center gap-2">
           <div className="relative flex-1">
@@ -136,22 +162,7 @@ function Conversation({ id }: { id: string }) {
   const summary = useGateway((s) => s.summaries[id]);
   const [traceFor, setTraceFor] = React.useState<number | null>(null);
   const [tab, setTab] = React.useState("context");
-  // The side panel can be folded away to give a long reply the width.
-  const [panel, setPanel] = React.useState(() => {
-    try {
-      return typeof window === "undefined" || localStorage.getItem("agent-tui.panel") !== "closed";
-    } catch {
-      return true;
-    }
-  });
-  const togglePanel = () => {
-    setPanel((p) => {
-      try {
-        localStorage.setItem("agent-tui.panel", p ? "closed" : "open");
-      } catch {}
-      return !p;
-    });
-  };
+  const ws = useWorkspace();
   const bottom = React.useRef<HTMLDivElement>(null);
 
   // Messages arrive as events; a turn's end refetches to settle on disk.
@@ -216,11 +227,14 @@ function Conversation({ id }: { id: string }) {
   return (
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="flex items-start gap-3 border-b px-5 py-3">
+        <div className="@container flex items-start gap-3 border-b px-5 py-3">
+          <PaneToggle side="left" className="-ml-2" />
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{s.title || "(untitled)"}</div>
             <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="font-mono">{s.root}</span>
+              <span className="max-w-full truncate font-mono @max-lg:max-w-48" title={s.root}>
+                {s.root}
+              </span>
               <Badge variant="outline" className="font-normal">
                 {s.engine || "api"}
               </Badge>
@@ -251,14 +265,13 @@ function Conversation({ id }: { id: string }) {
             <Button size="icon-sm" variant="ghost" title="Reload from disk" onClick={() => reload()}>
               <RefreshCwIcon />
             </Button>
-            <Button size="icon-sm" variant="ghost" title={panel ? "Hide the side panel" : "Show context trace, learned memories and details"} onClick={togglePanel}>
-              {panel ? <PanelRightCloseIcon /> : <PanelRightOpenIcon />}
-            </Button>
+            <FocusButton />
+            <PaneToggle side="right" />
           </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-          <div className={cn("mx-auto space-y-5", panel ? "max-w-3xl" : "max-w-5xl")}>
+          <div className={cn("mx-auto space-y-5", ws.rightOpen ? "max-w-3xl" : "max-w-5xl")}>
             {s.messages.map((m, i) => (
               <MessageView
                 key={i}
@@ -267,7 +280,7 @@ function Conversation({ id }: { id: string }) {
                 onTrace={(idx) => {
                   setTraceFor(idx);
                   setTab("context");
-                  if (!panel) togglePanel();
+                  ws.openRight();
                 }}
               />
             ))}
@@ -279,7 +292,7 @@ function Conversation({ id }: { id: string }) {
         <Composer busy={busy} owner={owner} target={s.target} onSend={send} />
       </div>
 
-      <aside className={cn("w-[26rem] shrink-0 flex-col border-l", panel ? "flex" : "hidden")}>
+      <RightPane>
         <Tabs value={tab} onValueChange={(v) => setTab(String(v))} className="flex min-h-0 flex-1 flex-col gap-0">
           <div className="border-b px-3 py-2">
             <TabsList>
@@ -298,7 +311,7 @@ function Conversation({ id }: { id: string }) {
             <DetailsPanel s={s} />
           </TabsContent>
         </Tabs>
-      </aside>
+      </RightPane>
     </div>
   );
 }
@@ -361,7 +374,7 @@ function LearnNowButton({ id }: { id: string }) {
         }
       }}
     >
-      <GraduationCapIcon /> {busy ? "Learning…" : "Learn now"}
+      <GraduationCapIcon /> <span className="@max-md:hidden">{busy ? "Learning…" : "Learn now"}</span>
     </Button>
   );
 }
@@ -439,6 +452,18 @@ function DetailsPanel({ s }: { s: Session }) {
           Each engine keeps its own session id (to resume) and how many messages it has seen; the rest is handed over as a brief when engines change.
         </p>
       </div>
+    </div>
+  );
+}
+
+/** SidePlaceholder fills the side panel before a conversation is chosen. */
+function SidePlaceholder() {
+  return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 p-6 text-center text-sm text-muted-foreground">
+      <MousePointerClickIcon className="size-5" />
+      Once a conversation starts, this panel shows what each turn was given — recalled memories, skills, MCP tools — what it taught the agent, and its
+      details.
+      <span className="text-xs">Fold it with Alt+] when you want the room.</span>
     </div>
   );
 }
