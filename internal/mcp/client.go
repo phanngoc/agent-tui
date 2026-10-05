@@ -67,7 +67,7 @@ func Connect(ctx context.Context, s Server) (*Client, error) {
 	case "stdio":
 		c.t, err = startStdio(s)
 	default:
-		c.t = &httpTransport{url: s.URL, headers: s.Headers, client: &http.Client{Timeout: 2 * time.Minute}}
+		c.t = &httpTransport{name: s.Name, url: s.URL, headers: s.Headers, client: &http.Client{Timeout: 2 * time.Minute}}
 	}
 	if err != nil {
 		return nil, err
@@ -326,13 +326,66 @@ func lastLines(s string, n int) string {
 // --- streamable HTTP -----------------------------------------------------
 
 type httpTransport struct {
+	name    string
 	url     string
 	headers map[string]string
 	client  *http.Client
 	session atomic.Value // string
 }
 
+// ownAuth says the definition carries its own Authorization header, which
+// then wins over a sign-in.
+func (t *httpTransport) ownAuth() bool {
+	for k := range t.headers {
+		if strings.EqualFold(k, "Authorization") {
+			return true
+		}
+	}
+	return false
+}
+
+// post sends one message. A server refusing it for want of authorization is
+// sent the sign-in's token, renewed if it has to be, and asked once more;
+// refused again, it is an AuthRequiredError, which the admin offers to fix by
+// signing in.
 func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, error) {
+	token := ""
+	if !t.ownAuth() {
+		token = accessToken(ctx, t.url, false)
+	}
+	resp, err := t.send(ctx, body, token)
+	if err != nil {
+		return nil, err
+	}
+	if resp.StatusCode == http.StatusUnauthorized && !t.ownAuth() {
+		resp.Body.Close()
+		if token = accessToken(ctx, t.url, true); token != "" {
+			if resp, err = t.send(ctx, body, token); err != nil {
+				return nil, err
+			}
+		}
+		if resp.StatusCode == http.StatusUnauthorized {
+			b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+			resp.Body.Close()
+			detail := strings.TrimSpace("the server answered 401 " + strings.TrimSpace(string(b)))
+			if SignedIn(t.url) {
+				detail = "the sign-in has expired or was revoked; sign in again"
+			}
+			return nil, &AuthRequiredError{Server: t.name, Detail: detail}
+		}
+	}
+	if s := resp.Header.Get("Mcp-Session-Id"); s != "" {
+		t.session.Store(s)
+	}
+	if resp.StatusCode >= 300 {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
+		resp.Body.Close()
+		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
+	}
+	return resp, nil
+}
+
+func (t *httpTransport) send(ctx context.Context, body []byte, token string) (*http.Response, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, t.url, bytes.NewReader(body))
 	if err != nil {
 		return nil, err
@@ -346,19 +399,10 @@ func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, 
 	for k, v := range t.headers {
 		req.Header.Set(k, os.ExpandEnv(v))
 	}
-	resp, err := t.client.Do(req)
-	if err != nil {
-		return nil, err
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
 	}
-	if s := resp.Header.Get("Mcp-Session-Id"); s != "" {
-		t.session.Store(s)
-	}
-	if resp.StatusCode >= 300 {
-		b, _ := io.ReadAll(io.LimitReader(resp.Body, 2048))
-		resp.Body.Close()
-		return nil, fmt.Errorf("http %d: %s", resp.StatusCode, strings.TrimSpace(string(b)))
-	}
-	return resp, nil
+	return t.client.Do(req)
 }
 
 func (t *httpTransport) call(ctx context.Context, req []byte, id int64) (json.RawMessage, error) {

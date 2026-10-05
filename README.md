@@ -167,6 +167,22 @@ links both ways.
 | settings | `prefs.json` in the data folder | `<project>/.agent-tui/settings.json` |
 | memory | `<data>/memory/` | `<data>/projects/<path-slug>/memory/` |
 
+**Remote MCP servers that ask for a sign-in** (Datadog's, for one) get one
+through OAuth, as the MCP authorization spec describes. *Sign in with browser*
+on the server's page in the admin, or `agent-tui mcp login <name>` from a
+shell, does the following:
+- finds the server's authorization server;
+- registers agent-tui with it as a client of its own;
+- opens the browser for the sign-in (PKCE, with the redirect landing on a
+  loopback port);
+- keeps the token in `~/.config/agent-tui/mcp-auth.json`, readable by you
+  only.
+
+The token renews itself, and the terminal, the gateway and the claude engine
+all use it. Claude Code's own sign-ins stay Claude Code's: refreshing a
+borrowed token would sign Claude Code out. A definition with its own
+`Authorization` header skips the sign-in.
+
 Skills and MCP servers use Claude Code's formats (`SKILL.md` with `name` and
 `description`; `{"mcpServers": {…}}`), and the admin imports both — and Claude
 Code's memory notes — from this machine and from every WSL distribution. A

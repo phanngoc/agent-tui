@@ -35,6 +35,10 @@ type Status struct {
 	Tools     []Tool    `json:"tools"`
 	Server    string    `json:"server_info,omitempty"`
 	At        time.Time `json:"at"`
+	// NeedsAuth says the server refused for want of a sign-in, and SignedIn
+	// that one is kept for it.
+	NeedsAuth bool `json:"needs_auth,omitempty"`
+	SignedIn  bool `json:"signed_in,omitempty"`
 }
 
 // ToolRef is a server's tool as the agent sees it.
@@ -161,8 +165,10 @@ func (p *Pool) Statuses(ctx context.Context, servers []Server) []Status {
 			defer wg.Done()
 			e := p.get(ctx, s)
 			st := Status{Name: s.Name, At: e.at, Tools: e.tools}
+			st.SignedIn = s.Transport() != "stdio" && SignedIn(s.URL)
 			if e.err != nil {
 				st.Error = e.err.Error()
+				st.NeedsAuth = NeedsAuth(e.err)
 			} else {
 				st.Connected = true
 				if e.client != nil {

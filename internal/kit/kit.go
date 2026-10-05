@@ -193,7 +193,7 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 		tr.MCP = append(tr.MCP, s.Name)
 	}
 	if len(servers) > 0 {
-		x.MCPServers = mcp.ClaudeConfig(servers)
+		x.MCPServers = mcp.ClaudeConfig(mcp.WithSignIn(ctx, servers))
 		if native {
 			cctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 			refs := Pool.Tools(cctx, servers)
