@@ -192,7 +192,7 @@ function TopBar() {
           }}
           className="h-8 max-w-[28rem] truncate rounded-lg border bg-background px-2 text-sm outline-none dark:bg-input/30"
         >
-          <option value="">Global only — no project</option>
+          <option value="">No project — everything</option>
           {options.map((p) => (
             <option key={p.root} value={p.root}>
               {p.name} — {p.root}
@@ -207,7 +207,7 @@ function TopBar() {
       </div>
       <FolderPicker open={picking} onOpenChange={setPicking} initial={root} onPick={setRoot} title="Choose the project to look at" />
       <span className="ml-auto truncate text-xs text-muted-foreground">
-        {root ? "Project scope: settings, skills and MCP in .agent-tui · memory in the data folder" : "Showing global scope only"}
+        {root ? "Project scope: settings, skills and MCP in .agent-tui · memory in the data folder" : "Sessions and memory of every project; skills, MCP and settings at global scope"}
       </span>
     </header>
   );

@@ -200,3 +200,26 @@ func (s *Store) Stats() Stats {
 	st.Persona = s.Persona() != ""
 	return st
 }
+
+// ProjectDirs lists the folders that hold a project's memory, whichever
+// project they belong to.
+func ProjectDirs() []string {
+	dirs, _ := filepath.Glob(filepath.Join(config.DataDir(), "projects", "*", "memory"))
+	return dirs
+}
+
+// AtDir opens the store kept in dir, which must be the global memory or one
+// of ProjectDirs: an admin request names a store by its folder, and nothing
+// outside the data folder is one.
+func AtDir(dir string) (*Store, bool) {
+	clean := filepath.Clean(dir)
+	if clean == filepath.Clean(GlobalDir()) {
+		return shared(GlobalDir(), Global), true
+	}
+	for _, d := range ProjectDirs() {
+		if strings.EqualFold(filepath.Clean(d), clean) {
+			return shared(d, Project), true
+		}
+	}
+	return nil, false
+}

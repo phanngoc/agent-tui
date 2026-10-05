@@ -108,8 +108,8 @@ function GlobalCard({ data }: { data: SettingsData }) {
               ]}
             />
           </Field>
-          <Field label="Learning model" hint={`empty: ${data.learn_default_model}; runs after turns, in the background`} className="col-span-2">
-            <NativeSelect value={p.learn_model ?? ""} onChange={(v) => set({ learn_model: v })} placeholder="default (small, fast)" options={models} />
+          <Field label="Learning model" hint={`empty: ${data.learn_default_model}; runs after turns, in the background — a stronger model judges and merges better; Haiku is cheapest`} className="col-span-2">
+            <NativeSelect value={p.learn_model ?? ""} onChange={(v) => set({ learn_model: v })} placeholder={`default (${data.models.find((m) => m.id === data.learn_default_model)?.label ?? data.learn_default_model})`} options={models} />
           </Field>
         </div>
         <Field label="Start the gateway with the terminal" hint="When a terminal finds no gateway, it starts `agent-tui serve` in the background so this page always has something to talk to.">
