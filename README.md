@@ -167,6 +167,30 @@ links both ways.
 | settings | `prefs.json` in the data folder | `<project>/.agent-tui/settings.json` |
 | memory | `<data>/memory/` | `<data>/projects/<path-slug>/memory/` |
 
+**Work on a schedule** runs in the gateway, whether or not a terminal or
+page is open (design and sources: `docs/lịch-tự-động.md`).
+
+- A **task** runs a prompt `every` 30m, by `cron`, or `at` a time.
+- A **heartbeat** works through the project's `.agent-tui/HEARTBEAT.md` in one
+  turn, and is skipped at no cost while the file has nothing in it.
+- **Quiet runs:** a run that answers `HEARTBEAT_OK` or `NO_REPLY` is quiet, and
+  nobody is notified. The others raise a toast in the admin.
+- **Pacing:** with pacing, the agent picks its next run within bounds through
+  the `schedule` tool. That tool also lets it schedule work itself ("remind me
+  at 3").
+- **Gate:** a shell command, run without a model, decides whether a run happens
+  at all.
+- **Failures:** a failing job backs off (30s → 1h) and pauses after five
+  failures in a row.
+- **Missed runs:** runs missed while the gateway was off get one catch-up run.
+- **In a terminal:**
+  - `/loop 5m check the deploy` repeats a prompt in that session.
+  - `/loop <prompt>` lets the agent pace it, between 1m and 1h.
+  - A loop lasts a week; `/loop stop` ends it.
+  - `/schedule` lists what is scheduled.
+- **In the admin:** the **Schedules** page creates and edits jobs, and shows
+  each run with a link to its session.
+
 **Remote MCP servers that ask for a sign-in** (Datadog's, for one) get one
 through OAuth, as the MCP authorization spec describes. *Sign in with browser*
 on the server's page in the admin, or `agent-tui mcp login <name>` from a

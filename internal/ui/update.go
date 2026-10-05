@@ -50,6 +50,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.notice = msg.text
 		return m, nil
 
+	case scheduleMsg:
+		m.notice = msg.text
+		return m, nil
+
 	case gwTickMsg:
 		return m, m.onGatewayTick()
 

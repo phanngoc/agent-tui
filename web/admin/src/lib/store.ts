@@ -18,7 +18,7 @@ export function onEvent(fn: Listener): () => void {
   return () => listeners.delete(fn);
 }
 
-export type Kind = "sessions" | "memory" | "skills" | "mcp" | "settings" | "learn" | "peers";
+export type Kind = "sessions" | "memory" | "skills" | "mcp" | "settings" | "learn" | "peers" | "schedule";
 
 interface State {
   root: string; // the project being looked at; "" means global only
@@ -141,7 +141,7 @@ export const useGateway = create<State>((set, get) => ({
   live: {},
   summaries: {},
   peers: [],
-  versions: { sessions: 0, memory: 0, skills: 0, mcp: 0, settings: 0, learn: 0, peers: 0 },
+  versions: { sessions: 0, memory: 0, skills: 0, mcp: 0, settings: 0, learn: 0, peers: 0, schedule: 0 },
   feed: [],
   bump: (k) => set((s) => ({ versions: { ...s.versions, [k]: s.versions[k] + 1 } })),
 
@@ -187,7 +187,7 @@ export const useGateway = create<State>((set, get) => ({
         switch (e.type) {
           case "config.changed": {
             const kind = e.data?.kind as string;
-            const map: Record<string, Kind> = { skills: "skills", mcp: "mcp", memory: "memory", settings: "settings", skill: "skills" };
+            const map: Record<string, Kind> = { skills: "skills", mcp: "mcp", memory: "memory", settings: "settings", skill: "skills", schedule: "schedule" };
             if (map[kind]) get().bump(map[kind]);
             break;
           }
@@ -204,6 +204,9 @@ export const useGateway = create<State>((set, get) => ({
           case "session.updated":
           case "turn.done":
             get().bump("sessions");
+            break;
+          case "schedule.run":
+            get().bump("schedule");
             break;
         }
         listeners.forEach((fn) => fn(e));

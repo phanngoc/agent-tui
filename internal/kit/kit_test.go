@@ -77,7 +77,7 @@ func TestServeMCPOffersTheKitTools(t *testing.T) {
 		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"memory_save","arguments":{"content":"Prefers tabs","type":"persona"}}}`,
 	}, "\n") + "\n"
 	var out strings.Builder
-	if err := ServeMCP(context.Background(), root, strings.NewReader(in), &out); err != nil {
+	if err := ServeMCP(context.Background(), root, "", strings.NewReader(in), &out); err != nil {
 		t.Fatal(err)
 	}
 	lines := strings.Split(strings.TrimSpace(out.String()), "\n")

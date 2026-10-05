@@ -70,8 +70,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "kit-mcp" {
 		fs := flag.NewFlagSet("kit-mcp", flag.ExitOnError)
 		root := fs.String("root", "", "project root")
+		sess := fs.String("session", "", "the session the turn belongs to")
 		_ = fs.Parse(os.Args[2:])
-		return kit.ServeMCP(context.Background(), *root, os.Stdin, os.Stdout)
+		return kit.ServeMCP(context.Background(), *root, *sess, os.Stdin, os.Stdout)
 	}
 
 	var (

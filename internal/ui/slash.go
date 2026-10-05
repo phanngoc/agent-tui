@@ -120,6 +120,12 @@ var slashCmds = []slashCmd{
 		func(m *Model, arg string) tea.Cmd {
 			return m.openRecall(arg)
 		}},
+	{"loop", "[interval] [prompt] | stop", "repeat a prompt in this session: every interval, or as the agent paces it", func(m *Model, arg string) tea.Cmd {
+		return m.startLoop(arg)
+	}},
+	{"schedule", "[web]", "what runs on a schedule in this project", func(m *Model, arg string) tea.Cmd {
+		return m.listSchedules(arg)
+	}},
 	{"web", "", "open this session in the web admin, starting the gateway if needed", func(m *Model, _ string) tea.Cmd {
 		return m.openWeb()
 	}},
