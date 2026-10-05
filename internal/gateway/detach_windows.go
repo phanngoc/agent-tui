@@ -17,11 +17,22 @@ import (
 // gateway a hidden console instead, which those programs inherit. (Windows
 // ignores CREATE_NO_WINDOW alongside DETACHED_PROCESS, so the two are not
 // combined.)
-func detach(cmd *exec.Cmd) {
+//
+// breakaway also takes it out of the starter's job object. The desktop window
+// puts the terminal app in a job that kills everything in it when the window
+// closes, which is right for the terminal app and wrong for the gateway: the
+// web it serves would die with a window it has nothing to do with. A job that
+// does not allow leaving refuses the start, and the caller tries again
+// without.
+func detach(cmd *exec.Cmd, breakaway bool) {
 	const (
-		createNewProcessGroup = 0x00000200
-		createNoWindow        = 0x08000000
+		createNewProcessGroup  = 0x00000200
+		createNoWindow         = 0x08000000
+		createBreakawayFromJob = 0x01000000
 	)
-	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true,
-		CreationFlags: createNewProcessGroup | createNoWindow}
+	flags := uint32(createNewProcessGroup | createNoWindow)
+	if breakaway {
+		flags |= createBreakawayFromJob
+	}
+	cmd.SysProcAttr = &syscall.SysProcAttr{HideWindow: true, CreationFlags: flags}
 }

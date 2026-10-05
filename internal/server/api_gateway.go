@@ -26,6 +26,28 @@ func (s *Server) gatewayRoutes(m *http.ServeMux) {
 		writeJSON(w, map[string]string{"id": p.ID})
 	})
 
+	// Stopping is asked for, not signalled: on Windows there is no signal one
+	// process can send another's console-less process short of killing it,
+	// and a kill leaves turns half-saved. Turns the gateway is running would
+	// be cancelled, so they have to be named and overridden.
+	m.HandleFunc("POST /api/gateway/shutdown", func(w http.ResponseWriter, r *http.Request) {
+		if busy := s.Runner.Running(); len(busy) > 0 && r.URL.Query().Get("force") != "1" {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusConflict)
+			_ = json.NewEncoder(w).Encode(map[string]any{"error": "turns are running", "busy": busy})
+			return
+		}
+		s.restart.Store(r.URL.Query().Get("restart") == "1")
+		if r.URL.Query().Get("hold") == "1" {
+			_ = gateway.MarkStopped()
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+		go func() {
+			time.Sleep(100 * time.Millisecond)
+			s.Stop()
+		}()
+	})
+
 	m.HandleFunc("GET /api/gateway/peers", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, s.Hub.Peers())
 	})

@@ -244,3 +244,32 @@ func firstLineOf(s string) string {
 	}
 	return s
 }
+
+// webOpenedMsg reports /web: what it opened, or why it could not.
+type webOpenedMsg struct{ text string }
+
+// openWeb opens this session in the web admin, starting the gateway first if
+// it is not running. Asking for the web is starting the gateway on purpose,
+// so it starts even after `agent-tui gateway stop` or with autostart off.
+func (m *Model) openWeb() tea.Cmd {
+	id := ""
+	if s := m.mgr.Active(); s != nil {
+		id = s.ID
+		m.mgr.SaveNow(s)
+	}
+	m.notice = "opening the web…"
+	return func() tea.Msg {
+		addr, _, err := gateway.Ensure()
+		if err != nil {
+			return webOpenedMsg{"web: " + err.Error()}
+		}
+		url := "http://" + addr + "/sessions"
+		if id != "" {
+			url += "?id=" + id
+		}
+		if err := gateway.OpenBrowser(url); err != nil {
+			return webOpenedMsg{"web: open " + url + " (" + err.Error() + ")"}
+		}
+		return webOpenedMsg{"opened " + url}
+	}
+}

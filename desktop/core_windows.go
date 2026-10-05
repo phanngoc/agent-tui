@@ -189,6 +189,10 @@ func StartCore(t *Term, bin string, args []string, dir string, onOutput func()) 
 // still be editing files. So the core is put in a job object that kills what
 // is in it when the last handle to it closes, and the only handle is this
 // process's. However this process ends, Windows ends the core with it.
+//
+// Except the gateway. The core starts one when there is none, and it is a
+// service of its own — the web runs on it — so the job lets it leave, and it
+// does (CREATE_BREAKAWAY_FROM_JOB). Everything else the core runs stays in.
 var (
 	jobOnce sync.Once
 	job     windows.Handle
@@ -201,7 +205,7 @@ func bindToWindow(proc windows.Handle) {
 			return
 		}
 		info := windows.JOBOBJECT_EXTENDED_LIMIT_INFORMATION{}
-		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+		info.BasicLimitInformation.LimitFlags = windows.JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE | windows.JOB_OBJECT_LIMIT_BREAKAWAY_OK
 		if _, err := windows.SetInformationJobObject(h, windows.JobObjectExtendedLimitInformation,
 			uintptr(unsafe.Pointer(&info)), uint32(unsafe.Sizeof(info))); err != nil {
 			_ = windows.CloseHandle(h)

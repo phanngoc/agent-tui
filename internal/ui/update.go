@@ -46,6 +46,10 @@ func (m *Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case gwCmdMsg:
 		return m, m.onGatewayCommand(msg.cmd)
 
+	case webOpenedMsg:
+		m.notice = msg.text
+		return m, nil
+
 	case gwTickMsg:
 		return m, m.onGatewayTick()
 

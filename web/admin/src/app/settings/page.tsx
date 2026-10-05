@@ -9,6 +9,7 @@ import { useGateway, useVersion } from "@/lib/store";
 import type { EngineInfo, Prefs, ProjectSettings, Trace } from "@/lib/types";
 import { CopyButton, ErrorNote, Field, Mono, NativeSelect, PageHeader } from "@/components/common";
 import { TraceView } from "@/components/trace-panel";
+import { GatewayCard } from "@/components/gateway-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -44,6 +45,7 @@ export default function SettingsPage() {
       <div className="grid gap-6 p-6 xl:grid-cols-2">
         <GlobalCard key={JSON.stringify(data.prefs)} data={data} />
         {root ? <ProjectCard key={root + JSON.stringify(data.project)} data={data} root={root} /> : <Card><CardHeader><CardTitle>Project</CardTitle><CardDescription>Pick a project at the top to override settings for it.</CardDescription></CardHeader></Card>}
+        <GatewayCard />
         <Effective data={data} root={root} />
         <ContextPreview root={root} engines={data.engines} />
         <Paths data={data} />
@@ -112,7 +114,7 @@ function GlobalCard({ data }: { data: SettingsData }) {
             <NativeSelect value={p.learn_model ?? ""} onChange={(v) => set({ learn_model: v })} placeholder={`default (${data.models.find((m) => m.id === data.learn_default_model)?.label ?? data.learn_default_model})`} options={models} />
           </Field>
         </div>
-        <Field label="Start the gateway with the terminal" hint="When a terminal finds no gateway, it starts `agent-tui serve` in the background so this page always has something to talk to.">
+        <Field label="Start the gateway with the terminal" hint="When a terminal finds no gateway it starts one in the background, and again if it goes away — unless it was stopped on purpose. Off: start it yourself (Start menu: agent-tui web, or agent-tui gateway start).">
           <NativeSelect
             value={p.gateway_autostart === false ? "off" : "on"}
             onChange={(v) => set({ gateway_autostart: v === "on" ? null : false })}

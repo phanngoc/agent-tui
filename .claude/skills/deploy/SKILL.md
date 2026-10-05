@@ -31,7 +31,10 @@ Script làm, theo thứ tự, và chạy lại bao nhiêu lần cũng an toàn:
    Nó chạy chính `agent-tui.exe` không sửa đổi trong ConPTY, vẽ bằng Gio (GPU, không cgo).
 2c. **Web admin** (`web/admin`, Next.js): nếu có `npm` thì `npm run build` (static export) rồi copy
    `web/admin/out` → thư mục `admin` cạnh `agent-tui.exe`; `agent-tui serve` tự phục vụ từ đó.
-   Gateway (`agent-tui serve`) đang chạy bản cũ bị dừng để `tui` lần sau khởi động bản mới.
+   Gateway (`agent-tui serve`) đang chạy bản cũ bị dừng; nếu nó đang chạy thì được khởi động lại
+   ngay từ binary mới (`agent-tui gateway start`), nên web không phải chờ `tui`. Start menu có
+   thêm **agent-tui web** (`agent-tui-desktop.exe --web`): bật gateway nếu cần và mở trình duyệt,
+   không mở cửa sổ console nào.
 3. **Lệnh tắt `tui`** trong cùng thư mục bin: `tui.cmd` (PowerShell/cmd/Warp) và
    `tui` không đuôi (Git Bash không tự resolve `.cmd`). Cả hai chuyển mọi tham số
    sang `agent-tui.exe`. Không dùng hardlink/copy exe: `go install` thay file nên

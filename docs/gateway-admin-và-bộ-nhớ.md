@@ -36,8 +36,22 @@ Zustand), gateway nối TUI với web, và cơ chế tự học theo TencentDB A
   ở cả TUI lẫn gateway; web vá transcript ngay khi nhận `tool.done`.
 - **Realtime.** Web nghe `/api/events` (SSE, có replay theo `Last-Event-ID`);
   `/api/live` cho trạng thái turn đang chạy khi trang mở giữa chừng.
-- **Tự khởi động.** `tui` không thấy gateway (`<data>/gateway.json` hoặc
-  `127.0.0.1:7788`) thì tự chạy `agent-tui serve` nền (tắt được trong Settings).
+- **Gateway độc lập.** Gateway là một service riêng, chạy nền trong data dir
+  cho tới khi bị dừng, không phụ thuộc terminal hay cửa sổ desktop nào. TUI,
+  desktop và web mở và dùng được riêng lẻ:
+  - TUI chạy được khi không có gateway, và tự nối vào khi gateway xuất hiện.
+  - Web được gateway phục vụ. Mở web (Start menu **agent-tui web**,
+    `agent-tui web`, `/web` trong TUI) sẽ tự bật gateway nếu chưa chạy.
+  - Desktop giết mọi thứ nó khởi động khi đóng, trừ gateway: gateway tách
+    khỏi job object (`CREATE_BREAKAWAY_FROM_JOB`).
+  - TUI không thấy gateway (`<data>/gateway.json`) thì tự bật một cái, và bật
+    lại trong 30 giây nếu gateway mất. Ngoại lệ là khi gateway bị dừng có chủ
+    đích (`agent-tui gateway stop`, hoặc nút *Stop* trong Settings): khi đó TUI
+    chờ tới lần bật có chủ đích tiếp theo. Có thể tắt hẳn việc tự bật trong
+    Settings.
+  - Lệnh: `agent-tui gateway [status|start|stop|restart|open|log]`. Settings
+    có thẻ Gateway hiện pid, version, uptime, số terminal và số turn đang
+    chạy, kèm nút Restart/Stop.
 - **An toàn.** Chỉ nghe loopback; từ chối Host/Origin không phải loopback
   (chống DNS rebinding). Không có đăng nhập.
 

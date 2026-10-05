@@ -10,6 +10,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -21,6 +22,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/phanngoc/agent-tui/internal/config"
@@ -37,8 +39,11 @@ type Server struct {
 	// WebDir, when set, is a static export of the admin to serve at /.
 	WebDir string
 
-	mux     *http.ServeMux
-	started time.Time
+	mux      *http.ServeMux
+	started  time.Time
+	stop     chan struct{}
+	stopOnce sync.Once
+	restart  atomic.Bool
 
 	cacheMu sync.Mutex
 	cache   map[string]cached
@@ -54,7 +59,7 @@ type cached struct {
 func New(cfg config.Config, version, webDir string) *Server {
 	hub := gateway.NewHub()
 	s := &Server{Hub: hub, Cfg: cfg, Version: version, WebDir: webDir, started: time.Now().UTC(),
-		cache: map[string]cached{}}
+		cache: map[string]cached{}, stop: make(chan struct{})}
 	s.Runner = gateway.NewRunner(hub, cfg)
 	s.Runner.Learner = learn.Default()
 	hub.Local = s.Runner
@@ -62,7 +67,7 @@ func New(cfg config.Config, version, webDir string) *Server {
 	return s
 }
 
-// ListenAndServe runs until the listener fails.
+// ListenAndServe runs until the listener fails or Stop is called.
 func (s *Server) ListenAndServe(addr string) error {
 	ln, err := net.Listen("tcp", addr)
 	if err != nil {
@@ -73,8 +78,37 @@ func (s *Server) ListenAndServe(addr string) error {
 	go s.watchLearner()
 	log.Printf("agent-tui gateway on http://%s", ln.Addr())
 	srv := &http.Server{Handler: s.guard(s.mux), ReadHeaderTimeout: 10 * time.Second}
-	return srv.Serve(ln)
+	errc := make(chan error, 1)
+	go func() { errc <- srv.Serve(ln) }()
+	select {
+	case err := <-errc:
+		return err
+	case <-s.stop:
+		// Event streams never finish on their own, so the grace is short and
+		// whatever is still open after it is closed.
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+		_ = srv.Shutdown(ctx)
+		cancel()
+		_ = srv.Close()
+		s.Shutdown()
+		if s.restart.Load() {
+			// The port and the discovery file are free now, so the new one
+			// — from the binary on disk, which may be newer — can take them.
+			if err := gateway.Start(); err != nil {
+				log.Printf("agent-tui gateway: restart: %v", err)
+			} else {
+				log.Printf("agent-tui gateway stopped; a new one is starting")
+				return nil
+			}
+		}
+		log.Printf("agent-tui gateway stopped")
+		return nil
+	}
 }
+
+// Stop makes ListenAndServe stop serving, cancel the turns it runs and
+// return.
+func (s *Server) Stop() { s.stopOnce.Do(func() { close(s.stop) }) }
 
 // Shutdown stops running turns.
 func (s *Server) Shutdown() {
@@ -138,7 +172,8 @@ func (s *Server) routes() {
 	s.mux = m
 
 	m.HandleFunc("GET /api/health", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"ok": true, "version": s.Version, "pid": os.Getpid()})
+		writeJSON(w, map[string]any{"ok": true, "version": s.Version, "pid": os.Getpid(),
+			"started": s.started, "peers": len(s.Hub.Peers()), "running": s.Runner.Running()})
 	})
 	m.HandleFunc("GET /api/overview", s.overview)
 	m.HandleFunc("GET /api/events", s.events)
