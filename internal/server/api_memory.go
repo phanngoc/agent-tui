@@ -198,6 +198,7 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 		type scope struct {
 			Scope       memory.Scope   `json:"scope"`
 			Persona     string         `json:"persona"`
+			PersonaPrev string         `json:"persona_prev,omitempty"`
 			Scenes      []memory.Scene `json:"scenes"`
 			Dir         string         `json:"dir"`
 			Project     string         `json:"project,omitempty"`
@@ -208,7 +209,7 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 		out := []scope{}
 		for _, ref := range s.memoryStores(root, root == "") {
 			st := ref.Store
-			out = append(out, scope{Scope: st.Scope, Persona: st.Persona(), Scenes: nz(st.Scenes()), Dir: st.Dir,
+			out = append(out, scope{Scope: st.Scope, Persona: st.Persona(), PersonaPrev: st.PersonaPrev(), Scenes: nz(st.Scenes()), Dir: st.Dir,
 				Project: ref.Root, ProjectName: ref.Name, Records: len(st.All())})
 		}
 		writeJSON(w, out)
@@ -318,16 +319,31 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/learn", func(w http.ResponseWriter, r *http.Request) {
 		root := r.URL.Query().Get("root")
 		acts := learn.Default().Activities(300)
+		// Each store by its folder, so an entry can say which project it
+		// was about and link to what it wrote.
+		type storeInfo struct {
+			Name  string `json:"name"`
+			Root  string `json:"root,omitempty"`
+			Scope string `json:"scope"`
+		}
+		stores := map[string]storeInfo{}
+		for _, ref := range s.memoryStores("", true) {
+			stores[ref.Store.Dir] = storeInfo{Name: ref.Name, Root: ref.Root, Scope: string(ref.Store.Scope)}
+		}
 		if root != "" {
 			kept := acts[:0]
 			for _, a := range acts {
-				if a.Root == "" || a.Root == root {
+				info, known := stores[a.Dir]
+				switch {
+				case a.Dir != "" && known && info.Scope == "project" && info.Root != root:
+				case a.Root != "" && a.Root != root:
+				default:
 					kept = append(kept, a)
 				}
 			}
 			acts = kept
 		}
-		writeJSON(w, map[string]any{"status": learn.Default().Status(), "activity": acts,
+		writeJSON(w, map[string]any{"status": learn.Default().Status(), "activity": acts, "stores": stores,
 			"enabled": root == "" || learn.Enabled(root),
 			"knobs": map[string]any{
 				"every_n_turns": learn.EveryN, "idle_minutes": learn.IdleAfter.Minutes(),

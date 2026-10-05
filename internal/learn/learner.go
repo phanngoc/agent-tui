@@ -83,6 +83,9 @@ type Activity struct {
 	// back to the run, and the run forward to its records.
 	Records []string `json:"records,omitempty"`
 	Scope   string   `json:"scope,omitempty"`
+	// Dir is the memory store the step worked on, so the admin can name the
+	// project and open what was written.
+	Dir string `json:"dir,omitempty"`
 }
 
 type job struct {
@@ -569,7 +572,12 @@ func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) (r
 		ss.WantPersona = ss.WantPersona || ask
 		l.save()
 		l.mu.Unlock()
-		l.record(Activity{Stage: "scenes", Detail: fmt.Sprintf("%s: folded %d memories into scenes (%d now)", st.Scope, len(recs), len(st.Scenes()))})
+		names := []string{}
+		for _, sc := range st.Scenes() {
+			names = append(names, strings.TrimSuffix(sc.File, ".md"))
+		}
+		l.record(Activity{Stage: "scenes", Scope: string(st.Scope), Dir: st.Dir,
+			Detail: fmt.Sprintf("folded %d memories into %d scenes\n%s", len(recs), len(names), strings.Join(names, " · "))})
 	}
 
 	l.mu.Lock()
@@ -579,19 +587,28 @@ func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) (r
 	if !want || len(st.Scenes()) == 0 {
 		return rep, nil
 	}
+	before := st.Persona()
 	if err := l.persona(ctx, st); err != nil {
 		return rep, err
 	}
+	after := st.Persona()
 	rep.Persona = true
 	l.mu.Lock()
 	ss.SincePersona, ss.WantPersona = 0, false
 	l.save()
 	l.mu.Unlock()
-	what := "persona"
+	// The global store's L3 is the user's persona; a project's is its
+	// doctrine — the same step, written about a codebase instead of a person.
+	what := "user persona (who you are and how you work)"
 	if st.Scope == memory.Project {
-		what = "project doctrine"
+		what = "project doctrine (how this codebase works)"
 	}
-	l.record(Activity{Stage: "persona", Detail: string(st.Scope) + ": rewrote the " + what})
+	verb := "rewrote the "
+	if before == "" {
+		verb = "wrote the first "
+	}
+	l.record(Activity{Stage: "persona", Scope: string(st.Scope), Dir: st.Dir,
+		Detail: fmt.Sprintf("%s%s — %d → %d characters, from %d scenes", verb, what, len([]rune(before)), len([]rune(after)), len(st.Scenes()))})
 	return rep, nil
 }
 

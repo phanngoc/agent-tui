@@ -155,3 +155,12 @@ func (s *Store) SetPersona(text string) error {
 	}
 	return os.WriteFile(p, []byte(strings.TrimSpace(text)+"\n"), 0o600)
 }
+
+// PersonaPrev returns the version SetPersona replaced last, for comparison.
+func (s *Store) PersonaPrev() string {
+	b, err := os.ReadFile(filepath.Join(s.Dir, "persona.prev.md"))
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(b))
+}
