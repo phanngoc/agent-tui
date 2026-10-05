@@ -1156,6 +1156,11 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		s.OutputTokens += e.Out
 		s.CacheReads += e.CacheRead
 
+	case agent.EvSubAgent:
+		if s.SetSubAgent(e.ToolUse, e.Agent) {
+			m.invalidateChat()
+		}
+
 	case agent.EvTask:
 		// A background command an external agent started, shown beside ours.
 		if e.ID != "" {

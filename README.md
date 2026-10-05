@@ -167,6 +167,21 @@ links both ways.
 | settings | `prefs.json` in the data folder | `<project>/.agent-tui/settings.json` |
 | memory | `<data>/memory/` | `<data>/projects/<path-slug>/memory/` |
 
+**Sub-agents are followed, as Claude Code follows them.** When the claude
+engine's agent starts sub-agents with the Agent tool (Explore, Plan,
+general-purpose, your own), each one is tracked from Claude Code's own
+`task_*` events and the messages it marks with `parent_tool_use_id`. That
+gives its type and task, what it is doing this second, its tool uses, tokens
+and time, its own calls, the agents it starts in turn, and its report. Its
+calls no longer spill into the main transcript.
+
+Where they show up:
+- **Terminal:** in the transcript (`● Explore  task ⎿ Reading go.mod · 4 tool
+  uses · 21k tokens · 9s`), and as `◆2 agents` on the status line.
+- **Web transcript:** a card for each agent.
+- **Admin Agents page:** a live map of every session at work, with the tree of
+  agents under each.
+
 **Work on a schedule** runs in the gateway, whether or not a terminal or
 page is open (design and sources: `docs/lịch-tự-động.md`).
 

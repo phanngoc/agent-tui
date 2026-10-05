@@ -89,6 +89,15 @@ type (
 		// one, so its output can be shown under that call.
 		ToolUse string
 	}
+	// EvSubAgent reports a sub-agent the agent started — Claude Code's Agent
+	// tool — and everything under it: what it is doing, its calls, and the
+	// agents it started in turn. ToolUse is the top-level call that started
+	// the tree; each event carries the whole tree, so applying it is one
+	// replacement.
+	EvSubAgent struct {
+		ToolUse string
+		Agent   session.SubAgent
+	}
 	// EvDone ends the turn. Err is nil on success. State is whatever the engine
 	// wants handed back on the next turn (SDK message history, an external
 	// session id); it travels through the event stream rather than a callback

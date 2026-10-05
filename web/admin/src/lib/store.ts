@@ -110,8 +110,12 @@ function applyLive(prev: Record<string, Live>, e: GatewayEvent): Record<string, 
       l.choices = c;
       break;
     }
+    case "subagent":
+      l.agents = { ...(l.agents ?? {}), [d.tool_use]: d.agent };
+      break;
     case "turn.done":
-      return { ...prev, [id]: { ...emptyLive(id, cur.owner), error: d.error } };
+      // The turn's agents stay on the map until the next turn starts.
+      return { ...prev, [id]: { ...emptyLive(id, cur.owner), error: d.error, agents: cur.agents } };
     default:
       return prev;
   }

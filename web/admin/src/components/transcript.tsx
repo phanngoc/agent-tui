@@ -8,8 +8,14 @@ import { Pre } from "@/components/common";
 import { Markdown } from "@/components/markdown";
 import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
 import { Button } from "@/components/ui/button";
+import { SubAgentCard } from "@/components/subagent";
 
 export function ToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
+  if (call.agent) return <SubAgentCard a={call.agent} />;
+  return <PlainToolRow call={call} output={output} running={running} />;
+}
+
+function PlainToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   const [open, setOpen] = React.useState(false);
   const isMcp = call.name.startsWith("mcp__");
   const isKit = ["skill", "memory_search", "memory_read", "memory_save"].includes(call.name);

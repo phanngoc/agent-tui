@@ -45,6 +45,7 @@ const (
 	EvChoiceDone      = "choice.resolved"
 	EvUsage           = "usage"
 	EvTurnDone        = "turn.done"
+	EvSubAgent        = "subagent"
 	EvTrace           = "trace"
 	EvLearn           = "learn"
 	EvConfig          = "config.changed"
@@ -93,6 +94,12 @@ type Command struct {
 	Verdict string `json:"verdict,omitempty"`
 	Index   int    `json:"index,omitempty"`
 	From    string `json:"from,omitempty"`
+}
+
+// SubAgentData is a sub-agent tree, from the top-level call that started it.
+type SubAgentData struct {
+	ToolUse string           `json:"tool_use"`
+	Agent   session.SubAgent `json:"agent"`
 }
 
 // Summary is a session as a list shows it.
@@ -197,6 +204,8 @@ func FromAgent(sessionID string, ev agent.Event) *Event {
 		e = New(EvToolDone, sessionID, ToolData{v.Call})
 	case agent.EvUsage:
 		e = New(EvUsage, sessionID, UsageData{v.In, v.Out, v.CacheRead})
+	case agent.EvSubAgent:
+		e = New(EvSubAgent, sessionID, SubAgentData{ToolUse: v.ToolUse, Agent: v.Agent})
 	case agent.EvDone:
 		d := TurnData{}
 		if v.Err != nil {

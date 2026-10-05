@@ -542,6 +542,10 @@ func (m *Model) statusBar() string {
 		right = append(right, m.st.Accent.Render("●"+strconv.Itoa(n)+" running")+
 			m.st.Faint.Render(" ctrl+k"))
 	}
+	if n := runningAgents(s); n > 0 {
+		// Sub-agents at work: the main agent is waiting on them.
+		right = append(right, m.st.Accent.Render("◆"+plural(n, "agent")))
+	}
 	right = append(right, m.st.Faint.Render(engineLabel))
 	// The rest is the first to go when the line is short: what the mode, the
 	// running commands and the model are matters more than the counts and the
