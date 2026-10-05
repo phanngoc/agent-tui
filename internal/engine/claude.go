@@ -2,6 +2,7 @@ package engine
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/phanngoc/agent-tui/internal/agent"
@@ -32,6 +33,15 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		// short question streamed 0 deltas with text in them, with it 21. The
 		// words are what tell you where a long turn is.
 		"--settings", `{"showThinkingSummaries":true}`,
+		// agent-tui schedules work itself (internal/schedule). Claude Code's
+		// own schedulers would compete with it, out of sight: its /schedule
+		// skill and RemoteTrigger make cloud routines on the user's account,
+		// and its cron tools, /loop and ScheduleWakeup die with this -p
+		// process. Asked to run something hourly, the agent took the first,
+		// so they are withheld and the schedule tool agent-tui serves is the
+		// one there is. The flag takes a list, so it must not come last,
+		// where it would swallow the prompt.
+		"--disallowedTools", strings.Join(claudeWithheld, ","),
 	}
 	if sys := t.System; sys != "" {
 		// A Windows command line holds 32767 characters in all; the
@@ -102,6 +112,10 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 	}
 	return append(a, t.PromptText())
 }
+
+// claudeWithheld are Claude Code's tools and skills that schedule work, which
+// agent-tui does itself.
+var claudeWithheld = []string{"Skill(schedule)", "Skill(loop)", "RemoteTrigger", "CronCreate", "CronDelete", "CronList", "ScheduleWakeup"}
 
 // claudeDec parses Claude Code's stream-json output.
 //
