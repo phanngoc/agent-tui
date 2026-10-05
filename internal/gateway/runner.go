@@ -342,6 +342,10 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 				r.Hub.Publish(Event{Type: EvMessage, Session: s.ID, Root: s.Root,
 					Data: mustJSON(MessageData{Index: i, Message: s.Messages[i]})})
 			}
+		case agent.EvSubAgent:
+			if s.SetSubAgent(e.ToolUse, e.Agent) {
+				p.mgr.Save(s)
+			}
 		case agent.EvUsage:
 			s.InputTokens += e.In
 			s.OutputTokens += e.Out

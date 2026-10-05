@@ -12,6 +12,27 @@ export interface ToolCall {
   denied?: boolean;
   chosen?: string;
   elapsed?: number; // nanoseconds
+  agent?: SubAgent;
+}
+
+/** SubAgent is an agent started by another (Claude Code's Agent tool). */
+export interface SubAgent {
+  id?: string;
+  type?: string;
+  description?: string;
+  prompt?: string;
+  state: "starting" | "running" | "done" | "failed" | "stopped" | "";
+  activity?: string;
+  last_tool?: string;
+  tokens?: number;
+  tool_uses?: number;
+  duration?: number; // nanoseconds
+  depth?: number;
+  background?: boolean;
+  started?: string;
+  ended?: string;
+  summary?: string;
+  calls?: ToolCall[];
 }
 
 export interface Message {
@@ -92,6 +113,7 @@ export interface Live {
   approvals: Record<string, ApprovalData>;
   choices: Record<string, ChoiceData>;
   error?: string;
+  agents?: Record<string, SubAgent>;
 }
 
 export interface GatewayEvent {

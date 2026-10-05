@@ -179,6 +179,17 @@ function Conversation({ id }: { id: string }) {
             return { ...d, session: { ...d.session, messages: msgs } };
           });
         }
+        if (e.type === "subagent") {
+          // A sub-agent's progress belongs on the Agent call that started it.
+          setData((d) => {
+            if (!d) return d;
+            const { tool_use, agent } = e.data;
+            const msgs = d.session.messages.map((m) =>
+              m.tools?.some((t) => t.id === tool_use) ? { ...m, tools: m.tools.map((t) => (t.id === tool_use ? { ...t, agent } : t)) } : m,
+            );
+            return { ...d, session: { ...d.session, messages: msgs } };
+          });
+        }
         if (e.type === "tool.done") {
           // A finished call's result belongs on the message that made it.
           setData((d) => {

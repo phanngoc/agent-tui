@@ -18,6 +18,7 @@ import {
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
   AlarmClockIcon,
+  NetworkIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -33,6 +34,7 @@ import { isTyping, useLayout } from "@/lib/layout";
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
   { href: "/sessions", label: "Sessions", icon: MessagesSquareIcon },
+  { href: "/agents", label: "Agents", icon: NetworkIcon },
   { href: "/memory", label: "Memory", icon: BrainIcon },
   { href: "/skills", label: "Skills", icon: SparklesIcon },
   { href: "/mcp", label: "MCP servers", icon: PlugIcon },

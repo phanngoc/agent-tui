@@ -124,6 +124,10 @@ type claudeDec struct {
 	// to its place in pending.
 	pending   []session.ToolCall
 	pendingAt map[int]int
+	// agents are the sub-agents started in this turn, by their Agent call;
+	// taskAgent finds that call from the engine's task id.
+	agents    map[string]*subAgentState
+	taskAgent map[string]string
 }
 
 func (d *claudeDec) failure() string { return d.fail }
@@ -146,9 +150,11 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 		} `json:"patch"`
 		Event   json.RawMessage `json:"event"`
 		Message json.RawMessage `json:"message"`
-		IsError bool            `json:"is_error"`
-		Result  string          `json:"result"`
-		Usage   claudeUsage     `json:"usage"`
+		// Parent is the Agent call of the sub-agent a message belongs to.
+		Parent  string      `json:"parent_tool_use_id"`
+		IsError bool        `json:"is_error"`
+		Result  string      `json:"result"`
+		Usage   claudeUsage `json:"usage"`
 	}
 	if json.Unmarshal(raw, &ev) != nil {
 		return
@@ -182,6 +188,12 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 			if ev.ThinkTok > 0 {
 				emit(agent.EvThinkingDelta{Tokens: ev.ThinkTok})
 			}
+		case "task_started", "task_progress", "task_updated", "task_notification":
+			if d.agentTask(raw, emit) {
+				return // a sub-agent, not a command
+			}
+		}
+		switch ev.Subtype {
 		case "task_started":
 			// Foreground commands arrive here too, not only background ones,
 			// and both are written to a file while they run.
@@ -204,12 +216,23 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 		}
 
 	case "stream_event":
+		if ev.Parent != "" {
+			return // a sub-agent's: its calls arrive whole, below
+		}
 		d.streamEvent(ev.Event, emit)
 
 	case "assistant":
+		if ev.Parent != "" {
+			d.subMessage("assistant", ev.Parent, ev.Message, emit)
+			return
+		}
 		d.assistant(ev.Message, emit)
 
 	case "user":
+		if ev.Parent != "" {
+			d.subMessage("user", ev.Parent, ev.Message, emit)
+			return
+		}
 		// A tool result closes out the assistant turn that requested it, so the
 		// message must be committed before the result is reported.
 		d.flush(emit)
@@ -359,6 +382,9 @@ func (d *claudeDec) assistant(raw json.RawMessage, emit func(agent.Event)) {
 			d.tools = append(d.tools, session.ToolCall{
 				ID: b.ID, Name: b.Name, Input: b.Input,
 			})
+			if isAgentTool(b.Name) {
+				d.noteAgentCall(b.ID, "", b.Input, emit)
+			}
 		}
 	}
 }
@@ -396,6 +422,12 @@ func (d *claudeDec) flush(emit func(agent.Event)) {
 	msg := d.msg
 	msg.Role = session.RoleAssistant
 	msg.At = time.Now()
+	for i, c := range d.tools {
+		if d.agents[c.ID] != nil {
+			a := d.snapshot(c.ID, 0)
+			d.tools[i].Agent = &a
+		}
+	}
 	msg.Tools = d.tools
 	emit(agent.EvAssistant{Message: msg})
 	for _, c := range d.tools {

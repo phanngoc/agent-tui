@@ -37,6 +37,58 @@ type ToolCall struct {
 	// Chosen records what the user picked when the call was a question.
 	Chosen  string        `json:"chosen,omitempty"`
 	Elapsed time.Duration `json:"elapsed,omitempty"`
+	// Agent is the sub-agent the call started, when it is a call that starts
+	// one (Claude Code's Agent tool): what it is doing, what it has used,
+	// and its own calls, with any agents it started in turn.
+	Agent *SubAgent `json:"agent,omitempty"`
+}
+
+// SubAgent is an agent another agent started to do part of its work, as
+// Claude Code's Agent tool does — an Explore search, a general-purpose job —
+// running beside it, often several at once.
+type SubAgent struct {
+	ID          string `json:"id,omitempty"` // the engine's task id
+	Type        string `json:"type,omitempty"`
+	Description string `json:"description,omitempty"`
+	Prompt      string `json:"prompt,omitempty"`
+	// State is starting, running, done, failed or stopped.
+	State string `json:"state"`
+	// Activity is what it is doing now, in the engine's words ("Reading
+	// go.mod"); LastTool is the tool it last called.
+	Activity   string        `json:"activity,omitempty"`
+	LastTool   string        `json:"last_tool,omitempty"`
+	Tokens     int64         `json:"tokens,omitempty"`
+	ToolUses   int           `json:"tool_uses,omitempty"`
+	Duration   time.Duration `json:"duration,omitempty"`
+	Depth      int           `json:"depth,omitempty"`
+	Background bool          `json:"background,omitempty"`
+	Started    time.Time     `json:"started,omitempty"`
+	Ended      time.Time     `json:"ended,omitempty"`
+	// Summary is what it reported back.
+	Summary string `json:"summary,omitempty"`
+	// Calls are its own tool calls, results cut short; an Agent call among
+	// them carries the agent it started.
+	Calls []ToolCall `json:"calls,omitempty"`
+}
+
+// Running says the agent has not finished.
+func (a *SubAgent) Running() bool {
+	return a != nil && (a.State == "" || a.State == "starting" || a.State == "running")
+}
+
+// SetSubAgent records what a sub-agent is doing on the call that started it.
+// It reports whether the call was found.
+func (s *Session) SetSubAgent(toolUse string, a SubAgent) bool {
+	for i := len(s.Messages) - 1; i >= 0; i-- {
+		for j := range s.Messages[i].Tools {
+			if s.Messages[i].Tools[j].ID == toolUse {
+				cp := a
+				s.Messages[i].Tools[j].Agent = &cp
+				return true
+			}
+		}
+	}
+	return false
 }
 
 // Summary renders the tool call as a single compact line for the transcript.
@@ -530,6 +582,9 @@ func (s *Session) MarkTool(call ToolCall) int {
 			}
 			if call.Elapsed > 0 {
 				cur.Elapsed = call.Elapsed
+			}
+			if call.Agent != nil {
+				cur.Agent = call.Agent
 			}
 			return i
 		}

@@ -376,6 +376,10 @@ func (m *Model) writeToolBody(b *strings.Builder, bar, text string, width int) {
 }
 
 func (m *Model) renderTool(b *strings.Builder, t session.ToolCall, width int) {
+	if t.Agent != nil {
+		m.renderAgent(b, t, width)
+		return
+	}
 	icon, style := "⋯", m.st.Dim
 	switch {
 	case t.Chosen != "":

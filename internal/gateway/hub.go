@@ -52,6 +52,10 @@ type Live struct {
 	Approvals map[string]ApprovalData     `json:"approvals"`
 	Choices   map[string]ChoiceData       `json:"choices"`
 	Error     string                      `json:"error,omitempty"`
+	// Agents are the sub-agents of the turn, by the call that started each
+	// tree. They outlive the turn, so the last turn's stay on the map until
+	// the next one starts.
+	Agents map[string]session.SubAgent `json:"agents,omitempty"`
 }
 
 const ringSize = 4000
@@ -197,9 +201,17 @@ func (h *Hub) apply(e Event) {
 	case EvTurnDone:
 		var d TurnData
 		_ = json.Unmarshal(e.Data, &d)
-		owner := l.Owner
-		*l = Live{Session: e.Session, Owner: owner, Error: d.Error}
+		owner, agents := l.Owner, l.Agents
+		*l = Live{Session: e.Session, Owner: owner, Error: d.Error, Agents: agents}
 		h.liveOf(e.Session, "")
+	case EvSubAgent:
+		var d SubAgentData
+		if json.Unmarshal(e.Data, &d) == nil && d.ToolUse != "" {
+			if l.Agents == nil {
+				l.Agents = map[string]session.SubAgent{}
+			}
+			l.Agents[d.ToolUse] = d.Agent
+		}
 	}
 }
 
