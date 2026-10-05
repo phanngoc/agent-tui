@@ -83,13 +83,27 @@ sessions live as they stream, a chat box, and the agent's memory, skills, MCP
 servers and settings — global and per project.
 
 ```sh
-tui                    # starts the gateway in the background if none is running
-open http://127.0.0.1:7788
-# or by hand:
-agent-tui serve        # -addr 127.0.0.1:7788 · -web <folder of the built admin>
+agent-tui web          # start the gateway if needed and open the admin (Start menu: "agent-tui web")
+agent-tui gateway      # status; also: start · stop [-force] · restart [-force] · open [path] · log
+/web                   # in a terminal: open this session in the admin
+agent-tui serve        # the gateway in the foreground: -addr 127.0.0.1:7788 · -web <built admin>
 make web               # build web/admin into web/admin/out (the deploy skill copies it beside the binary)
 make web-dev           # the admin with hot reload on :3000, against a running gateway
 ```
+
+**Three ways in, none needing another.** The gateway is a service of its own.
+It runs in the background, in the data folder, until it is stopped, whatever
+else is open. The terminal works without it: it publishes what it can and
+drops the rest, and joins whenever one appears. The web is served by it, and
+opening the web (the Start menu entry, `agent-tui web`, `/web`) starts it when
+it is not running. The desktop window is the terminal in a window. It ends
+everything it started when it closes, except the gateway, which leaves its job
+object. A terminal that finds no gateway starts one, and starts it again within
+30 seconds if it goes away. That stops when it is stopped on purpose
+(`agent-tui gateway stop`, or *Stop* in Settings), until it is started on
+purpose again. Settings shows its pid, version, uptime, the terminals connected
+and the turns it is running. From there it can be restarted, for example after
+an update, or stopped.
 
 **One gateway, one vocabulary.** `agent-tui serve` is the gateway. It runs turns
 with the same engine registry, the same project kit (below) and the same

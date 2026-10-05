@@ -51,14 +51,24 @@ if (Test-Path (Join-Path $Repo 'desktop\go.mod')) {
     $sc.IconLocation = "$desk,0"
     $sc.Description = 'agent-tui'
     $sc.Save()
-    Write-Host "desktop: $desk  (Start menu: agent-tui)"
+    # The web admin on its own: starts the gateway if it is not running and
+    # opens the browser, with no terminal and no desktop window.
+    $web = $ws.CreateShortcut((Join-Path ([Environment]::GetFolderPath('Programs')) 'agent-tui web.lnk'))
+    $web.TargetPath = $desk
+    $web.Arguments = '--web'
+    $web.WorkingDirectory = $env:USERPROFILE
+    $web.IconLocation = "$desk,0"
+    $web.Description = 'agent-tui web admin (starts the gateway if needed)'
+    $web.Save()
+    Write-Host "desktop: $desk  (Start menu: agent-tui, agent-tui web)"
 }
 
 # 2c. The web admin, as a static build in an `admin` folder beside the binary:
 #     `agent-tui serve` (which `tui` starts on its own) serves it from there.
 #     Skipped without npm; the gateway then serves a page saying how to run it.
 #     A gateway already running keeps the old binary and pages until it is
-#     stopped, so it is stopped here and the next `tui` starts the new one.
+#     stopped, so it is stopped here and, if it was running, started again
+#     from the new binary: the web stays up without waiting for a terminal.
 $web = Join-Path $Repo 'web\admin'
 $npm = Get-Command npm -ErrorAction SilentlyContinue
 if ((Test-Path (Join-Path $web 'package.json')) -and $npm) {
@@ -75,9 +85,16 @@ if ((Test-Path (Join-Path $web 'package.json')) -and $npm) {
 } else {
     Write-Host "admin  : skipped (npm not found)"
 }
+$wasRunning = $false
 Get-CimInstance Win32_Process -Filter "Name='agent-tui.exe'" |
     Where-Object { $_.CommandLine -match '\sserve(\s|$)' } |
-    ForEach-Object { Stop-Process -Id $_.ProcessId -Force; Write-Host "gateway: stopped old pid $($_.ProcessId); the next tui starts the new one" }
+    ForEach-Object { Stop-Process -Id $_.ProcessId -Force; $script:wasRunning = $true; Write-Host "gateway: stopped old pid $($_.ProcessId)" }
+if ($wasRunning) {
+    $ErrorActionPreference = 'Continue'
+    $out = & $exe gateway start 2>&1
+    $ErrorActionPreference = 'Stop'
+    Write-Host "gateway: $out"
+}
 
 # 3. The short alias: a .cmd for PowerShell/cmd/Warp, an extensionless sh
 #    script for Git Bash, which does not resolve .cmd on its own.

@@ -88,6 +88,11 @@ func Find() (string, bool) {
 
 // Start launches `agent-tui serve` in the background, detached from this
 // process so it outlives it, with its output in the data directory.
+//
+// It runs in the data directory, not in the starter's: a gateway outlives the
+// terminal that started it, and on Windows a process's working directory
+// cannot be deleted or renamed, so a gateway started in a project would pin
+// that project's folder for as long as it ran.
 func Start() error {
 	self, err := os.Executable()
 	if err != nil {
@@ -99,11 +104,34 @@ func Start() error {
 		return err
 	}
 	defer logf.Close()
+	env := os.Environ()
+	// The admin is found beside the binary, or — for a build run from the
+	// repository — under the starter's directory, which the gateway no
+	// longer runs in; so that one is handed over.
+	if os.Getenv("AGENT_TUI_WEB") == "" {
+		if wd, err := os.Getwd(); err == nil {
+			out := filepath.Join(wd, "web", "admin", "out")
+			if st, err := os.Stat(filepath.Join(out, "index.html")); err == nil && !st.IsDir() {
+				env = append(env, "AGENT_TUI_WEB="+out)
+			}
+		}
+	}
 	cmd := exec.Command(self, "serve")
+	cmd.Dir = config.DataDir()
+	cmd.Env = env
 	cmd.Stdout, cmd.Stderr = logf, logf
-	detach(cmd)
+	detach(cmd, true)
 	if err := cmd.Start(); err != nil {
-		return err
+		// A job that does not allow leaving it refuses the breakaway; the
+		// gateway then starts inside it, which is the old behaviour.
+		cmd = exec.Command(self, "serve")
+		cmd.Dir = config.DataDir()
+		cmd.Env = env
+		cmd.Stdout, cmd.Stderr = logf, logf
+		detach(cmd, false)
+		if err := cmd.Start(); err != nil {
+			return err
+		}
 	}
 	return cmd.Process.Release()
 }
@@ -127,8 +155,13 @@ type Client struct {
 	addr      atomic.Value // string
 	ctx       context.Context
 	cancel    context.CancelFunc
-	started   bool
+	lastStart time.Time
 }
+
+// restartEvery spaces out a peer's attempts to start a gateway: often enough
+// that one stopped or killed comes back while a terminal is open, rarely
+// enough that one failing to start is not retried in a loop.
+const restartEvery = 30 * time.Second
 
 // Join connects in the background and returns at once.
 func Join(kind, root string, autostart bool) *Client {
@@ -209,13 +242,10 @@ func (c *Client) loop() {
 // session is one connection, from registration until something breaks.
 func (c *Client) session() error {
 	addr, ok := Find()
-	if !ok && c.Autostart && !c.started {
-		c.started = true
+	if !ok && c.Autostart && !StoppedOnPurpose() && time.Since(c.lastStart) >= restartEvery {
+		c.lastStart = time.Now()
 		if Start() == nil {
-			for i := 0; i < 40 && !ok; i++ {
-				time.Sleep(250 * time.Millisecond)
-				addr, ok = Find()
-			}
+			addr, ok = waitFor(startWait)
 		}
 	}
 	if !ok {

@@ -50,6 +50,18 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "serve" {
 		return serve(cfg, os.Args[2:])
 	}
+	// `agent-tui gateway …` starts, stops and shows the gateway on its own;
+	// `agent-tui web` opens the admin, starting the gateway if it is not up.
+	if len(os.Args) > 1 && os.Args[1] == "gateway" {
+		return gatewayCmd(os.Args[2:])
+	}
+	if len(os.Args) > 1 && os.Args[1] == "web" {
+		path := ""
+		if len(os.Args) > 2 {
+			path = os.Args[2]
+		}
+		return openWeb(path)
+	}
 	// `agent-tui kit-mcp -root R` serves a project's skill and memory tools
 	// over MCP on stdio, for an engine that runs as a separate CLI.
 	if len(os.Args) > 1 && os.Args[1] == "kit-mcp" {
@@ -208,7 +220,7 @@ func run() error {
 func serve(cfg config.Config, args []string) error {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	addr := fs.String("addr", gateway.ListenAddr(), "address to listen on (loopback only; or AGENT_TUI_GATEWAY_ADDR)")
-	web := fs.String("web", "", "folder of a static build of the admin to serve at /")
+	web := fs.String("web", os.Getenv("AGENT_TUI_WEB"), "folder of a static build of the admin to serve at / (or AGENT_TUI_WEB)")
 	_ = fs.Parse(args)
 
 	// One gateway per data folder: a second would overwrite the first's
@@ -217,6 +229,7 @@ func serve(cfg config.Config, args []string) error {
 	if i, ok := gateway.ReadInfo(); ok && gateway.Alive(i.Addr) {
 		return fmt.Errorf("a gateway is already running on http://%s", i.Addr)
 	}
+	gateway.ClearStopped()
 	prefs := config.LoadPrefs()
 	if prefs.Model != "" {
 		cfg.Model = prefs.Model
@@ -236,13 +249,16 @@ func serve(cfg config.Config, args []string) error {
 			}
 		}
 	}
+	if *web != "" {
+		// A gateway restarting itself from the web serves the same pages.
+		_ = os.Setenv("AGENT_TUI_WEB", *web)
+	}
 	srv := server.New(cfg, version(), *web)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Interrupt, syscall.SIGTERM)
 	go func() {
 		<-sig
-		srv.Shutdown()
-		os.Exit(0)
+		srv.Stop()
 	}()
 	return srv.ListenAndServe(*addr)
 }

@@ -36,6 +36,17 @@ import (
 )
 
 func main() {
+	// `agent-tui-desktop --web` opens the web admin and `--gateway` starts the
+	// gateway, with no window: the Start menu entries for the web and the
+	// gateway on their own, which need neither this window nor a terminal.
+	if len(os.Args) > 1 {
+		switch os.Args[1] {
+		case "--web", "-web":
+			os.Exit(launchCore(append([]string{"web"}, os.Args[2:]...)))
+		case "--gateway", "-gateway":
+			os.Exit(launchCore(append([]string{"gateway"}, os.Args[2:]...)))
+		}
+	}
 	diagnostics()
 	go func() {
 		w := new(app.Window)

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -382,6 +383,19 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 			r.Hub.Publish(*out)
 		}
 	}
+}
+
+// Running lists the sessions whose turns run here now: what stopping the
+// gateway would cancel.
+func (r *Runner) Running() []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	ids := make([]string, 0, len(r.turns))
+	for id := range r.turns {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+	return ids
 }
 
 // Shutdown cancels running turns and flushes saves.
