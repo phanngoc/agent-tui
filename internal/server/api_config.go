@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"path/filepath"
+	"strconv"
 	"time"
 
 	"github.com/phanngoc/agent-tui/internal/agent"
@@ -180,11 +181,13 @@ func (s *Server) mcpRoutes(m *http.ServeMux) {
 		off := config.LoadProjectSettings(root).DisabledMCP
 		type row struct {
 			mcp.Server
-			Off bool `json:"off"`
+			Off      bool `json:"off"`
+			SignedIn bool `json:"signed_in,omitempty"`
 		}
 		out := []row{}
 		for _, sv := range st.List() {
-			out = append(out, row{Server: sv, Off: root != "" && config.Disabled(off, sv.Name)})
+			out = append(out, row{Server: sv, Off: root != "" && config.Disabled(off, sv.Name),
+				SignedIn: sv.Transport() != "stdio" && mcp.SignedIn(sv.URL)})
 		}
 		writeJSON(w, map[string]any{"servers": out, "global_path": st.GlobalPath, "project_path": st.ProjectPath})
 	})
@@ -250,6 +253,81 @@ func (s *Server) mcpRoutes(m *http.ServeMux) {
 		defer cancel()
 		active := kit.MCPStore(root).Active(config.LoadProjectSettings(root).DisabledMCP)
 		writeJSON(w, kit.Pool.Statuses(ctx, active))
+	})
+
+	// login starts signing in to a remote server: the page opens the returned
+	// address in a tab, and polls the login until the browser has come back.
+	m.HandleFunc("POST /api/mcp/login", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Root   string     `json:"root"`
+			Server mcp.Server `json:"server"`
+		}
+		if err := readJSON(r, &in); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := in.Server.Validate(); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Second)
+		defer cancel()
+		l, err := mcp.BeginLogin(ctx, in.Server)
+		if err != nil {
+			fail(w, http.StatusBadGateway, err)
+			return
+		}
+		id := strconv.FormatInt(time.Now().UnixNano(), 36)
+		s.loginsMu.Lock()
+		s.logins[id] = pendingLogin{login: l, server: in.Server, root: in.Root}
+		s.loginsMu.Unlock()
+		go func() {
+			ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
+			defer cancel()
+			if l.Wait(ctx) == nil {
+				kit.Pool.Forget(in.Server)
+				s.changed("mcp", in.Root)
+			}
+			time.Sleep(15 * time.Minute)
+			s.loginsMu.Lock()
+			delete(s.logins, id)
+			s.loginsMu.Unlock()
+		}()
+		writeJSON(w, map[string]string{"id": id, "url": l.URL})
+	})
+
+	m.HandleFunc("GET /api/mcp/login", func(w http.ResponseWriter, r *http.Request) {
+		s.loginsMu.Lock()
+		p, ok := s.logins[r.URL.Query().Get("id")]
+		s.loginsMu.Unlock()
+		if !ok {
+			fail(w, http.StatusNotFound, errors.New("no such sign-in"))
+			return
+		}
+		done, err := p.login.Result()
+		out := map[string]any{"done": done}
+		if err != nil {
+			out["error"] = err.Error()
+		}
+		writeJSON(w, out)
+	})
+
+	m.HandleFunc("POST /api/mcp/logout", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Root   string     `json:"root"`
+			Server mcp.Server `json:"server"`
+		}
+		if err := readJSON(r, &in); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if err := mcp.SignOut(in.Server.URL); err != nil {
+			fail(w, http.StatusInternalServerError, err)
+			return
+		}
+		kit.Pool.Forget(in.Server)
+		s.changed("mcp", in.Root)
+		w.WriteHeader(http.StatusNoContent)
 	})
 
 	m.HandleFunc("POST /api/mcp/import", func(w http.ResponseWriter, r *http.Request) {

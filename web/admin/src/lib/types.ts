@@ -252,6 +252,7 @@ export interface McpServer {
   scope: Scope;
   shadowed?: boolean;
   off?: boolean;
+  signed_in?: boolean;
 }
 
 export interface McpTool {
@@ -267,6 +268,8 @@ export interface McpStatus {
   tools: McpTool[];
   server_info?: string;
   at: string;
+  needs_auth?: boolean;
+  signed_in?: boolean;
 }
 
 export interface Install {

@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, DownloadIcon, PlugZapIcon, Trash2Icon, RefreshCwIcon, CheckCircle2Icon, XCircleIcon } from "lucide-react";
+import { PlusIcon, DownloadIcon, PlugZapIcon, Trash2Icon, RefreshCwIcon, CheckCircle2Icon, XCircleIcon, KeyRoundIcon, LogInIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -122,7 +122,7 @@ function Mcp() {
                         </div>
                         <div className="truncate font-mono text-[11px] text-muted-foreground">{s.command ? [s.command, ...(s.args ?? [])].join(" ") : s.url}</div>
                         <div className="text-[11px] text-muted-foreground">
-                          {s.shadowed ? "replaced by the project's" : s.disabled ? "disabled" : s.off ? "off in this project" : st?.connected ? `${st.tools.length} tools` : st?.error ? "failed" : ""}
+                          {s.shadowed ? "replaced by the project's" : s.disabled ? "disabled" : s.off ? "off in this project" : st?.connected ? `${st.tools.length} tools` : st?.needs_auth ? "needs sign-in" : st?.error ? "failed" : ""}
                         </div>
                       </button>
                     );
@@ -273,6 +273,21 @@ function ServerEditor({ server, isNew, root, status, onDone }: { server: McpServ
           </Field>
         </>
       )}
+      {type !== "stdio" && !/^\s*authorization\s*:/im.test(headers) && (
+        <SignIn
+          server={def()}
+          root={root}
+          signedIn={!!(shown?.signed_in ?? server.signed_in)}
+          needed={!!shown?.needs_auth}
+          onChange={async () => {
+            try {
+              setTest(await api.post<McpStatus>("/api/mcp/test", def()));
+            } catch (e) {
+              setErr((e as Error).message);
+            }
+          }}
+        />
+      )}
       <label className="flex items-center gap-2 text-sm">
         <Switch checked={disabled} onCheckedChange={setDisabled} /> Disabled everywhere (keep the definition)
       </label>
@@ -349,6 +364,80 @@ function ServerEditor({ server, isNew, root, status, onDone }: { server: McpServ
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * SignIn is a remote server's OAuth sign-in: the authorization server's page
+ * opens in a tab, and this waits for the browser to come back to the gateway.
+ * A server with its own Authorization header does not need it, so it is not
+ * shown then.
+ */
+function SignIn({ server, root, signedIn, needed, onChange }: { server: McpServer; root: string; signedIn: boolean; needed: boolean; onChange: () => void }) {
+  const [busy, setBusy] = React.useState(false);
+  const [err, setErr] = React.useState<string | null>(null);
+  const signIn = async () => {
+    setErr(null);
+    setBusy(true);
+    // Opened now, while the click still counts, or a popup blocker eats it.
+    const tab = window.open("about:blank", "_blank");
+    try {
+      const { id, url } = await api.post<{ id: string; url: string }>("/api/mcp/login", { root, server });
+      if (tab) tab.location.href = url;
+      else window.open(url, "_blank");
+      for (let i = 0; i < 400; i++) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const s = await api.get<{ done: boolean; error?: string }>("/api/mcp/login" + qs({ id }));
+        if (!s.done) continue;
+        if (s.error) throw new Error(s.error);
+        toast.success(`Signed in to ${server.name}`);
+        onChange();
+        return;
+      }
+      throw new Error("the sign-in timed out");
+    } catch (e) {
+      tab?.close();
+      setErr((e as Error).message);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className={cn("space-y-2 rounded-xl border p-3", needed && !signedIn && "border-amber-500/50 bg-amber-500/5")}>
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <KeyRoundIcon className="size-4 text-muted-foreground" />
+        <span className="font-medium">Sign-in (OAuth)</span>
+        <span className="text-muted-foreground">
+          {signedIn ? "signed in — tokens renew on their own" : needed ? "this server wants you to sign in" : "for servers that ask for one, like Datadog's"}
+        </span>
+        <div className="ml-auto flex gap-2">
+          {signedIn && (
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={async () => {
+                try {
+                  await api.post("/api/mcp/logout", { root, server });
+                  onChange();
+                } catch (e) {
+                  toast.error((e as Error).message);
+                }
+              }}
+            >
+              Sign out
+            </Button>
+          )}
+          <Button size="sm" variant={needed && !signedIn ? "default" : "outline"} disabled={busy} onClick={signIn}>
+            <LogInIcon /> {busy ? "Waiting for the browser…" : signedIn ? "Sign in again" : "Sign in with browser"}
+          </Button>
+        </div>
+      </div>
+      {err && <ErrorNote error={err} />}
+      <p className="text-xs text-muted-foreground">
+        agent-tui signs in as a client of its own; Claude Code&apos;s sign-in stays Claude Code&apos;s. The token is kept in the config folder and used by the
+        terminal, the gateway and the claude engine. From a shell: <span className="font-mono">agent-tui mcp login {server.name || "<name>"}</span>
+      </p>
     </div>
   );
 }

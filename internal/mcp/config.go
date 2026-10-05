@@ -11,6 +11,7 @@
 package mcp
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -216,6 +217,33 @@ func (st Store) Delete(scope Scope, name string) error {
 		return fmt.Errorf("no %s server named %q", scope, name)
 	}
 	return write(path, out)
+}
+
+// WithSignIn hands each remote server agent-tui is signed in to its token as
+// an Authorization header, for the claude engine, which runs the servers
+// itself and has no access to agent-tui's sign-ins. A definition with its own
+// Authorization header keeps it.
+func WithSignIn(ctx context.Context, servers []Server) []Server {
+	out := make([]Server, len(servers))
+	for i, s := range servers {
+		out[i] = s
+		if s.Transport() == "stdio" {
+			continue
+		}
+		t := &httpTransport{url: s.URL, headers: s.Headers}
+		if t.ownAuth() {
+			continue
+		}
+		if tok := accessToken(ctx, s.URL, false); tok != "" {
+			h := make(map[string]string, len(s.Headers)+1)
+			for k, v := range s.Headers {
+				h[k] = v
+			}
+			h["Authorization"] = "Bearer " + tok
+			out[i].Headers = h
+		}
+	}
+	return out
 }
 
 // ClaudeConfig renders servers as an --mcp-config payload for Claude Code.

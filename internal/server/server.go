@@ -28,6 +28,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/learn"
+	"github.com/phanngoc/agent-tui/internal/mcp"
 )
 
 // Server is the gateway process.
@@ -47,6 +48,16 @@ type Server struct {
 
 	cacheMu sync.Mutex
 	cache   map[string]cached
+
+	loginsMu sync.Mutex
+	logins   map[string]pendingLogin
+}
+
+// pendingLogin is a sign-in to an MCP server that a page started.
+type pendingLogin struct {
+	login  *mcp.Login
+	server mcp.Server
+	root   string
 }
 
 type cached struct {
@@ -59,7 +70,7 @@ type cached struct {
 func New(cfg config.Config, version, webDir string) *Server {
 	hub := gateway.NewHub()
 	s := &Server{Hub: hub, Cfg: cfg, Version: version, WebDir: webDir, started: time.Now().UTC(),
-		cache: map[string]cached{}, stop: make(chan struct{})}
+		cache: map[string]cached{}, stop: make(chan struct{}), logins: map[string]pendingLogin{}}
 	s.Runner = gateway.NewRunner(hub, cfg)
 	s.Runner.Learner = learn.Default()
 	hub.Local = s.Runner

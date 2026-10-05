@@ -127,5 +127,16 @@
   }
   html {
     @apply font-sans;
+    color-scheme: light;
+  }
+  /* Native controls — a select's list, scrollbars, date pickers — are drawn by
+     the browser in the page's colour scheme, not ours; without saying the dark
+     theme is dark, they open white with the theme's pale text on it. */
+  html.dark {
+    color-scheme: dark;
+  }
+  select option,
+  select optgroup {
+    @apply bg-popover text-popover-foreground;
   }
 }
