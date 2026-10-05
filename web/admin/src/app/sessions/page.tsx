@@ -3,11 +3,12 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
+import { useFollow } from "@/lib/follow";
 import { onEvent, useGateway, useVersion } from "@/lib/store";
 import type { Message, MemoryRecord, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
 import { Ago, CopyButton, Dot, Empty, ErrorNote, Mono, Pre } from "@/components/common";
@@ -163,7 +164,7 @@ function Conversation({ id }: { id: string }) {
   const [traceFor, setTraceFor] = React.useState<number | null>(null);
   const [tab, setTab] = React.useState("context");
   const ws = useWorkspace();
-  const bottom = React.useRef<HTMLDivElement>(null);
+  const { scroller, content, below, toBottom } = useFollow(!!data);
 
   // Messages arrive as events; a turn's end refetches to settle on disk.
   React.useEffect(
@@ -196,15 +197,11 @@ function Conversation({ id }: { id: string }) {
     [id, reload, setData],
   );
 
-  const count = data?.session.messages.length ?? 0;
-  React.useEffect(() => {
-    bottom.current?.scrollIntoView({ block: "end" });
-  }, [count, live?.partial, live?.busy]);
-
   const owner = summary?.owner ?? data?.summary.owner;
   const busy = live?.busy ?? false;
 
   const send = async (text: string) => {
+    toBottom();
     try {
       const r = await api.post<{ owner: string }>(`/api/sessions/${id}/prompt`, { text });
       toast.success(r.owner.startsWith("tui") ? "Sent to the terminal holding this session" : "Running in the gateway");
@@ -270,23 +267,35 @@ function Conversation({ id }: { id: string }) {
           </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto px-5 py-4">
-          <div className={cn("mx-auto space-y-5", ws.rightOpen ? "max-w-3xl" : "max-w-5xl")}>
-            {s.messages.map((m, i) => (
-              <MessageView
-                key={i}
-                m={m}
-                index={i}
-                onTrace={(idx) => {
-                  setTraceFor(idx);
-                  setTab("context");
-                  ws.openRight();
-                }}
-              />
-            ))}
-            <LiveTail live={live} onApprove={(aid, verdict) => cmd("approve", { id: aid, verdict })} onChoose={(cid, index) => cmd("choose", { id: cid, index })} />
-            <div ref={bottom} />
+        <div className="relative flex min-h-0 flex-1 flex-col">
+          <div ref={scroller} className="min-h-0 flex-1 overflow-auto px-5 py-4 [overflow-anchor:none]">
+            <div ref={content} className={cn("mx-auto space-y-5", ws.rightOpen ? "max-w-3xl" : "max-w-5xl")}>
+              {s.messages.map((m, i) => (
+                <MessageView
+                  key={i}
+                  m={m}
+                  index={i}
+                  onTrace={(idx) => {
+                    setTraceFor(idx);
+                    setTab("context");
+                    ws.openRight();
+                  }}
+                />
+              ))}
+              <LiveTail live={live} onApprove={(aid, verdict) => cmd("approve", { id: aid, verdict })} onChoose={(cid, index) => cmd("choose", { id: cid, index })} />
+            </div>
           </div>
+          {below && (
+            <Button
+              size="sm"
+              variant="secondary"
+              className="absolute bottom-3 left-1/2 -translate-x-1/2 rounded-full shadow-md"
+              onClick={toBottom}
+              title="Back to the bottom, and follow from there (End)"
+            >
+              <ArrowDownIcon /> {busy ? "New output below" : "Jump to latest"}
+            </Button>
+          )}
         </div>
 
         <Composer busy={busy} owner={owner} target={s.target} onSend={send} />
