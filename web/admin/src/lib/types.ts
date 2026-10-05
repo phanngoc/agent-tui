@@ -316,3 +316,53 @@ export interface EngineInfo {
   available: boolean;
   can_ask: boolean;
 }
+
+export interface ScheduleJob {
+  id: string;
+  name: string;
+  kind: "task" | "heartbeat";
+  root: string;
+  prompt?: string;
+  at?: string;
+  every?: string;
+  cron?: string;
+  pacing?: { min: string; max: string } | null;
+  active_hours?: { start: string; end: string; days?: number[] } | null;
+  until?: string;
+  session?: "new" | "same";
+  session_id?: string;
+  engine?: string;
+  model?: string;
+  mode?: string;
+  gate?: string;
+  timeout?: string;
+  delete_after_run?: boolean;
+  skip_missed?: boolean;
+  enabled: boolean;
+  created?: string;
+  origin?: string;
+  describe?: string;
+  state: {
+    next?: string;
+    last_run?: string;
+    last_status?: string;
+    last_error?: string;
+    last_text?: string;
+    failures?: number;
+    runs?: number;
+    running?: string;
+  };
+}
+
+export interface ScheduleRun {
+  id: string;
+  job: string;
+  start: string;
+  end?: string;
+  status: string;
+  reason?: string;
+  session?: string;
+  text?: string;
+  error?: string;
+  skipped?: string;
+}

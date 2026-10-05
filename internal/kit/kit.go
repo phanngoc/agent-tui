@@ -31,8 +31,9 @@ const KitServer = "agent-tui"
 
 // ServeMCP serves a project's skill and memory tools on stdio: the far end of
 // the entry Extras adds for CLI engines.
-func ServeMCP(ctx context.Context, root string, r io.Reader, w io.Writer) error {
+func ServeMCP(ctx context.Context, root, sessionID string, r io.Reader, w io.Writer) error {
 	k := For(root)
+	k.Session = sessionID
 	var tools []mcp.Served
 	add := func(e agent.Extension) {
 		var schema map[string]any
@@ -45,6 +46,9 @@ func ServeMCP(ctx context.Context, root string, r io.Reader, w io.Writer) error 
 	add(k.skillTool())
 	for _, e := range k.memoryTools() {
 		add(e)
+	}
+	if k.Root != "" {
+		add(k.scheduleTool())
 	}
 	return mcp.Serve(ctx, r, w, KitServer, tools)
 }
@@ -63,6 +67,9 @@ type Kit struct {
 	Memory   *memory.Bank
 	// DryRun previews: recall does not count as a hit.
 	DryRun bool
+	// Session is the session the turn belongs to, when known: the schedule
+	// tool needs it to pace a run or loop a conversation.
+	Session string
 }
 
 // MCPStore is the server store of a project.
@@ -116,7 +123,9 @@ type TraceHit struct {
 // and the engine calls it on its own goroutine.
 func Hook(root, sessionID, engineID, prompt string) func(context.Context) agent.Extras {
 	return func(ctx context.Context) agent.Extras {
-		x, tr := For(root).Extras(ctx, engineID, prompt)
+		k := For(root)
+		k.Session = sessionID
+		x, tr := k.Extras(ctx, engineID, prompt)
 		tr.Session = sessionID
 		SaveTrace(tr)
 		return x
@@ -184,6 +193,9 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 		}
 	}
 	x.Tools = append(x.Tools, k.memoryTools()...)
+	if k.Root != "" {
+		x.Tools = append(x.Tools, k.scheduleTool())
+	}
 	native := engineID == "api" || engineID == ""
 
 	// MCP: the claude engine runs the servers itself; the built-in one
@@ -219,7 +231,11 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 			if x.MCPServers == nil {
 				x.MCPServers = map[string]any{}
 			}
-			x.MCPServers[KitServer] = map[string]any{"type": "stdio", "command": self, "args": []string{"kit-mcp", "-root", k.Root}}
+			args := []string{"kit-mcp", "-root", k.Root}
+			if k.Session != "" {
+				args = append(args, "-session", k.Session)
+			}
+			x.MCPServers[KitServer] = map[string]any{"type": "stdio", "command": self, "args": args}
 		}
 		for _, t := range x.Tools {
 			if !strings.HasPrefix(t.Name, "mcp__") {

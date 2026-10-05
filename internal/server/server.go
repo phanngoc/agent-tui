@@ -29,6 +29,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/mcp"
+	"github.com/phanngoc/agent-tui/internal/schedule"
 )
 
 // Server is the gateway process.
@@ -51,6 +52,10 @@ type Server struct {
 
 	loginsMu sync.Mutex
 	logins   map[string]pendingLogin
+
+	// Sched runs scheduled jobs, while the gateway serves.
+	Sched     *schedule.Scheduler
+	schedHost *schedHost
 }
 
 // pendingLogin is a sign-in to an MCP server that a page started.
@@ -74,6 +79,13 @@ func New(cfg config.Config, version, webDir string) *Server {
 	s.Runner = gateway.NewRunner(hub, cfg)
 	s.Runner.Learner = learn.Default()
 	hub.Local = s.Runner
+	s.schedHost = &schedHost{s: s, last: map[string]string{}}
+	s.Sched = &schedule.Scheduler{Store: schedule.DefaultStore(), Host: s.schedHost,
+		Notify: func(j *schedule.Job, r schedule.Run) {
+			hub.Publish(gateway.Event{Type: EvSchedule, Session: r.Session, Root: j.Root,
+				Data: mustJSON(map[string]any{"job": j.ID, "name": j.Name, "run": r})})
+		},
+		Changed: func() { s.changed("schedule", "") }}
 	s.routes()
 	return s
 }
@@ -87,6 +99,10 @@ func (s *Server) ListenAndServe(addr string) error {
 	_ = gateway.WriteInfo(gateway.Info{Addr: ln.Addr().String(), PID: os.Getpid(), Started: s.started, Version: s.Version})
 	defer gateway.RemoveInfo(os.Getpid())
 	go s.watchLearner()
+	schedCtx, stopSched := context.WithCancel(context.Background())
+	defer stopSched()
+	go s.watchSchedule(schedCtx)
+	go s.Sched.Run(schedCtx)
 	log.Printf("agent-tui gateway on http://%s", ln.Addr())
 	srv := &http.Server{Handler: s.guard(s.mux), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
@@ -198,6 +214,7 @@ func (s *Server) routes() {
 	s.memoryRoutes(m)
 	s.settingsRoutes(m)
 	s.fsRoutes(m)
+	s.scheduleRoutes(m)
 
 	m.HandleFunc("/", s.static)
 }
