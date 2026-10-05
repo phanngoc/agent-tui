@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { PaneToggle, Workspace } from "@/components/workspace";
 
 export default function McpPage() {
   return (
@@ -71,8 +72,12 @@ function Mcp() {
         }
       />
       <ErrorNote error={error} className="m-6" />
-      <div className="flex min-h-0 flex-1">
-        <div className="w-80 shrink-0 overflow-auto border-r p-3">
+      <div className="min-h-0 flex-1">
+        <Workspace
+          id="mcp"
+          left={{
+            node: (
+              <div className="h-full overflow-auto p-3">
           {(["project", "global"] as Scope[])
             .filter((sc) => sc === "global" || root)
             .map((sc) => {
@@ -125,8 +130,17 @@ function Mcp() {
                 </div>
               );
             })}
-        </div>
-        <div className="min-w-0 flex-1 overflow-auto p-6">
+              </div>
+            ),
+            defaultSize: 320,
+            minSize: 220,
+            maxSize: 560,
+            foldBelow: 820,
+            label: "server list",
+          }}
+        >
+          <div className="min-h-0 flex-1 overflow-auto p-6">
+            <PaneToggle side="left" className="-mt-3 -ml-3 mb-1" />
           {selected ? (
             <ServerEditor
               key={selected.scope + selected.name + (draft ? "d" : "")}
@@ -142,7 +156,8 @@ function Mcp() {
           ) : (
             <Empty title="Pick a server">Status is checked by connecting to each enabled server and listing its tools — exactly what a turn would do.</Empty>
           )}
-        </div>
+          </div>
+        </Workspace>
       </div>
       <ImportDialog open={importing} onOpenChange={setImporting} root={root} />
     </div>

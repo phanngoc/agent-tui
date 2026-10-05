@@ -170,7 +170,7 @@ export function LiveTail({
           {live.status || "working"}
         </div>
         {live.thinking && <Thinking text={live.thinking} live />}
-        {live.partial && <Markdown text={live.partial} />}
+        {live.partial && <Markdown text={live.partial} streaming />}
         {Object.values(live.running).map((c) => (
           <ToolRow key={c.id} call={c} output={live.output[c.id]} running />
         ))}

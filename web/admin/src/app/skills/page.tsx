@@ -16,6 +16,7 @@ import { Badge } from "@/components/ui/badge";
 import { Switch } from "@/components/ui/switch";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
+import { PaneToggle, Workspace } from "@/components/workspace";
 
 export default function SkillsPage() {
   return (
@@ -74,8 +75,12 @@ function Skills() {
         }
       />
       <ErrorNote error={error} className="m-6" />
-      <div className="flex min-h-0 flex-1">
-        <div className="w-80 shrink-0 overflow-auto border-r p-3">
+      <div className="min-h-0 flex-1">
+        <Workspace
+          id="skills"
+          left={{
+            node: (
+              <div className="h-full overflow-auto p-3">
           {groups.map((g) => {
             const list = skills.filter((s) => s.scope === g.scope);
             return (
@@ -114,8 +119,17 @@ function Skills() {
               </div>
             );
           })}
-        </div>
-        <div className="min-w-0 flex-1 overflow-auto p-6">
+              </div>
+            ),
+            defaultSize: 320,
+            minSize: 220,
+            maxSize: 560,
+            foldBelow: 820,
+            label: "skill list",
+          }}
+        >
+          <div className="min-h-0 flex-1 overflow-auto p-6">
+            <PaneToggle side="left" className="-mt-3 -ml-3 mb-1" />
           {selected ? (
             <SkillEditor key={(selected.scope ?? "") + selected.name + (draft ? "draft" : "")} skill={selected} isNew={!!draft} root={root} onSaved={(s) => select(s)} onDeleted={() => router.replace("/skills")} />
           ) : (
@@ -125,7 +139,8 @@ function Skills() {
               were written by the learner from a session&apos;s work.
             </Empty>
           )}
-        </div>
+          </div>
+        </Workspace>
       </div>
       <ImportDialog open={importing} onOpenChange={setImporting} root={root} />
     </div>
