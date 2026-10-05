@@ -10,7 +10,9 @@ import { useFetch } from "@/lib/hooks";
 import { useGateway, useVersion } from "@/lib/store";
 import type { Activity, Install, LearnStatus, LogEntry, MemoryRecord, MemoryStats, Scene, Scope } from "@/lib/types";
 import { Ago, Empty, ErrorNote, Field, Mono, NativeSelect, PageHeader, Pre, ScopeBadge } from "@/components/common";
-import { ActivityItem } from "@/components/learn-feed";
+import { ActivityItem, type StoreInfo } from "@/components/learn-feed";
+import { Markdown } from "@/components/markdown";
+import { lineDiff } from "@/lib/diff";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -45,7 +47,7 @@ function Memory() {
         title="Memory"
         description={
           <>
-            What the agent learned, in TencentDB&apos;s layers: <b>records</b> (L1 atoms) → <b>scenes</b> (L2) → <b>persona</b> (L3). Global memory follows you;
+            What the agent learned, in TencentDB&apos;s layers: <b>records</b> (L1 atoms) → <b>scenes</b> (L2) → <b>persona</b> or project <b>doctrine</b> (L3). Global memory follows you;
             project memory stays with its project.{" "}
             {root ? (
               <>
@@ -445,44 +447,82 @@ interface ScopeScenes {
   project?: string;
   project_name: string;
   records: number;
+  persona_prev?: string;
 }
 
 function Scenes() {
   const root = useGateway((s) => s.root);
+  const params = useSearchParams();
+  const focusDir = params.get("dir") ?? "";
   const v = useVersion("memory");
   const { data } = useFetch<ScopeScenes[]>("/api/memory/scenes" + qs({ root }), [v]);
+  const box = React.useRef<HTMLDivElement>(null);
+  // A link from the learning feed opens on the store it named.
+  React.useEffect(() => {
+    if (!focusDir || !data) return;
+    const want = focusDir.toLowerCase();
+    const el = [...(box.current?.querySelectorAll<HTMLElement>("[data-dir]") ?? [])].find((e) => e.dataset.dir?.toLowerCase() === want);
+    el?.scrollIntoView({ block: "start", behavior: "smooth" });
+  }, [focusDir, data]);
   return (
-    <div className="grid gap-6 xl:grid-cols-2">
-      {(data ?? []).map((s) => (
-        <div key={s.dir} className="space-y-3">
-          <div className="flex items-center gap-2">
-            <ScopeBadge scope={s.scope} />
-            <span className="min-w-0 truncate text-sm font-medium" title={s.project || s.dir}>
-              {s.scope === "global" ? "About you, everywhere" : s.project_name}
-            </span>
-            <span className="ml-auto shrink-0 text-xs text-muted-foreground">{s.records} records</span>
+    <div className="space-y-4" ref={box}>
+      <div className="rounded-xl border bg-muted/30 px-4 py-3 text-sm text-muted-foreground">
+        <b className="text-foreground">L3 has two forms.</b> The <b className="text-foreground">user persona</b> lives in global memory: who you are and how you
+        work, carried into every project. Each project has a <b className="text-foreground">project doctrine</b> instead: how that codebase works — architecture,
+        procedures, decisions, what to avoid. Both are distilled from the store&apos;s scenes (L2), rewritten when the scenes ask, when there is none, or after
+        20 new memories, and both go into every prompt in their scope.
+      </div>
+      <div className="grid gap-6 xl:grid-cols-2">
+        {(data ?? []).map((s) => (
+          <div
+            key={s.dir}
+            data-dir={s.dir}
+            className={cn("scroll-mt-4 space-y-3 rounded-2xl", focusDir && focusDir.toLowerCase() === s.dir.toLowerCase() && "ring-2 ring-primary/50 ring-offset-4 ring-offset-background")}
+          >
+            <div className="flex items-center gap-2">
+              <ScopeBadge scope={s.scope} />
+              <span className="min-w-0 truncate text-sm font-medium" title={s.project || s.dir}>
+                {s.scope === "global" ? "About you, everywhere" : s.project_name}
+              </span>
+              <span className="ml-auto shrink-0 text-xs text-muted-foreground">{s.records} records</span>
+            </div>
+            <PersonaCard key={s.persona} scope={s.scope} text={s.persona} prev={s.persona_prev ?? ""} root={s.project || root} dir={s.dir} />
+            <SceneList scope={s.scope} scenes={s.scenes} root={s.project || root} dir={s.dir} />
           </div>
-          <PersonaCard key={s.persona} scope={s.scope} text={s.persona} root={s.project || root} dir={s.dir} />
-          <SceneList scope={s.scope} scenes={s.scenes} root={s.project || root} dir={s.dir} />
-        </div>
-      ))}
+        ))}
+      </div>
     </div>
   );
 }
 
-function PersonaCard({ scope, text, root, dir }: { scope: Scope; text: string; root: string; dir: string }) {
+function PersonaCard({ scope, text, prev, root, dir }: { scope: Scope; text: string; prev: string; root: string; dir: string }) {
   const [edit, setEdit] = React.useState(false);
+  const [compare, setCompare] = React.useState(false);
   const [val, setVal] = React.useState(text);
+  const diff = React.useMemo(() => (compare ? lineDiff(prev, text) : []), [compare, prev, text]);
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-sm">
           <SparklesIcon className="size-4" /> {scope === "global" ? "L3 · User persona" : "L3 · Project doctrine"}
-          <Button size="icon-sm" variant="ghost" className="ml-auto" onClick={() => setEdit(!edit)}>
-            <PencilIcon />
-          </Button>
+          <span className="font-normal text-muted-foreground">{text ? `${[...text].length} chars` : ""}</span>
+          <div className="ml-auto flex items-center gap-1">
+            {prev && text && !edit && (
+              <Button size="xs" variant={compare ? "secondary" : "ghost"} onClick={() => setCompare(!compare)} title="Show what the last rewrite changed">
+                {compare ? "Hide changes" : "What changed"}
+              </Button>
+            )}
+            <Button size="icon-sm" variant="ghost" onClick={() => setEdit(!edit)} title="Edit">
+              <PencilIcon />
+            </Button>
+          </div>
         </CardTitle>
-        <CardDescription>Rewritten by the learner from the scenes; in every prompt. Edit it and the next rewrite starts from your version.</CardDescription>
+        <CardDescription>
+          {scope === "global"
+            ? "Who you are and how you work, distilled from global scenes; in every prompt, in every project."
+            : "How this codebase works, distilled from this project's scenes; in every prompt in this project."}{" "}
+          Edit it and the next rewrite starts from your version.
+        </CardDescription>
       </CardHeader>
       <CardContent>
         {edit ? (
@@ -503,10 +543,24 @@ function PersonaCard({ scope, text, root, dir }: { scope: Scope; text: string; r
               Save
             </Button>
           </div>
+        ) : compare ? (
+          <div className="max-h-96 overflow-auto rounded-lg border font-mono text-[12px] leading-relaxed">
+            {diff.map((l, i) => (
+              <div
+                key={i}
+                className={cn(
+                  "px-3 whitespace-pre-wrap",
+                  l.kind === "add" && "bg-emerald-500/10 text-emerald-800 dark:text-emerald-300",
+                  l.kind === "del" && "bg-destructive/10 text-destructive",
+                )}
+              >
+                <span className="mr-2 select-none opacity-60">{l.kind === "add" ? "+" : l.kind === "del" ? "−" : " "}</span>
+                {l.text || " "}
+              </div>
+            ))}
+          </div>
         ) : text ? (
-          <Pre max="max-h-96" className="bg-transparent">
-            {text}
-          </Pre>
+          <Markdown text={text} />
         ) : (
           <div className="text-sm text-muted-foreground">Not written yet: it appears once there are scenes to distil.</div>
         )}
@@ -604,7 +658,10 @@ function Learning() {
   const root = useGateway((s) => s.root);
   const v = useVersion("learn");
   const [stage, setStage] = React.useState("");
-  const { data } = useFetch<{ status: LearnStatus; activity: Activity[]; enabled: boolean; knobs: Record<string, number> }>("/api/learn" + qs({ root }), [v]);
+  const { data } = useFetch<{ status: LearnStatus; activity: Activity[]; enabled: boolean; knobs: Record<string, number>; stores: Record<string, StoreInfo> }>(
+    "/api/learn" + qs({ root }),
+    [v],
+  );
   const acts = (data?.activity ?? []).filter((a) => !stage || a.stage === stage);
   const st = data?.status;
   return (
@@ -635,7 +692,8 @@ function Learning() {
               <b className="text-foreground">L2 scenes</b> fold new records in, at most every {data?.knobs.scene_interval_minutes} minutes per store, 15 scenes max.
             </p>
             <p>
-              <b className="text-foreground">L3 persona</b> is rewritten when the scenes ask, when there is none, or after 20 new memories.
+              <b className="text-foreground">L3</b> distils the scenes into the <i>user persona</i> (global: who you are, how you work) or a project&apos;s{" "}
+              <i>doctrine</i> (how that codebase works) — when the scenes ask, when there is none, or after 20 new memories.
             </p>
             <p>
               <b className="text-foreground">Skills</b> are reviewed once a session has made {data?.knobs.skill_tool_calls} tool calls.
@@ -665,10 +723,18 @@ function Learning() {
       </div>
       <div className="space-y-3">
         <div className="flex flex-wrap gap-1">
-          {["", "extract", "scenes", "persona", "skill", "error", "note"].map((s) => (
+          {[
+            ["", "all"],
+            ["extract", "L1 extract"],
+            ["scenes", "L2 scenes"],
+            ["persona", "L3 persona · doctrine"],
+            ["skill", "skills"],
+            ["error", "errors"],
+            ["note", "notes"],
+          ].map(([s, label]) => (
             <button key={s} onClick={() => setStage(s)}>
               <Badge variant={stage === s ? "default" : "outline"} className="font-normal">
-                {s || "all"}
+                {label}
               </Badge>
             </button>
           ))}
@@ -676,7 +742,7 @@ function Learning() {
         <div className="rounded-xl border">
           {acts.length === 0 && <Empty title="No activity" className="border-0" />}
           {acts.map((a, i) => (
-            <ActivityItem key={i} a={a} />
+            <ActivityItem key={i} a={a} stores={data?.stores} />
           ))}
         </div>
       </div>

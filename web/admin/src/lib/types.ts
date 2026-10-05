@@ -205,6 +205,7 @@ export interface Activity {
   error?: string;
   records?: string[];
   scope?: string;
+  dir?: string;
 }
 
 export interface SessionState {
