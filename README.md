@@ -205,6 +205,17 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
   - `/schedule` lists what is scheduled.
 - **In the admin:** the **Schedules** page creates and edits jobs, and shows
   each run with a link to its session.
+- **Agents use it too.** Every turn is told that agent-tui schedules work
+  itself, and to use the `schedule` tool (`mcp__agent-tui__schedule` for the
+  claude engine) rather than cron, at, systemd timers or Task Scheduler.
+  Claude Code's own schedulers are withheld from the turns agent-tui runs:
+  - its `/schedule` skill and `RemoteTrigger`, which make cloud routines on
+    your account;
+  - its cron tools, `/loop` and `ScheduleWakeup`, which would die with the
+    turn's process.
+
+  A CLI in a WSL distribution now gets agent-tui's own tools, run through
+  interop, and the remote MCP servers. Before, it got no MCP servers at all.
 
 **Remote MCP servers that ask for a sign-in** (Datadog's, for one) get one
 through OAuth, as the MCP authorization spec describes. *Sign in with browser*

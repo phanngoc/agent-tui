@@ -189,12 +189,10 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	}
 
 	// What the project adds — memory, skills, instructions, MCP servers.
-	// Servers are started by the CLI, so they are only handed to one running
-	// on this machine, where their commands exist.
+	// Servers are started by the CLI, so one running elsewhere — in a
+	// distribution, a container — gets those it can start there (mcpwsl.go).
 	t.Resolve(ctx)
-	if c.fs != nil && !c.fs.IsLocal() {
-		t.MCPServers = nil
-	}
+	t.MCPServers = serversFor(c.fs, t.MCPServers)
 	if c.id != "claude" && t.System != "" && t.ExternalID == "" {
 		// Only Claude Code takes a system prompt on the command line; the
 		// others read it at the head of the first prompt of a conversation,

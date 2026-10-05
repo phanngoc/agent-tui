@@ -195,6 +195,10 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 	x.Tools = append(x.Tools, k.memoryTools()...)
 	if k.Root != "" {
 		x.Tools = append(x.Tools, k.scheduleTool())
+		// Without this, asked to "run it every hour" an agent reaches for
+		// what it knows — a crontab entry, a timer, a loop script — which
+		// runs out of sight, outside the app the user is looking at.
+		sys.WriteString(schedulingGuide(engineID == "api" || engineID == ""))
 	}
 	native := engineID == "api" || engineID == ""
 
@@ -234,6 +238,9 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 			args := []string{"kit-mcp", "-root", k.Root}
 			if k.Session != "" {
 				args = append(args, "-session", k.Session)
+			}
+			if addr, err := gatewayAddr(); err == nil {
+				args = append(args, "-gateway", addr)
 			}
 			x.MCPServers[KitServer] = map[string]any{"type": "stdio", "command": self, "args": args}
 		}

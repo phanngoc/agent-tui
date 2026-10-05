@@ -23,8 +23,16 @@ import (
 // the gateway, so the tool talks to the gateway's API; it cannot import the
 // gateway package, which builds on this one.
 
+// GatewayAddr, when set, is the gateway to talk to — handed to kit-mcp by the
+// process that started the turn, since a kit-mcp started from a WSL
+// distribution does not inherit its environment and might find another.
+var GatewayAddr string
+
 // gatewayAddr reads the running gateway's address from its discovery file.
 func gatewayAddr() (string, error) {
+	if GatewayAddr != "" {
+		return GatewayAddr, nil
+	}
 	b, err := os.ReadFile(filepath.Join(config.DataDir(), "gateway.json"))
 	if err == nil {
 		var i struct {
@@ -116,6 +124,23 @@ func orDash(s string) string {
 	return s
 }
 
+// schedulingGuide tells the agent that the app schedules work itself, and to
+// use that rather than the machine's own schedulers.
+func schedulingGuide(native bool) string {
+	tool := "the schedule tool"
+	if !native {
+		tool = "the schedule tool (mcp__agent-tui__schedule)"
+	}
+	return strings.ReplaceAll(scheduling, "TOOL", tool)
+}
+
+const scheduling = `<scheduling>
+You are running inside agent-tui, which schedules work itself. For anything that should happen later or again — a reminder, polling, a periodic check or report, watching logs or a deploy — use TOOL. Do not set up cron, crontab, at, systemd timers, Windows Task Scheduler, launchd or a sleep loop for it, even inside the project, and do not use Claude Code's own /schedule skill, RemoteTrigger routines, CronCreate or /loop, which are not this app's scheduler: those run out of the user's sight, without the project's tools, memory or MCP servers, and nobody can see or stop them from agent-tui. A job made with the tool shows on the admin's Schedules page, runs in its own session (which the user can open) with the same engine, tools and MCP servers as this conversation, stays quiet when there is nothing to report, and can be paused or deleted there.
+Write the job's prompt so that a fresh session can do the whole job from it alone: what to check, where, what counts as worth reporting, and to answer NO_REPLY when nothing does. A shell gate (a command that exits 0 only when there is work) saves a model call per quiet run. If a script is needed, keep it in the project and have the job's prompt run it.
+</scheduling>
+
+`
+
 func (k *Kit) scheduleTool() agent.Extension {
 	str := func(d string) map[string]any { return map[string]any{"type": "string", "description": d} }
 	return agent.Extension{
@@ -134,6 +159,12 @@ func (k *Kit) scheduleTool() agent.Extension {
 				"pacing_min":   str("create: let each run choose the next within min..max, e.g. 1m."),
 				"pacing_max":   str("create: the upper bound for pacing, e.g. 1h."),
 				"same_session": map[string]any{"type": "boolean", "description": "create: run in this conversation, as a /loop does, instead of a fresh session each time."},
+				"kind":         map[string]any{"type": "string", "enum": []string{"task", "heartbeat"}, "description": "create: task (default) runs prompt; heartbeat works through the project's .agent-tui/HEARTBEAT.md checklist each run (give prompt to write that checklist)."},
+				"gate":         str("create: a shell command run in the project before each run; the run happens only if it exits 0, and its output is given to the agent."),
+				"model":        str("create: the model for the runs; empty means the project's."),
+				"mode":         map[string]any{"type": "string", "enum": []string{"plan", "ask", "auto", "full"}, "description": "create: what runs may do without asking (default auto)."},
+				"hours":        str("create: only between these local hours, \"09:00-18:00\"; add days as \"09:00-18:00 mon-fri\"."),
+				"timeout":      str("create: stop a run that goes on longer, e.g. 15m (default 30m)."),
 				"id":           str("delete: the job's id."),
 				"in":           str("next: when to check again: 5m, 1h."),
 				"reason":       str("next: why then, in a few words."),
@@ -142,6 +173,7 @@ func (k *Kit) scheduleTool() agent.Extension {
 		Run: func(ctx context.Context, in json.RawMessage) (string, bool) {
 			var a struct {
 				Action, Name, Prompt, At, Every, Cron, ID, In, Reason string
+				Kind, Gate, Model, Mode, Hours, Timeout               string
 				PacingMin                                             string `json:"pacing_min"`
 				PacingMax                                             string `json:"pacing_max"`
 				SameSession                                           bool   `json:"same_session"`
@@ -188,8 +220,31 @@ func (k *Kit) scheduleTool() agent.Extension {
 				}
 				return "noted: the next run is in about " + a.In + " (kept within the job's bounds)", false
 			case "create":
-				job := map[string]any{"name": a.Name, "kind": "task", "root": k.Root, "prompt": a.Prompt,
-					"enabled": true, "origin": "agent", "every": a.Every, "cron": a.Cron}
+				kind := a.Kind
+				if kind == "" {
+					kind = "task"
+				}
+				mode := a.Mode
+				if mode == "" {
+					mode = "auto"
+				}
+				job := map[string]any{"name": a.Name, "kind": kind, "root": k.Root, "prompt": a.Prompt,
+					"enabled": true, "origin": "agent", "every": a.Every, "cron": a.Cron,
+					"gate": a.Gate, "model": a.Model, "mode": mode, "timeout": a.Timeout}
+				if a.Hours != "" {
+					w, err := parseHours(a.Hours)
+					if err != nil {
+						return err.Error(), true
+					}
+					job["active_hours"] = w
+				}
+				if kind == "heartbeat" && strings.TrimSpace(a.Prompt) != "" {
+					// The prompt is the checklist: written where the heartbeat reads it.
+					if err := gatewayCall(ctx, http.MethodPut, "/api/schedules/checklist", map[string]string{"root": k.Root, "text": a.Prompt}, nil); err != nil {
+						return "writing the checklist: " + err.Error(), true
+					}
+					job["prompt"] = ""
+				}
 				if a.At != "" {
 					t, err := parseWhen(a.At)
 					if err != nil {
@@ -215,7 +270,7 @@ func (k *Kit) scheduleTool() agent.Extension {
 				if err := gatewayCall(ctx, http.MethodPost, "/api/schedules", job, &j); err != nil {
 					return err.Error(), true
 				}
-				return "scheduled " + strings.TrimPrefix(j.line(), "- "), false
+				return "scheduled " + strings.TrimPrefix(j.line(), "- ") + ". It is on the admin's Schedules page; the user can run it now, pause or edit it there.", false
 			}
 			return "unknown action " + a.Action, true
 		},
@@ -247,4 +302,44 @@ func parseWhen(s string) (time.Time, error) {
 func urlQuery(s string) string {
 	r := strings.NewReplacer("%", "%25", " ", "%20", "&", "%26", "#", "%23", "+", "%2B", "?", "%3F", "\\", "%5C")
 	return r.Replace(s)
+}
+
+// parseHours reads "09:00-18:00" or "09:00-18:00 mon-fri" / "… sat,sun".
+func parseHours(s string) (map[string]any, error) {
+	f := strings.Fields(strings.ToLower(s))
+	if len(f) == 0 {
+		return nil, fmt.Errorf("hours %q: give \"09:00-18:00\", optionally with days", s)
+	}
+	a, b, ok := strings.Cut(f[0], "-")
+	if !ok {
+		return nil, fmt.Errorf("hours %q: give \"09:00-18:00\"", s)
+	}
+	w := map[string]any{"start": a, "end": b}
+	if len(f) > 1 {
+		names := map[string]int{"sun": 0, "mon": 1, "tue": 2, "wed": 3, "thu": 4, "fri": 5, "sat": 6}
+		var days []int
+		for _, part := range strings.Split(strings.Join(f[1:], ","), ",") {
+			if x, y, ok := strings.Cut(part, "-"); ok {
+				i, ok1 := names[x]
+				j, ok2 := names[y]
+				if !ok1 || !ok2 {
+					return nil, fmt.Errorf("hours %q: days are mon, tue, … sun", s)
+				}
+				for d := i; ; d = (d + 1) % 7 {
+					days = append(days, d)
+					if d == j {
+						break
+					}
+				}
+				continue
+			}
+			d, ok := names[part]
+			if !ok {
+				return nil, fmt.Errorf("hours %q: days are mon, tue, … sun", s)
+			}
+			days = append(days, d)
+		}
+		w["days"] = days
+	}
+	return w, nil
 }

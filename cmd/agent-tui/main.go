@@ -71,7 +71,9 @@ func run() error {
 		fs := flag.NewFlagSet("kit-mcp", flag.ExitOnError)
 		root := fs.String("root", "", "project root")
 		sess := fs.String("session", "", "the session the turn belongs to")
+		gw := fs.String("gateway", "", "the gateway's address, for the schedule tool")
 		_ = fs.Parse(os.Args[2:])
+		kit.GatewayAddr = *gw
 		return kit.ServeMCP(context.Background(), *root, *sess, os.Stdin, os.Stdout)
 	}
 
