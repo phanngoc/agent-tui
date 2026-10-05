@@ -89,9 +89,9 @@ func hasWord(s string) bool { return len(memory.Tokens(s)) > 0 }
 type extracted struct {
 	Content  string         `json:"content"`
 	Type     string         `json:"type"`
-	Priority *int           `json:"priority"`
+	Priority *flexInt       `json:"priority"`
 	Scope    string         `json:"scope"`
-	Sources  []string       `json:"source_message_ids"`
+	Sources  flexStrings    `json:"source_message_ids"`
 	Metadata map[string]any `json:"metadata"`
 	scene    string
 }
@@ -120,12 +120,8 @@ func (l *Learner) extract(ctx context.Context, prevScene string, bg, newMsgs []m
 	user := "[Previous scene]: " + prevScene +
 		"\n\n[Background messages] (context only, NEVER extract from these):\n" + render(bg) +
 		"\n\n━━━━━━━━\n\n[New messages to extract] (use the timestamps for absolute dates):\n" + render(newMsgs)
-	text, err := l.llm.Complete(ctx, extractSystem, user, 4096)
-	if err != nil {
-		return nil, prevScene, err
-	}
 	var scenes []sceneOut
-	if err := decodeJSON(text, &scenes); err != nil {
+	if err := l.ask(ctx, extractSystem, user, 8192, &scenes); err != nil {
 		return nil, prevScene, err
 	}
 	var out []extracted
@@ -140,13 +136,13 @@ func (l *Learner) extract(ctx context.Context, prevScene string, bg, newMsgs []m
 				continue
 			}
 			p := 50
-			if m.Priority != nil {
-				p = *m.Priority
+			if m.Priority != nil && m.Priority.Set {
+				p = m.Priority.V
 			}
 			if p >= 0 && p < floor(m.Type) {
 				continue
 			}
-			m.Priority = &p
+			m.Priority = &flexInt{V: p, Set: true}
 			m.scene = sc.Name
 			out = append(out, m)
 		}
@@ -177,13 +173,13 @@ func sourceIdx(ids []string) []int {
 }
 
 type decision struct {
-	RecordID   string   `json:"record_id"`
-	Action     string   `json:"action"`
-	Targets    []string `json:"target_ids"`
-	Content    string   `json:"merged_content"`
-	Type       string   `json:"merged_type"`
-	Priority   *int     `json:"merged_priority"`
-	Timestamps []string `json:"merged_timestamps"`
+	RecordID   string      `json:"record_id"`
+	Action     string      `json:"action"`
+	Targets    flexStrings `json:"target_ids"`
+	Content    string      `json:"merged_content"`
+	Type       string      `json:"merged_type"`
+	Priority   flexInt     `json:"merged_priority"`
+	Timestamps flexStrings `json:"merged_timestamps"`
 }
 
 // Outcome counts what a run did.
@@ -208,7 +204,7 @@ func (l *Learner) consolidate(ctx context.Context, st *memory.Store, sessionID s
 	now := time.Now().UTC()
 	toRecord := func(m extracted) memory.Record {
 		return memory.Record{
-			Content: m.Content, Type: m.Type, Priority: *m.Priority, Scene: m.scene,
+			Content: m.Content, Type: m.Type, Priority: m.Priority.V, Scene: m.scene,
 			Session: sessionID, Sources: sourceIdx(m.Sources), Metadata: m.Metadata,
 			Timestamps: []time.Time{now}, Origin: "learned",
 		}
@@ -256,15 +252,11 @@ func (l *Learner) consolidate(ctx context.Context, st *memory.Store, sessionID s
 			rel = append(rel, h.Record.ID)
 		}
 		fmt.Fprintf(&b, "- record_id=new_%d type=%s priority=%d related=%v\n  %s\n",
-			i, m.Type, *m.Priority, rel, m.Content)
+			i, m.Type, m.Priority.V, rel, m.Content)
 	}
 
-	text, err := l.llm.Complete(ctx, dedupSystem, b.String(), 4096)
 	var ds []decision
-	if err == nil {
-		err = decodeJSON(text, &ds)
-	}
-	if err != nil {
+	if err := l.ask(ctx, dedupSystem, b.String(), 8192, &ds); err != nil {
 		l.note("dedup fell back to storing all: " + err.Error())
 		storeAll(0)
 		return out
@@ -300,8 +292,8 @@ func (l *Learner) consolidate(ctx context.Context, st *memory.Store, sessionID s
 			if memory.ValidType(d.Type) {
 				r.Type = d.Type
 			}
-			if d.Priority != nil {
-				r.Priority = *d.Priority
+			if d.Priority.Set {
+				r.Priority = d.Priority.V
 			}
 			r.Timestamps = mergeTimes(pool, targets, d.Timestamps, now)
 			if got, err := st.Replace(targets, r, d.Action); err == nil {
@@ -408,15 +400,11 @@ func (l *Learner) scenes(ctx context.Context, st *memory.Store, recs []memory.Re
 	case n >= maxScenes-3:
 		limit = "\nClose to the cap: prefer update or merge."
 	}
-	text, err := l.llm.Complete(ctx, fmt.Sprintf(sceneSystem, maxScenes, limit), u.String(), 8192)
-	if err != nil {
-		return false, err
-	}
 	var ans struct {
 		Ops     []sceneOp `json:"operations"`
 		Persona string    `json:"persona_update"`
 	}
-	if err := decodeJSON(text, &ans); err != nil {
+	if err := l.ask(ctx, fmt.Sprintf(sceneSystem, maxScenes, limit), u.String(), 16000, &ans); err != nil {
 		return false, err
 	}
 	heat := map[string]int{}
@@ -535,10 +523,6 @@ func (l *Learner) reviewSkill(ctx context.Context, store skill.Store, all []sess
 	}
 	u.WriteString("\n## Transcript\n" + tr)
 
-	text, err := l.llm.Complete(ctx, skillSystem, u.String(), 8192)
-	if err != nil {
-		return "", err
-	}
 	var ans struct {
 		Action      string `json:"action"`
 		Name        string `json:"name"`
@@ -547,7 +531,7 @@ func (l *Learner) reviewSkill(ctx context.Context, store skill.Store, all []sess
 		Body        string `json:"body"`
 		Reason      string `json:"reason"`
 	}
-	if err := decodeJSON(text, &ans); err != nil {
+	if err := l.ask(ctx, skillSystem, u.String(), 16000, &ans); err != nil {
 		return "", err
 	}
 	if ans.Action != "create" && ans.Action != "update" {
@@ -580,4 +564,28 @@ func headTail(s string, n int) string {
 		return s
 	}
 	return s[:n/2] + "\n…\n" + s[len(s)-n/2:]
+}
+
+// ask puts a question whose answer must be JSON and decodes it into v. An
+// answer that cannot be read goes back to the model once, with the reason,
+// before the step gives up: a retry costs one call, a lost step a whole batch.
+func (l *Learner) ask(ctx context.Context, system, user string, maxTokens int64, v any) error {
+	text, err := l.llm.Complete(ctx, system, user, maxTokens)
+	if err != nil {
+		return err
+	}
+	if err = decodeJSON(text, v); err == nil {
+		return nil
+	}
+	why := err.Error()
+	if len(why) > 200 {
+		why = why[:200]
+	}
+	again := user + "\n\n---\nYour previous answer could not be read as JSON (" + why + ").\n" +
+		"Answer again with only the JSON — nothing before or after it — and keep the text fields shorter so it fits."
+	text, err = l.llm.Complete(ctx, system, again, maxTokens)
+	if err != nil {
+		return err
+	}
+	return decodeJSON(text, v)
 }

@@ -13,7 +13,16 @@ import (
 )
 
 func (s *Server) memoryRoutes(m *http.ServeMux) {
+	// store finds the store a write means: by its folder (dir) when the page
+	// knows it — a record listed from every project carries its own — or by
+	// project and scope.
 	store := func(r *http.Request, root string, scope memory.Scope) (*memory.Store, error) {
+		if dir := r.URL.Query().Get("dir"); dir != "" {
+			if st, ok := memory.AtDir(dir); ok {
+				return st, nil
+			}
+			return nil, errors.New("no memory is kept in " + dir)
+		}
 		st := memory.For(root).Store(scope)
 		if st == nil {
 			return nil, errors.New("pick a project for project memory")
@@ -21,49 +30,85 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 		return st, nil
 	}
 
-	// GET /api/memory?root=&scope=&type=&q= lists records; with q they are
+	type hit struct {
+		memory.Hit
+		Project     string `json:"project,omitempty"`
+		ProjectName string `json:"project_name"`
+		Dir         string `json:"dir"`
+	}
+	type stats struct {
+		memory.Stats
+		Project     string `json:"project,omitempty"`
+		ProjectName string `json:"project_name"`
+	}
+
+	// GET /api/memory?root=&all=&scope=&type=&q= lists records — of the
+	// global store and a project's, or with all (or no project picked) of
+	// every project — each with the project it belongs to. With q they are
 	// ranked as recall would rank them, and carry their score.
 	m.HandleFunc("GET /api/memory", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		bank := memory.For(q.Get("root"))
+		root := q.Get("root")
+		refs := s.memoryStores(root, root == "" || q.Get("all") == "1")
 		var recs []memory.Record
-		for _, st := range bank.Stores() {
-			if sc := q.Get("scope"); sc != "" && string(st.Scope) != sc {
+		owner := map[string]storeRef{}
+		st := []stats{}
+		for _, ref := range refs {
+			st = append(st, stats{Stats: ref.Store.Stats(), Project: ref.Root, ProjectName: ref.Name})
+			if sc := q.Get("scope"); sc != "" && string(ref.Store.Scope) != sc {
 				continue
 			}
-			recs = append(recs, st.All()...)
+			for _, rec := range ref.Store.All() {
+				owner[ref.Store.Dir+"|"+rec.ID] = ref
+				recs = append(recs, rec)
+			}
+		}
+		keep := func(f func(memory.Record) bool) {
+			kept := recs[:0]
+			for _, r := range recs {
+				if f(r) {
+					kept = append(kept, r)
+				}
+			}
+			recs = kept
 		}
 		if t := q.Get("type"); t != "" {
-			kept := recs[:0]
-			for _, r := range recs {
-				if r.Type == t {
-					kept = append(kept, r)
-				}
-			}
-			recs = kept
+			keep(func(r memory.Record) bool { return r.Type == t })
 		}
 		if sess := q.Get("session"); sess != "" {
-			kept := recs[:0]
-			for _, r := range recs {
-				if r.Session == sess {
-					kept = append(kept, r)
-				}
-			}
-			recs = kept
+			keep(func(r memory.Record) bool { return r.Session == sess })
 		}
-		hits := []memory.Hit{}
+		var found []memory.Hit
 		if text := strings.TrimSpace(q.Get("q")); text != "" {
-			hits = append(hits, memory.Search(recs, text, 200)...)
+			found = memory.Search(recs, text, 200)
 		} else {
 			for _, r := range recs {
-				hits = append(hits, memory.Hit{Record: r})
+				found = append(found, memory.Hit{Record: r})
 			}
 		}
-		stats := []memory.Stats{}
-		for _, st := range bank.Stores() {
-			stats = append(stats, st.Stats())
+		// Records keep no note of their store; find it again by id, which
+		// is unique, scope by scope.
+		dirOf := func(rec memory.Record) storeRef {
+			for _, ref := range refs {
+				if ref.Store.Scope != rec.Scope {
+					continue
+				}
+				if o, ok := owner[ref.Store.Dir+"|"+rec.ID]; ok {
+					return o
+				}
+			}
+			return storeRef{}
 		}
-		writeJSON(w, map[string]any{"hits": hits, "stats": stats, "types": memory.Types})
+		hits := []hit{}
+		for _, h := range found {
+			ref := dirOf(h.Record)
+			dir := ""
+			if ref.Store != nil {
+				dir = ref.Store.Dir
+			}
+			hits = append(hits, hit{Hit: h, Project: ref.Root, ProjectName: ref.Name, Dir: dir})
+		}
+		writeJSON(w, map[string]any{"hits": hits, "stats": st, "types": memory.Types, "all": root == "" || q.Get("all") == "1"})
 	})
 
 	m.HandleFunc("PUT /api/memory", func(w http.ResponseWriter, r *http.Request) {
@@ -122,7 +167,16 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 		q := r.URL.Query()
 		id := q.Get("id")
 		out := []memory.LogEntry{}
-		for _, st := range memory.For(q.Get("root")).Stores() {
+		stores := memory.For(q.Get("root")).Stores()
+		if dir := q.Get("dir"); dir != "" {
+			st, ok := memory.AtDir(dir)
+			if !ok {
+				fail(w, http.StatusBadRequest, errors.New("no memory is kept in "+dir))
+				return
+			}
+			stores = []*memory.Store{st}
+		}
+		for _, st := range stores {
 			if sc := q.Get("scope"); sc != "" && string(st.Scope) != sc {
 				continue
 			}
@@ -142,14 +196,20 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 
 	m.HandleFunc("GET /api/memory/scenes", func(w http.ResponseWriter, r *http.Request) {
 		type scope struct {
-			Scope   memory.Scope   `json:"scope"`
-			Persona string         `json:"persona"`
-			Scenes  []memory.Scene `json:"scenes"`
-			Dir     string         `json:"dir"`
+			Scope       memory.Scope   `json:"scope"`
+			Persona     string         `json:"persona"`
+			Scenes      []memory.Scene `json:"scenes"`
+			Dir         string         `json:"dir"`
+			Project     string         `json:"project,omitempty"`
+			ProjectName string         `json:"project_name"`
+			Records     int            `json:"records"`
 		}
+		root := r.URL.Query().Get("root")
 		out := []scope{}
-		for _, st := range memory.For(r.URL.Query().Get("root")).Stores() {
-			out = append(out, scope{Scope: st.Scope, Persona: st.Persona(), Scenes: nz(st.Scenes()), Dir: st.Dir})
+		for _, ref := range s.memoryStores(root, root == "") {
+			st := ref.Store
+			out = append(out, scope{Scope: st.Scope, Persona: st.Persona(), Scenes: nz(st.Scenes()), Dir: st.Dir,
+				Project: ref.Root, ProjectName: ref.Name, Records: len(st.All())})
 		}
 		writeJSON(w, out)
 	})
@@ -218,19 +278,41 @@ func (s *Server) memoryRoutes(m *http.ServeMux) {
 		w.WriteHeader(http.StatusNoContent)
 	})
 
+	// consolidate rebuilds scenes and personas now, on what the page shows:
+	// the global store and the project's, or every store when no project is
+	// picked. It answers with what each store came out with.
 	m.HandleFunc("POST /api/memory/consolidate", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
 			Root string `json:"root"`
+			All  bool   `json:"all"`
 		}
 		_ = readJSON(r, &in)
-		ctx, cancel := context.WithTimeout(r.Context(), 9*time.Minute)
+		refs := s.memoryStores(in.Root, in.Root == "" || in.All)
+		stores := make([]*memory.Store, 0, len(refs))
+		names := map[string]storeRef{}
+		for _, ref := range refs {
+			stores = append(stores, ref.Store)
+			names[ref.Store.Dir] = ref
+		}
+		ctx, cancel := context.WithTimeout(r.Context(), 30*time.Minute)
 		defer cancel()
-		if err := learn.Default().Consolidate(ctx, in.Root); err != nil {
+		reports, err := learn.Default().Consolidate(ctx, stores)
+		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
+		type report struct {
+			learn.StoreReport
+			Project     string `json:"project,omitempty"`
+			ProjectName string `json:"project_name"`
+		}
+		out := []report{}
+		for _, rep := range reports {
+			ref := names[rep.Dir]
+			out = append(out, report{StoreReport: rep, Project: ref.Root, ProjectName: ref.Name})
+		}
 		s.changed("memory", in.Root)
-		writeJSON(w, map[string]any{"ok": true})
+		writeJSON(w, map[string]any{"reports": out})
 	})
 
 	m.HandleFunc("GET /api/learn", func(w http.ResponseWriter, r *http.Request) {

@@ -190,8 +190,16 @@ Memory learns on its own, in the layers of
 
 Recall ranks records by BM25 against each prompt and adds the best five. The
 learner uses `ANTHROPIC_API_KEY` when there is one and the `claude` CLI
-otherwise; its model, and whether it runs at all, are settings, globally and
-per project.
+otherwise, on Sonnet 5.5 unless the setting names another — judging what to
+keep, merging it and writing scenes is where a smaller model's work showed.
+An answer that is not quite JSON (a raw line break in a string, a number
+written as text, a reply cut short) is read anyway, and one that cannot be is
+asked for again once. Whether it runs at all is a setting, globally and per
+project.
+
+With no project picked, the Memory page shows every store — global and each
+project's, named after the project — and *Consolidate all* rebuilds every
+one, then says what each came out with.
 
 ## Engines
 

@@ -159,3 +159,74 @@ func TestDecodeJSONForgivesWrapping(t *testing.T) {
 		t.Fatalf("%v %v", v, err)
 	}
 }
+
+func TestDecodeJSONReadsWhatModelsActuallyWrite(t *testing.T) {
+	// The judge's answer from a real log: valid JSON, but "" where a number
+	// and a list belong, which used to throw the whole decision away.
+	var ds []decision
+	if err := decodeJSON(`[{"record_id":"new_0","action":"store","target_ids":[],"merged_content":"","merged_type":"","merged_priority":"","merged_timestamps":""}]`, &ds); err != nil {
+		t.Fatal(err)
+	}
+	if len(ds) != 1 || ds[0].Action != "store" || ds[0].Priority.Set {
+		t.Fatalf("%+v", ds)
+	}
+	var withNum []decision
+	if err := decodeJSON(`[{"record_id":"new_0","action":"merge","target_ids":"mem_1","merged_priority":"85"}]`, &withNum); err != nil || withNum[0].Priority.V != 85 || len(withNum[0].Targets) != 1 {
+		t.Fatalf("%+v %v", withNum, err)
+	}
+
+	// A Markdown body written with real line breaks inside the string.
+	var scene struct {
+		Ops []sceneOp `json:"operations"`
+	}
+	raw := "{\"operations\":[{\"action\":\"create\",\"file\":\"a.md\",\"body\":\"## Key facts\n- one\n- two\"}]}"
+	if err := decodeJSON(raw, &scene); err != nil || len(scene.Ops) != 1 || scene.Ops[0].Body != "## Key facts\n- one\n- two" {
+		t.Fatalf("%+v %v", scene, err)
+	}
+
+	// An answer cut off before it closed.
+	var cut struct {
+		Ops []sceneOp `json:"operations"`
+	}
+	if err := decodeJSON(`{"operations":[{"action":"update","file":"b.md","summary":"half writ`, &cut); err != nil || len(cut.Ops) != 1 || cut.Ops[0].File != "b.md" {
+		t.Fatalf("%+v %v", cut, err)
+	}
+}
+
+type flaky struct{ n int }
+
+func (f *flaky) Name() string { return "flaky" }
+func (f *flaky) Complete(_ context.Context, _, user string, _ int64) (string, error) {
+	f.n++
+	if f.n == 1 {
+		return "Sure! Here it is: not json at all", nil
+	}
+	if !strings.Contains(user, "could not be read as JSON") {
+		return "", nil
+	}
+	return `{"action":"none","reason":"ok"}`, nil
+}
+
+func TestAskRetriesOnceWithTheReason(t *testing.T) {
+	l := New(t.TempDir())
+	f := &flaky{}
+	l.llm = f
+	var v struct{ Action string }
+	if err := l.ask(context.Background(), "sys", "user", 100, &v); err != nil || v.Action != "none" || f.n != 2 {
+		t.Fatalf("%+v %v calls=%d", v, err, f.n)
+	}
+}
+
+func TestConsolidateReportsEachStore(t *testing.T) {
+	l, _, root := setup(t)
+	bank := memory.For(root)
+	_, _ = bank.Project.Put(memory.Record{Content: "The project ranks by depth", Type: memory.TypeWorkFact, Priority: 80})
+	go l.loop()
+	reps, err := l.Consolidate(context.Background(), bank.Stores())
+	if err != nil || len(reps) != 2 {
+		t.Fatalf("%+v %v", reps, err)
+	}
+	if reps[0].Note != "no memories yet" || reps[1].Folded != 1 || reps[1].ScenesAfter != 1 || !reps[1].Persona {
+		t.Fatalf("reports: %+v", reps)
+	}
+}

@@ -21,6 +21,7 @@ import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { memoryTypeHint, memoryTypeLabel, stamp } from "@/lib/format";
+import { ConsolidateDialog, type ConsolidateReport } from "@/components/consolidate-dialog";
 import { cn } from "@/lib/utils";
 
 export default function MemoryPage() {
@@ -37,6 +38,7 @@ function Memory() {
   const tab = params.get("tab") ?? "records";
   const root = useGateway((s) => s.root);
   const [consolidating, setConsolidating] = React.useState(false);
+  const [report, setReport] = React.useState<ConsolidateReport[] | null>(null);
   return (
     <div>
       <PageHeader
@@ -44,7 +46,14 @@ function Memory() {
         description={
           <>
             What the agent learned, in TencentDB&apos;s layers: <b>records</b> (L1 atoms) → <b>scenes</b> (L2) → <b>persona</b> (L3). Global memory follows you;
-            project memory stays with {root ? <Mono>{root}</Mono> : "a project (pick one above)"}.
+            project memory stays with its project.{" "}
+            {root ? (
+              <>
+                Showing global and <Mono>{root}</Mono>.
+              </>
+            ) : (
+              <>Showing every project&apos;s — pick one at the top to focus on it.</>
+            )}
           </>
         }
         actions={
@@ -52,22 +61,26 @@ function Memory() {
             variant="outline"
             size="sm"
             disabled={consolidating}
+            title="Fold every memory into scenes and rewrite the persona and doctrine now, without waiting for the schedule"
             onClick={async () => {
               setConsolidating(true);
+              const t = toast.loading(root ? "Consolidating this project's memory…" : "Consolidating every store…");
               try {
-                await api.post("/api/memory/consolidate", { root });
-                toast.success("Scenes and persona rebuilt");
+                const r = await api.post<{ reports: ConsolidateReport[] }>("/api/memory/consolidate", { root, all: !root });
+                setReport(r.reports);
+                toast.dismiss(t);
               } catch (e) {
-                toast.error((e as Error).message);
+                toast.error((e as Error).message, { id: t });
               } finally {
                 setConsolidating(false);
               }
             }}
           >
-            <LayersIcon /> {consolidating ? "Consolidating…" : "Consolidate now"}
+            <LayersIcon /> {consolidating ? "Consolidating…" : root ? "Consolidate this project" : "Consolidate all"}
           </Button>
         }
       />
+      <ConsolidateDialog report={report} onClose={() => setReport(null)} />
       <Tabs value={tab} onValueChange={(v) => router.replace(`/memory?tab=${v}`)} className="p-6">
         <TabsList>
           <TabsTrigger value="records">Records</TabsTrigger>
@@ -103,6 +116,19 @@ const blank = (scope: Scope): MemoryRecord => ({
   version: 0,
 });
 
+interface MemHit {
+  record: MemoryRecord;
+  score: number;
+  project?: string;
+  project_name: string;
+  dir: string;
+}
+
+interface StoreStats extends MemoryStats {
+  project?: string;
+  project_name: string;
+}
+
 function Records() {
   const params = useSearchParams();
   const router = useRouter();
@@ -111,48 +137,60 @@ function Records() {
   const [scope, setScope] = React.useState("");
   const [type, setType] = React.useState("");
   const [q, setQ] = React.useState("");
-  const [open, setOpen] = React.useState<MemoryRecord | null>(null);
+  const [store, setStore] = React.useState("");
+  const [open, setOpen] = React.useState<MemHit | null>(null);
   const [dismissed, setDismissed] = React.useState("");
   const v = useVersion("memory");
-  const { data, error } = useFetch<{ hits: { record: MemoryRecord; score: number }[]; stats: MemoryStats[]; types: string[] }>(
-    "/api/memory" + qs({ root, scope, type, q }),
+  const { data, error } = useFetch<{ hits: MemHit[]; stats: StoreStats[]; types: string[]; all: boolean }>(
+    // A link to particular records looks in every store: it may come from
+    // any project's learning.
+    "/api/memory" + qs({ root, scope, type, q, all: ids.length ? 1 : undefined }),
     [v],
   );
   let hits = data?.hits ?? [];
   if (ids.length) hits = hits.filter((h) => ids.includes(h.record.id));
+  if (store) hits = hits.filter((h) => h.dir === store);
+  const many = (data?.stats.length ?? 0) > 2 || !!data?.all;
 
   // A single id in the URL opens it, until it is closed.
-  const linked = ids.length === 1 && dismissed !== ids[0] ? (data?.hits.find((x) => x.record.id === ids[0])?.record ?? null) : null;
+  const linked = ids.length === 1 && dismissed !== ids[0] ? (data?.hits.find((x) => x.record.id === ids[0]) ?? null) : null;
   const current = open ?? linked;
 
   return (
     <div className="space-y-4">
-      <div className="grid gap-3 md:grid-cols-2">
+      <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
         {(data?.stats ?? []).map((s) => (
-          <div key={s.scope} className="rounded-xl border p-3">
+          <button
+            key={s.dir}
+            onClick={() => setStore(store === s.dir ? "" : s.dir)}
+            title={s.dir + "\nClick to show only this store"}
+            className={cn(
+              "rounded-xl border p-3 text-left transition-colors hover:bg-muted/40",
+              store === s.dir && "border-primary bg-muted/60",
+              s.records === 0 && "opacity-70",
+            )}
+          >
             <div className="flex items-center gap-2">
               <ScopeBadge scope={s.scope} />
-              <span className="text-sm font-medium">{s.records} records</span>
-              <span className="text-xs text-muted-foreground">
-                · {s.scenes} scenes · persona {s.persona ? "written" : "not yet"}
-              </span>
+              <span className="min-w-0 truncate text-sm font-medium">{s.scope === "global" ? "global" : s.project_name}</span>
               <span className="ml-auto text-xs text-muted-foreground">
-                updated <Ago at={s.updated} />
+                <Ago at={s.updated} />
               </span>
             </div>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {Object.entries(s.by_type).map(([t, n]) => (
-                <button key={t} onClick={() => setType(type === t ? "" : t)}>
-                  <Badge variant={type === t ? "default" : "outline"} className="font-normal">
+            <div className="mt-1 text-xs text-muted-foreground">
+              <b className="text-foreground">{s.records}</b> records · {s.scenes} scenes · {s.scope === "global" ? "persona" : "doctrine"}{" "}
+              {s.persona ? "written" : "not yet"}
+            </div>
+            {s.records > 0 && (
+              <div className="mt-2 flex flex-wrap gap-1">
+                {Object.entries(s.by_type).map(([t, n]) => (
+                  <Badge key={t} variant="outline" className="font-normal">
                     {memoryTypeLabel[t] ?? t} {n}
                   </Badge>
-                </button>
-              ))}
-            </div>
-            <div className="mt-2 truncate font-mono text-[11px] text-muted-foreground" title={s.dir}>
-              {s.dir}
-            </div>
-          </div>
+                ))}
+              </div>
+            )}
+          </button>
         ))}
       </div>
 
@@ -163,6 +201,14 @@ function Records() {
         </div>
         <NativeSelect value={scope} onChange={setScope} placeholder="all scopes" options={[{ value: "global", label: "global" }, { value: "project", label: "project" }]} />
         <NativeSelect value={type} onChange={setType} placeholder="all types" options={(data?.types ?? []).map((t) => ({ value: t, label: memoryTypeLabel[t] ?? t }))} />
+        {store && (
+          <Badge variant="secondary" className="gap-1">
+            {data?.stats.find((s) => s.dir === store)?.project_name ?? "store"} only
+            <button onClick={() => setStore("")}>
+              <XIcon className="size-3" />
+            </button>
+          </Badge>
+        )}
         {ids.length > 0 && (
           <Badge variant="secondary" className="gap-1">
             {ids.length} selected
@@ -171,22 +217,25 @@ function Records() {
             </button>
           </Badge>
         )}
-        <Button size="sm" className="ml-auto" onClick={() => setOpen(blank(root ? "project" : "global"))}>
+        <span className="text-xs text-muted-foreground">{hits.length} shown</span>
+        <Button size="sm" className="ml-auto" onClick={() => setOpen({ record: blank(root ? "project" : "global"), score: 0, project: root, project_name: "", dir: "" })}>
           <PlusIcon /> New memory
         </Button>
       </div>
 
       <ErrorNote error={error} />
       {hits.length === 0 ? (
-        <Empty title="No memories here">Memories appear as the agent learns from conversations, or add one by hand.</Empty>
+        <Empty title="No memories here">
+          {data && data.stats.every((s) => s.records === 0) ? "Memories appear as the agent learns from conversations, or add one by hand." : "Nothing matches these filters."}
+        </Empty>
       ) : (
         <div className="rounded-xl border">
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-[45%]">Memory</TableHead>
+                <TableHead className="w-[42%]">Memory</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Scope</TableHead>
+                <TableHead>{many ? "Store" : "Scope"}</TableHead>
                 <TableHead className="text-right">Priority</TableHead>
                 <TableHead>Origin</TableHead>
                 <TableHead className="text-right">Recalled</TableHead>
@@ -195,42 +244,51 @@ function Records() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {hits.map(({ record: r, score }) => (
-                <TableRow key={r.scope + r.id} className="cursor-pointer" onClick={() => setOpen(r)}>
-                  <TableCell className="max-w-0 whitespace-normal">
-                    <div className="line-clamp-2 text-sm">
-                      {r.pinned && <PinIcon className="mr-1 inline size-3 text-primary" />}
-                      {r.content}
-                    </div>
-                    {r.scene && <div className="truncate text-xs text-muted-foreground">{r.scene}</div>}
-                  </TableCell>
-                  <TableCell>
-                    <Badge variant="secondary" className="font-normal" title={memoryTypeHint[r.type]}>
-                      {memoryTypeLabel[r.type] ?? r.type}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    <ScopeBadge scope={r.scope} />
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{r.priority < 0 ? "always" : r.priority}</TableCell>
-                  <TableCell className="text-xs text-muted-foreground">
-                    {r.origin}
-                    {r.version > 1 && ` · v${r.version}`}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums text-xs">{r.hits ?? 0}</TableCell>
-                  <TableCell className="text-xs">
-                    <Ago at={r.updated} />
-                  </TableCell>
-                  {q && <TableCell className="text-right tabular-nums text-xs">{score.toFixed(2)}</TableCell>}
-                </TableRow>
-              ))}
+              {hits.map((h) => {
+                const r = h.record;
+                return (
+                  <TableRow key={h.dir + r.id} className="cursor-pointer" onClick={() => setOpen(h)}>
+                    <TableCell className="max-w-0 whitespace-normal">
+                      <div className="line-clamp-2 text-sm">
+                        {r.pinned && <PinIcon className="mr-1 inline size-3 text-primary" />}
+                        {r.content}
+                      </div>
+                      {r.scene && <div className="truncate text-xs text-muted-foreground">{r.scene}</div>}
+                    </TableCell>
+                    <TableCell>
+                      <Badge variant="secondary" className="font-normal" title={memoryTypeHint[r.type]}>
+                        {memoryTypeLabel[r.type] ?? r.type}
+                      </Badge>
+                    </TableCell>
+                    <TableCell className="max-w-40">
+                      {many && r.scope === "project" ? (
+                        <span className="block truncate text-xs" title={h.project || h.dir}>
+                          {h.project_name}
+                        </span>
+                      ) : (
+                        <ScopeBadge scope={r.scope} />
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums">{r.priority < 0 ? "always" : r.priority}</TableCell>
+                    <TableCell className="text-xs text-muted-foreground">
+                      {r.origin}
+                      {r.version > 1 && ` · v${r.version}`}
+                    </TableCell>
+                    <TableCell className="text-right tabular-nums text-xs">{r.hits ?? 0}</TableCell>
+                    <TableCell className="text-xs">
+                      <Ago at={r.updated} />
+                    </TableCell>
+                    {q && <TableCell className="text-right tabular-nums text-xs">{h.score.toFixed(2)}</TableCell>}
+                  </TableRow>
+                );
+              })}
             </TableBody>
           </Table>
         </div>
       )}
       <RecordSheet
-        key={current ? current.scope + current.id + current.version : "none"}
-        record={current}
+        key={current ? current.dir + current.record.id + current.record.version : "none"}
+        hit={current}
         root={root}
         types={data?.types ?? []}
         onClose={() => {
@@ -242,15 +300,19 @@ function Records() {
   );
 }
 
-function RecordSheet({ record, root, types, onClose }: { record: MemoryRecord | null; root: string; types: string[]; onClose: () => void }) {
+function RecordSheet({ hit, root, types, onClose }: { hit: MemHit | null; root: string; types: string[]; onClose: () => void }) {
+  const record = hit?.record ?? null;
   const [r, setR] = React.useState<MemoryRecord | null>(record);
   const [err, setErr] = React.useState<string | null>(null);
-  const { data: log } = useFetch<LogEntry[]>(record?.id ? "/api/memory/log" + qs({ root, id: record.id }) : null, [record?.id]);
-  if (!r) return null;
+  // The record's own project, which is not always the one picked at the top.
+  const projectRoot = hit?.project || root;
+  const { data: log } = useFetch<LogEntry[]>(record?.id ? "/api/memory/log" + qs({ root: projectRoot, dir: hit?.dir || undefined, id: record.id }) : null, [record?.id]);
+  if (!r || !hit) return null;
   const isNew = !r.id;
+  const sameStore = !isNew && r.scope === record?.scope && !!hit.dir;
   const save = async () => {
     try {
-      await api.put("/api/memory", { root, record: r, from: record?.scope });
+      await api.put("/api/memory" + qs({ dir: sameStore ? hit.dir : undefined }), { root: projectRoot, record: r, from: record?.scope });
       toast.success(isNew ? "Memory added" : "Memory saved");
       onClose();
     } catch (e) {
@@ -260,7 +322,7 @@ function RecordSheet({ record, root, types, onClose }: { record: MemoryRecord | 
   const remove = async () => {
     if (!confirm("Delete this memory? The write log keeps a copy.")) return;
     try {
-      await api.del("/api/memory" + qs({ root, scope: r.scope, id: r.id }));
+      await api.del("/api/memory" + qs({ root: projectRoot, dir: hit.dir || undefined, scope: r.scope, id: r.id }));
       toast.success("Memory deleted");
       onClose();
     } catch (e) {
@@ -272,7 +334,10 @@ function RecordSheet({ record, root, types, onClose }: { record: MemoryRecord | 
       <SheetContent className="w-full overflow-auto sm:max-w-xl">
         <SheetHeader>
           <SheetTitle>{isNew ? "New memory" : "Memory"}</SheetTitle>
-          <SheetDescription>{isNew ? "Written by hand; origin “manual”." : <Mono>{r.id}</Mono>}</SheetDescription>
+          <SheetDescription>
+            {isNew ? "Written by hand; origin “manual”." : <Mono>{r.id}</Mono>}
+            {!isNew && r.scope === "project" && <> · {hit.project || hit.project_name}</>}
+          </SheetDescription>
         </SheetHeader>
         <div className="space-y-4 px-4 pb-6">
           <Field label="Content" hint="Self-contained: it is read later with no conversation around it.">
@@ -286,7 +351,7 @@ function RecordSheet({ record, root, types, onClose }: { record: MemoryRecord | 
               <NativeSelect
                 value={r.scope}
                 onChange={(s) => setR({ ...r, scope: s as Scope })}
-                options={[{ value: "global", label: "global" }, ...(root ? [{ value: "project", label: "project" }] : [])]}
+                options={[{ value: "global", label: "global" }, ...(projectRoot ? [{ value: "project", label: "project" }] : [])]}
               />
             </Field>
             <Field label="Priority" hint="-1 = absolute rule">
@@ -377,6 +442,9 @@ interface ScopeScenes {
   persona: string;
   scenes: Scene[];
   dir: string;
+  project?: string;
+  project_name: string;
+  records: number;
 }
 
 function Scenes() {
@@ -386,20 +454,23 @@ function Scenes() {
   return (
     <div className="grid gap-6 xl:grid-cols-2">
       {(data ?? []).map((s) => (
-        <div key={s.scope} className="space-y-3">
+        <div key={s.dir} className="space-y-3">
           <div className="flex items-center gap-2">
             <ScopeBadge scope={s.scope} />
-            <span className="text-sm font-medium">{s.scope === "global" ? "About you, everywhere" : "About this project"}</span>
+            <span className="min-w-0 truncate text-sm font-medium" title={s.project || s.dir}>
+              {s.scope === "global" ? "About you, everywhere" : s.project_name}
+            </span>
+            <span className="ml-auto shrink-0 text-xs text-muted-foreground">{s.records} records</span>
           </div>
-          <PersonaCard key={s.persona} scope={s.scope} text={s.persona} root={root} />
-          <SceneList scope={s.scope} scenes={s.scenes} root={root} />
+          <PersonaCard key={s.persona} scope={s.scope} text={s.persona} root={s.project || root} dir={s.dir} />
+          <SceneList scope={s.scope} scenes={s.scenes} root={s.project || root} dir={s.dir} />
         </div>
       ))}
     </div>
   );
 }
 
-function PersonaCard({ scope, text, root }: { scope: Scope; text: string; root: string }) {
+function PersonaCard({ scope, text, root, dir }: { scope: Scope; text: string; root: string; dir: string }) {
   const [edit, setEdit] = React.useState(false);
   const [val, setVal] = React.useState(text);
   return (
@@ -421,7 +492,7 @@ function PersonaCard({ scope, text, root }: { scope: Scope; text: string; root: 
               size="sm"
               onClick={async () => {
                 try {
-                  await api.put("/api/memory/persona", { root, scope, text: val });
+                  await api.put("/api/memory/persona" + qs({ dir }), { root, scope, text: val });
                   setEdit(false);
                   toast.success("Saved");
                 } catch (e) {
@@ -444,7 +515,7 @@ function PersonaCard({ scope, text, root }: { scope: Scope; text: string; root: 
   );
 }
 
-function SceneList({ scope, scenes, root }: { scope: Scope; scenes: Scene[]; root: string }) {
+function SceneList({ scope, scenes, root, dir }: { scope: Scope; scenes: Scene[]; root: string; dir: string }) {
   const [editing, setEditing] = React.useState<(Scene & { old?: string }) | null>(null);
   return (
     <div className="space-y-2">
@@ -481,7 +552,7 @@ function SceneList({ scope, scenes, root }: { scope: Scope; scenes: Scene[]; roo
               onClick={async (e) => {
                 e.preventDefault();
                 if (!confirm(`Delete scene ${s.file}?`)) return;
-                await api.del("/api/memory/scenes" + qs({ root, scope, file: s.file })).catch((er) => toast.error(er.message));
+                await api.del("/api/memory/scenes" + qs({ root, dir, scope, file: s.file })).catch((er) => toast.error(er.message));
               }}
             >
               <Trash2Icon />
@@ -510,7 +581,7 @@ function SceneList({ scope, scenes, root }: { scope: Scope; scenes: Scene[]; roo
               size="sm"
               onClick={async () => {
                 try {
-                  await api.put("/api/memory/scenes", { root, scope, old_file: editing.old, scene: editing });
+                  await api.put("/api/memory/scenes" + qs({ dir }), { root, scope, old_file: editing.old, scene: editing });
                   setEditing(null);
                 } catch (e) {
                   toast.error((e as Error).message);

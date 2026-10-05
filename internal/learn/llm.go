@@ -23,10 +23,13 @@ type LLM interface {
 	Name() string
 }
 
-// DefaultModel does the extracting. Learning runs after turns, in the
-// background, on every session: it should be fast and cheap, and judging what
-// is worth remembering does not need the strongest model.
-const DefaultModel = "claude-haiku-4-5"
+// DefaultModel does the extracting. Learning runs in the background, so speed
+// matters less than judgement: deciding what is worth remembering, merging it
+// with what is already known and writing scenes and a persona that read well
+// are where a small model's answers showed — vague memories, merges missed,
+// JSON that would not parse. Sonnet is the balance of quality and cost; the
+// setting picks another.
+const DefaultModel = "claude-sonnet-5-5"
 
 // NewLLM picks how to reach a model: the API when there is a credential for
 // it, otherwise an installed Claude Code CLI, which brings its own login.
@@ -92,7 +95,7 @@ func cliModel(m string) string {
 }
 
 func (c *cliLLM) Complete(ctx context.Context, system, user string, _ int64) (string, error) {
-	ctx, cancel := context.WithTimeout(ctx, 4*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 8*time.Minute)
 	defer cancel()
 	// The prompt goes on stdin: a transcript is longer than a Windows command
 	// line may be.
@@ -108,7 +111,20 @@ func (c *cliLLM) Complete(ctx context.Context, system, user string, _ int64) (st
 	var out, errb bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errb
 	if err := cmd.Run(); err != nil {
-		return "", fmt.Errorf("claude: %v: %s", err, strings.TrimSpace(errb.String()))
+		// The CLI reports most failures on stdout, in its JSON, not on stderr.
+		why := strings.TrimSpace(errb.String())
+		var res struct {
+			Result string `json:"result"`
+		}
+		if json.Unmarshal(out.Bytes(), &res) == nil && res.Result != "" {
+			why = strings.TrimSpace(why + " " + res.Result)
+		} else if why == "" {
+			why = strings.TrimSpace(out.String())
+		}
+		if len(why) > 300 {
+			why = why[:300] + "…"
+		}
+		return "", fmt.Errorf("claude: %v: %s", err, why)
 	}
 	var res struct {
 		Result  string `json:"result"`
@@ -136,17 +152,130 @@ func decodeJSON(text string, v any) error {
 		text = m[1]
 	}
 	text = strings.TrimSpace(text)
-	if err := json.Unmarshal([]byte(text), v); err == nil {
-		return nil
+	var first error
+	try := func(s string) bool {
+		err := json.Unmarshal([]byte(s), v)
+		if err != nil && first == nil {
+			first = err
+		}
+		return err == nil
 	}
-	// Cut from the first bracket to its last partner.
-	for _, pair := range [][2]string{{"[", "]"}, {"{", "}"}} {
-		i, j := strings.Index(text, pair[0]), strings.LastIndex(text, pair[1])
-		if i >= 0 && j > i {
-			if err := json.Unmarshal([]byte(text[i:j+1]), v); err == nil {
+	// Models write JSON a strict parser refuses in a few ways that are easy
+	// to put right: a raw line break inside a string (a Markdown body, most
+	// often), prose around the JSON, an answer cut off before it closed.
+	for _, cand := range []string{text, escapeControls(text)} {
+		if try(cand) {
+			return nil
+		}
+		for _, pair := range [][2]string{{"[", "]"}, {"{", "}"}} {
+			i, j := strings.Index(cand, pair[0]), strings.LastIndex(cand, pair[1])
+			if i >= 0 && j > i && try(cand[i:j+1]) {
 				return nil
 			}
 		}
+		if i := strings.IndexAny(cand, "[{"); i >= 0 && try(closeJSON(cand[i:])) {
+			return nil
+		}
 	}
-	return fmt.Errorf("not JSON: %.200s", text)
+	return fmt.Errorf("not JSON (%v): %.200s", first, text)
+}
+
+// escapeControls escapes the control characters JSON forbids inside strings.
+func escapeControls(s string) string {
+	var b strings.Builder
+	in, esc := false, false
+	for _, r := range s {
+		switch {
+		case esc:
+			esc = false
+		case in && r == '\\':
+			esc = true
+		case r == '"':
+			in = !in
+		case in && r == '\n':
+			b.WriteString(`\n`)
+			continue
+		case in && r == '\r':
+			continue
+		case in && r == '\t':
+			b.WriteString(`\t`)
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
+}
+
+// closeJSON finishes an answer cut off mid-way: it closes an open string,
+// drops a dangling comma or key, and closes every open bracket.
+func closeJSON(s string) string {
+	var stack []rune
+	in, esc := false, false
+	for _, r := range s {
+		switch {
+		case esc:
+			esc = false
+		case in && r == '\\':
+			esc = true
+		case r == '"':
+			in = !in
+		case in:
+		case r == '{' || r == '[':
+			stack = append(stack, r)
+		case (r == '}' || r == ']') && len(stack) > 0:
+			stack = stack[:len(stack)-1]
+		}
+	}
+	if in {
+		s += `"`
+	}
+	s = strings.TrimRight(s, " \n\r\t")
+	s = strings.TrimSuffix(s, ",")
+	if strings.HasSuffix(s, ":") {
+		s += "null"
+	}
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i] == '{' {
+			s += "}"
+		} else {
+			s += "]"
+		}
+	}
+	return s
+}
+
+// flexInt reads a number however a model wrote it: 80, 80.0, "80", or ""
+// for none.
+type flexInt struct {
+	V   int
+	Set bool
+}
+
+func (f *flexInt) UnmarshalJSON(b []byte) error {
+	s := strings.Trim(strings.TrimSpace(string(b)), `"`)
+	if s == "" || s == "null" {
+		return nil
+	}
+	var n float64
+	if err := json.Unmarshal([]byte(s), &n); err != nil {
+		return nil // not a number: as good as absent
+	}
+	f.V, f.Set = int(n), true
+	return nil
+}
+
+// flexStrings reads a list of strings, accepting a lone string or "" too.
+type flexStrings []string
+
+func (f *flexStrings) UnmarshalJSON(b []byte) error {
+	var list []string
+	if json.Unmarshal(b, &list) == nil {
+		*f = list
+		return nil
+	}
+	var one string
+	if json.Unmarshal(b, &one) == nil && one != "" {
+		*f = []string{one}
+	}
+	return nil
 }

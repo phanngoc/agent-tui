@@ -40,7 +40,7 @@ const (
 	SceneInterval  = 15 * time.Minute
 	SkillToolCalls = 10
 	activityKeep   = 500
-	jobTimeout     = 8 * time.Minute
+	jobTimeout     = 20 * time.Minute
 )
 
 // SessionState is the learner's bookmark in one session.
@@ -90,8 +90,11 @@ type job struct {
 	root    string
 	msgs    []session.Message
 	force   bool
-	// scenesOnly skips extraction and consolidates a store now.
+	// scenesOnly skips extraction and consolidates stores now: those in
+	// stores, or the project's and the global one.
 	scenesOnly bool
+	stores     []*memory.Store
+	reports    *[]StoreReport
 	done       chan error
 }
 
@@ -236,16 +239,30 @@ func (l *Learner) LearnNow(ctx context.Context, root, sessionID string, msgs []s
 	}
 }
 
-// Consolidate runs scenes and persona for a project's stores (and the global
-// one) at once, and waits.
-func (l *Learner) Consolidate(ctx context.Context, root string) error {
-	j := job{root: root, scenesOnly: true, force: true, done: make(chan error, 1)}
+// StoreReport says what consolidating one store did.
+type StoreReport struct {
+	Dir          string `json:"dir"`
+	Scope        string `json:"scope"`
+	Records      int    `json:"records"`
+	Folded       int    `json:"folded"`
+	ScenesBefore int    `json:"scenes_before"`
+	ScenesAfter  int    `json:"scenes_after"`
+	Persona      bool   `json:"persona"`
+	Note         string `json:"note,omitempty"`
+	Error        string `json:"error,omitempty"`
+}
+
+// Consolidate runs scenes and persona now on each store given, and waits. A
+// store that fails does not stop the others; its report says why.
+func (l *Learner) Consolidate(ctx context.Context, stores []*memory.Store) ([]StoreReport, error) {
+	var reports []StoreReport
+	j := job{scenesOnly: true, force: true, stores: stores, reports: &reports, done: make(chan error, 1)}
 	l.enqueue(j)
 	select {
 	case err := <-j.done:
-		return err
+		return reports, err
 	case <-ctx.Done():
-		return ctx.Err()
+		return reports, ctx.Err()
 	}
 }
 
@@ -324,7 +341,7 @@ func (l *Learner) loop() {
 			}
 			l.mu.Unlock()
 			for _, dir := range due {
-				_ = l.runStore(context.Background(), storeAt(dir), false)
+				_, _ = l.runStore(context.Background(), storeAt(dir), false)
 			}
 		}
 	}
@@ -344,7 +361,7 @@ func (l *Learner) run(j job) (err error) {
 	l.mu.Lock()
 	l.busy = j.session
 	if j.session == "" {
-		l.busy = "consolidating " + j.root
+		l.busy = "consolidating memory"
 	}
 	l.mu.Unlock()
 	defer func() {
@@ -369,9 +386,17 @@ func (l *Learner) run(j job) (err error) {
 
 	bank := memory.For(j.root)
 	if j.scenesOnly {
-		for _, st := range bank.Stores() {
-			if err := l.runStore(ctx, st, true); err != nil {
-				return err
+		stores := j.stores
+		if stores == nil {
+			stores = bank.Stores()
+		}
+		for _, st := range stores {
+			rep, err := l.runStore(ctx, st, true)
+			if err != nil {
+				rep.Error = err.Error()
+			}
+			if j.reports != nil {
+				*j.reports = append(*j.reports, rep)
 			}
 		}
 		return nil
@@ -429,7 +454,7 @@ func (l *Learner) run(j job) (err error) {
 	}
 
 	for _, st := range bank.Stores() {
-		if err := l.runStore(ctx, st, false); err != nil {
+		if _, err := l.runStore(ctx, st, false); err != nil {
 			l.record(Activity{Stage: "error", Root: j.root, Error: "scenes: " + err.Error()})
 		}
 	}
@@ -493,7 +518,14 @@ func (l *Learner) write(ctx context.Context, bank *memory.Bank, j job, mems []ex
 }
 
 // runStore runs L2 and L3 for one store when they are due (or now, forced).
-func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) error {
+func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) (rep StoreReport, err error) {
+	all := st.All()
+	rep = StoreReport{Dir: st.Dir, Scope: string(st.Scope), Records: len(all), ScenesBefore: len(st.Scenes())}
+	defer func() { rep.ScenesAfter = len(st.Scenes()) }()
+	if len(all) == 0 {
+		rep.Note = "no memories yet"
+		return rep, nil
+	}
 	l.mu.Lock()
 	ss := l.store(st.Dir)
 	pending := append([]string(nil), ss.Pending...)
@@ -504,7 +536,6 @@ func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) er
 	if force {
 		// A forced run reconsiders everything not yet in a scene, or, when
 		// nothing is pending, the newest records.
-		all := st.All()
 		if len(pending) == 0 {
 			recs = all[:min(len(all), 30)]
 		}
@@ -529,8 +560,9 @@ func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) er
 		sort.Slice(recs, func(i, j int) bool { return recs[i].Updated.Before(recs[j].Updated) })
 		ask, err := l.scenes(ctx, st, recs)
 		if err != nil {
-			return err
+			return rep, err
 		}
+		rep.Folded = len(recs)
 		l.mu.Lock()
 		ss.LastScenes = time.Now().UTC()
 		ss.Pending = nil
@@ -545,11 +577,12 @@ func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) er
 		(st.Persona() == "" && len(st.Scenes()) > 0)
 	l.mu.Unlock()
 	if !want || len(st.Scenes()) == 0 {
-		return nil
+		return rep, nil
 	}
 	if err := l.persona(ctx, st); err != nil {
-		return err
+		return rep, err
 	}
+	rep.Persona = true
 	l.mu.Lock()
 	ss.SincePersona, ss.WantPersona = 0, false
 	l.save()
@@ -559,7 +592,7 @@ func (l *Learner) runStore(ctx context.Context, st *memory.Store, force bool) er
 		what = "project doctrine"
 	}
 	l.record(Activity{Stage: "persona", Detail: string(st.Scope) + ": rewrote the " + what})
-	return nil
+	return rep, nil
 }
 
 func (l *Learner) note(s string) { l.record(Activity{Stage: "note", Detail: s}) }
