@@ -30,6 +30,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/mcp"
 	"github.com/phanngoc/agent-tui/internal/schedule"
+	"github.com/phanngoc/agent-tui/internal/term"
 )
 
 // Server is the gateway process.
@@ -56,6 +57,8 @@ type Server struct {
 	// Sched runs scheduled jobs, while the gateway serves.
 	Sched     *schedule.Scheduler
 	schedHost *schedHost
+	// Terms are the web terminals.
+	Terms *term.Manager
 }
 
 // pendingLogin is a sign-in to an MCP server that a page started.
@@ -79,6 +82,7 @@ func New(cfg config.Config, version, webDir string) *Server {
 	s.Runner = gateway.NewRunner(hub, cfg)
 	s.Runner.Learner = learn.Default()
 	hub.Local = s.Runner
+	s.Terms = term.NewManager()
 	s.schedHost = &schedHost{s: s, last: map[string]string{}}
 	s.Sched = &schedule.Scheduler{Store: schedule.DefaultStore(), Host: s.schedHost,
 		Notify: func(j *schedule.Job, r schedule.Run) {
@@ -137,9 +141,10 @@ func (s *Server) ListenAndServe(addr string) error {
 // return.
 func (s *Server) Stop() { s.stopOnce.Do(func() { close(s.stop) }) }
 
-// Shutdown stops running turns.
+// Shutdown stops running turns and closes the terminals.
 func (s *Server) Shutdown() {
 	s.Runner.Shutdown()
+	s.Terms.CloseAll()
 	gateway.RemoveInfo(os.Getpid())
 }
 
@@ -215,6 +220,8 @@ func (s *Server) routes() {
 	s.settingsRoutes(m)
 	s.fsRoutes(m)
 	s.scheduleRoutes(m)
+	s.fileRoutes(m)
+	s.termRoutes(m)
 
 	m.HandleFunc("/", s.static)
 }

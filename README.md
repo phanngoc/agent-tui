@@ -167,6 +167,21 @@ links both ways.
 | settings | `prefs.json` in the data folder | `<project>/.agent-tui/settings.json` |
 | memory | `<data>/memory/` | `<data>/projects/<path-slug>/memory/` |
 
+**The project is a click away from the conversation.**
+- **Files tab:** a session's right pane has a Files tab. It is the project's
+  tree, with quick find, read through the same filesystem the agent uses, so
+  a project in a WSL distribution is browsed there. Markdown renders,
+  Mermaid included; code shows line numbers; images show as images.
+- **Paths open files:** a path in a reply (`output/report.md`,
+  `server.go:105`, a bare `cron.go`) is a link. A file tool call has an
+  *open* button. Either one opens the file there, resolving a bare name or a
+  path's tail to the project file it means.
+- **Terminal:** the terminal button (Ctrl+\`) opens a real shell in the
+  project folder under the conversation. It is the distribution's shell for a
+  WSL project; PowerShell, cmd, PowerShell 7 or Git Bash on the host. It runs
+  in a pseudo-console in the gateway and is drawn with xterm.js, so a reload
+  or another tab reattaches to it with its recent output.
+
 **Sub-agents are followed, as Claude Code follows them.** When the claude
 engine's agent starts sub-agents with the Agent tool (Explore, Plan,
 general-purpose, your own), each one is tracked from Claude Code's own
