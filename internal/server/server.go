@@ -28,6 +28,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/learn"
+	"github.com/phanngoc/agent-tui/internal/lsp"
 	"github.com/phanngoc/agent-tui/internal/mcp"
 	"github.com/phanngoc/agent-tui/internal/schedule"
 	"github.com/phanngoc/agent-tui/internal/term"
@@ -59,6 +60,11 @@ type Server struct {
 	schedHost *schedHost
 	// Terms are the web terminals.
 	Terms *term.Manager
+	// LSP are the editor's language servers; lspPages counts the pages
+	// attached to each.
+	LSP      *lsp.Manager
+	lspMu    sync.Mutex
+	lspPages map[string]int
 }
 
 // pendingLogin is a sign-in to an MCP server that a page started.
@@ -83,6 +89,8 @@ func New(cfg config.Config, version, webDir string) *Server {
 	s.Runner.Learner = learn.Default()
 	hub.Local = s.Runner
 	s.Terms = term.NewManager()
+	s.LSP = lsp.NewManager()
+	s.lspPages = map[string]int{}
 	s.schedHost = &schedHost{s: s, last: map[string]string{}}
 	s.Sched = &schedule.Scheduler{Store: schedule.DefaultStore(), Host: s.schedHost,
 		Notify: func(j *schedule.Job, r schedule.Run) {
@@ -145,6 +153,7 @@ func (s *Server) Stop() { s.stopOnce.Do(func() { close(s.stop) }) }
 func (s *Server) Shutdown() {
 	s.Runner.Shutdown()
 	s.Terms.CloseAll()
+	s.LSP.CloseAll()
 	gateway.RemoveInfo(os.Getpid())
 }
 
@@ -222,6 +231,7 @@ func (s *Server) routes() {
 	s.scheduleRoutes(m)
 	s.fileRoutes(m)
 	s.editRoutes(m)
+	s.lspRoutes(m)
 	s.termRoutes(m)
 
 	m.HandleFunc("/", s.static)

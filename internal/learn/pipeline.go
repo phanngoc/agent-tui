@@ -464,7 +464,7 @@ func (l *Learner) persona(ctx context.Context, st *memory.Store) error {
 	for _, sc := range scenes {
 		fmt.Fprintf(&u, "### %s (heat %d)\n%s\n\n", sc.File, sc.Heat, sc.Body)
 	}
-	text, err := l.llm.Complete(ctx, fmt.Sprintf(personaSystem, what, ask, limit), u.String(), 4096)
+	text, err := l.complete(ctx, fmt.Sprintf(personaSystem, what, ask, limit), u.String(), 4096)
 	if err != nil {
 		return err
 	}
@@ -566,11 +566,23 @@ func headTail(s string, n int) string {
 	return s[:n/2] + "\n…\n" + s[len(s)-n/2:]
 }
 
+// complete asks the learning model, resolving it first. Every call goes
+// through here: the periodic consolidation runs without a job having picked
+// the model, and reading l.llm directly there was a nil pointer that took the
+// whole gateway down.
+func (l *Learner) complete(ctx context.Context, system, user string, maxTokens int64) (string, error) {
+	m, err := l.model()
+	if err != nil {
+		return "", err
+	}
+	return m.Complete(ctx, system, user, maxTokens)
+}
+
 // ask puts a question whose answer must be JSON and decodes it into v. An
 // answer that cannot be read goes back to the model once, with the reason,
 // before the step gives up: a retry costs one call, a lost step a whole batch.
 func (l *Learner) ask(ctx context.Context, system, user string, maxTokens int64, v any) error {
-	text, err := l.llm.Complete(ctx, system, user, maxTokens)
+	text, err := l.complete(ctx, system, user, maxTokens)
 	if err != nil {
 		return err
 	}
@@ -583,7 +595,7 @@ func (l *Learner) ask(ctx context.Context, system, user string, maxTokens int64,
 	}
 	again := user + "\n\n---\nYour previous answer could not be read as JSON (" + why + ").\n" +
 		"Answer again with only the JSON — nothing before or after it — and keep the text fields shorter so it fits."
-	text, err = l.llm.Complete(ctx, system, again, maxTokens)
+	text, err = l.complete(ctx, system, again, maxTokens)
 	if err != nil {
 		return err
 	}

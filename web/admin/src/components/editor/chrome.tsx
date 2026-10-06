@@ -117,6 +117,7 @@ export function StatusBar({ onBranch }: { onBranch: () => void }) {
           {branch}
         </button>
       )}
+      <LspBadge />
       {tab?.stale && (
         <span className="flex items-center gap-1">
           <AlertTriangleIcon className="size-3.5" /> changed on disk — save to overwrite, or revert
@@ -137,6 +138,20 @@ export function StatusBar({ onBranch }: { onBranch: () => void }) {
         </>
       )}
     </div>
+  );
+}
+
+/** LspBadge says whether the project's language server is up. */
+function LspBadge() {
+  const lsp = useEditor((s) => s.lsp);
+  if (lsp.state === "off") return null;
+  const dot = lsp.state === "ready" ? "bg-emerald-400" : lsp.state === "error" ? "bg-red-400" : "animate-pulse bg-amber-300";
+  const word = { ready: "", starting: "starting…", loading: "loading project…", error: "unavailable", off: "" }[lsp.state];
+  return (
+    <span className="flex items-center gap-1.5" title={lsp.message}>
+      <span className={cn("size-2 rounded-full", dot)} />
+      TS {word}
+    </span>
   );
 }
 

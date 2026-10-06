@@ -174,6 +174,19 @@ distribution.
   folding, sticky scroll, bracket pairs, IntelliSense for TS/JS/JSON/CSS/HTML,
   and syntax for everything else. One editor serves every tab and keeps each
   tab's cursor and scroll.
+- **A language server for TypeScript and JavaScript.** The editor runs a
+  language server for the whole project, as opencode does:
+  typescript-language-server, with the project's own `typescript` when it has
+  one. The server reads tsconfig, including path aliases like `@/*`.
+  - **Features:** errors that depend on other files, completion with
+    auto-import, hover with the other file's JSDoc, F12 and peek into other
+    files, find references, rename across files, format, and the outline.
+  - **Where it runs:** the gateway runs it beside the project, inside the WSL
+    distribution for a WSL project, and relays it to the page (`/api/lsp`).
+  - **Setup:** it installs itself on first use into `<data>/lsp` and needs
+    node and npm.
+  - **Status:** the status bar shows the server's state. Without node,
+    IntelliSense falls back to per-file only.
 - **Explorer:** a virtualised tree, with new file, new folder, rename and
   delete (context menu, F2, Del).
 - **Quick Open (Ctrl+P):** fuzzy, in the page over the cached file list, 2–5
