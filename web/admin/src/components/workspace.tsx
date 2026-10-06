@@ -2,16 +2,22 @@
 
 import * as React from "react";
 import { createPortal } from "react-dom";
-import { PanelLeftCloseIcon, PanelLeftOpenIcon, PanelRightCloseIcon, PanelRightOpenIcon } from "lucide-react";
+import { PanelLeftCloseIcon, PanelLeftOpenIcon, PanelRightCloseIcon, PanelRightOpenIcon, XIcon } from "lucide-react";
 import { Group, Panel, Separator, useDefaultLayout, usePanelRef, type PanelImperativeHandle } from "react-resizable-panels";
 import { cn } from "@/lib/utils";
 import { isTyping, safeStorage, useLayout } from "@/lib/layout";
+import { useIsMobile } from "@/lib/mobile";
 
 // A page of panes the reader arranges: a list on the left, the thing being
 // worked on in the middle, details on the right. Side panes drag wider or
 // narrower, fold away (by their button, a shortcut, or dragging them shut)
 // and come back at the width they had; the arrangement is remembered per
 // page. Focus mode folds them all.
+//
+// On a phone there is room for one pane: the thing being worked on fills the
+// screen, and the list and the side panel open over it, full screen, from
+// the same toggles. Picking something in the list (the page's selection
+// changing) closes the list; with nothing picked, the list is what shows.
 
 interface Side {
   node: React.ReactNode;
@@ -56,7 +62,77 @@ function toggle(ref: React.RefObject<PanelImperativeHandle | null>) {
   else p.collapse();
 }
 
-export function Workspace({ id, left, right, children }: { id: string; left?: Side; right?: Side; children: React.ReactNode }) {
+export function Workspace(props: { id: string; left?: Side; right?: Side; children: React.ReactNode; selection?: string }) {
+  const mobile = useIsMobile();
+  return mobile ? <MobileWorkspace {...props} /> : <DesktopWorkspace {...props} />;
+}
+
+function MobileWorkspace({ left, right, children, selection }: { left?: Side; right?: Side; children: React.ReactNode; selection?: string }) {
+  const [leftOpen, setLeftOpen] = React.useState(() => !!left && !selection);
+  const [rightOpen, setRightOpen] = React.useState(false);
+  const [rightSlot, setRightSlot] = React.useState<HTMLElement | null>(null);
+  // Picking something closes the list: state adjusted while rendering, when
+  // the selection is not the one last seen.
+  const [seen, setSeen] = React.useState(selection);
+  if (selection !== seen) {
+    setSeen(selection);
+    if (selection) setLeftOpen(false);
+  }
+  const ctx: WorkspaceCtx = {
+    leftOpen,
+    rightOpen,
+    hasLeft: !!left,
+    hasRight: !!right,
+    toggleLeft: () => {
+      setRightOpen(false);
+      setLeftOpen((o) => !o);
+    },
+    toggleRight: () => {
+      setLeftOpen(false);
+      setRightOpen((o) => !o);
+    },
+    openRight: () => {
+      setLeftOpen(false);
+      setRightOpen(true);
+    },
+    rightSlot,
+  };
+  return (
+    <Ctx.Provider value={ctx}>
+      <div className="relative h-full min-h-0">
+        <div className="flex h-full min-h-0 min-w-0 flex-col">{children}</div>
+        {left && (
+          <div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !leftOpen && "hidden")}>
+            <SheetBar label={left.label} onClose={() => setLeftOpen(false)} />
+            <div className="min-h-0 flex-1 overflow-hidden">{left.node}</div>
+          </div>
+        )}
+        {right && (
+          // Always mounted, so what the page portals into it stays put.
+          <div className={cn("absolute inset-0 z-30 flex flex-col bg-background", !rightOpen && "hidden")}>
+            <SheetBar label={right.label} onClose={() => setRightOpen(false)} />
+            <div ref={setRightSlot} className="flex min-h-0 flex-1 flex-col overflow-hidden">
+              {right.node}
+            </div>
+          </div>
+        )}
+      </div>
+    </Ctx.Provider>
+  );
+}
+
+function SheetBar({ label, onClose }: { label: string; onClose: () => void }) {
+  return (
+    <div className="flex h-11 shrink-0 items-center border-b px-3">
+      <span className="text-sm font-medium capitalize">{label}</span>
+      <button type="button" onClick={onClose} aria-label={`Close the ${label}`} className="ml-auto inline-flex size-9 items-center justify-center rounded-md text-muted-foreground hover:bg-muted">
+        <XIcon className="size-5" />
+      </button>
+    </div>
+  );
+}
+
+function DesktopWorkspace({ id, left, right, children }: { id: string; left?: Side; right?: Side; children: React.ReactNode }) {
   const leftRef = usePanelRef();
   const rightRef = usePanelRef();
   const [leftOpen, setLeftOpen] = React.useState(true);

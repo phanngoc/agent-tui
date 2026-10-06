@@ -76,7 +76,7 @@ function Skills() {
       />
       <ErrorNote error={error} className="m-6" />
       <div className="min-h-0 flex-1">
-        <Workspace
+        <Workspace selection={want || (draft ? "draft" : "")}
           id="skills"
           left={{
             node: (

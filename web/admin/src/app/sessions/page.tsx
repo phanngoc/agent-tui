@@ -21,6 +21,7 @@ import { SessionSettings } from "@/components/session-settings";
 import { Explorer } from "@/components/explorer";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { FileOpener } from "@/lib/file-opener";
+import { useIsMobile } from "@/lib/mobile";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,7 +56,7 @@ function Sessions() {
     />
   );
   return (
-    <Workspace
+    <Workspace selection={id || (fresh ? `new-${fresh}` : "")}
       id="sessions"
       left={{ node: list, defaultSize: 300, minSize: 220, maxSize: 520, foldBelow: 960, label: "session list" }}
       right={{
@@ -280,12 +281,13 @@ function Conversation({ id }: { id: string }) {
     <FileOpener.Provider value={openFile}>
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
-        <div className="@container flex items-start gap-3 border-b px-5 py-3">
+        <div className="@container flex items-start gap-2 border-b px-3 py-2 md:gap-3 md:px-5 md:py-3">
           <PaneToggle side="left" className="-ml-2" />
           <div className="min-w-0 flex-1">
             <div className="truncate font-semibold">{s.title || "(untitled)"}</div>
-            <div className="mt-0.5 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-              <span className="max-w-full truncate font-mono @max-lg:max-w-48" title={s.root}>
+            {/* On a phone, one row that scrolls sideways rather than five that wrap. */}
+            <div className="mt-0.5 flex flex-nowrap items-center gap-x-2 gap-y-1 overflow-x-auto text-xs whitespace-nowrap text-muted-foreground [scrollbar-width:none] md:flex-wrap md:overflow-visible md:whitespace-normal">
+              <span className="hidden max-w-full truncate font-mono md:inline @max-lg:max-w-48" title={s.root}>
                 {s.root}
               </span>
               <SessionSettings
@@ -302,34 +304,38 @@ function Conversation({ id }: { id: string }) {
                 </Badge>
               )}
               <OwnerBadge owner={owner} />
-              <span>
+              <span className="hidden md:inline">
                 {tokens(s.input_tokens)} in · {tokens(s.output_tokens)} out
               </span>
             </div>
           </div>
-          <div className="flex shrink-0 gap-2">
+          <div className="flex shrink-0 gap-1 md:gap-2">
             {busy && (
               <Button size="sm" variant="destructive" onClick={() => cmd("cancel", {})}>
                 <SquareIcon /> Stop
               </Button>
             )}
-            <LearnNowButton id={id} />
-            <Button size="icon-sm" variant="ghost" title="Reload from disk" onClick={() => reload()}>
-              <RefreshCwIcon />
-            </Button>
-            <Link href={"/editor" + qs({ root: s.root })} title="Open the project in the editor" className="grid size-7 place-items-center rounded-md hover:bg-muted">
-              <CodeXmlIcon className="size-4" />
-            </Link>
+            <span className="hidden md:contents">
+              <LearnNowButton id={id} />
+              <Button size="icon-sm" variant="ghost" title="Reload from disk" onClick={() => reload()}>
+                <RefreshCwIcon />
+              </Button>
+              <Link href={"/editor" + qs({ root: s.root })} title="Open the project in the editor" className="grid size-7 place-items-center rounded-md hover:bg-muted">
+                <CodeXmlIcon className="size-4" />
+              </Link>
+            </span>
             <Button size="icon-sm" variant={termOpen ? "secondary" : "ghost"} title="Terminal in this project (Ctrl+`)" onClick={() => toggleTerm()}>
               <SquareTerminalIcon />
             </Button>
-            <FocusButton />
+            <span className="hidden md:contents">
+              <FocusButton />
+            </span>
             <PaneToggle side="right" />
           </div>
         </div>
 
         <div className="relative flex min-h-0 flex-1 flex-col">
-          <div ref={scroller} className="min-h-0 flex-1 overflow-auto px-5 py-4 [overflow-anchor:none]">
+          <div ref={scroller} className="min-h-0 flex-1 overflow-auto px-3 py-3 [overflow-anchor:none] md:px-5 md:py-4">
             <div ref={content} className={cn("mx-auto space-y-5", ws.rightOpen ? "max-w-3xl" : "max-w-5xl")}>
               {s.messages.map((m, i) => (
                 <MessageView
@@ -436,6 +442,8 @@ function BottomDock({ children }: { children: React.ReactNode }) {
 function Composer({ busy, owner, target, onSend }: { busy: boolean; owner?: string; target?: string; onSend: (t: string) => Promise<void> }) {
   const [text, setText] = React.useState("");
   const [sending, setSending] = React.useState(false);
+  // A phone's Enter key is its new line; there the button sends.
+  const mobile = useIsMobile();
   const go = async () => {
     const t = text.trim();
     if (!t) return;
@@ -445,21 +453,31 @@ function Composer({ busy, owner, target, onSend }: { busy: boolean; owner?: stri
     setText("");
   };
   return (
-    <div className="border-t p-3">
+    <div className="border-t p-2 md:p-3">
       <div className="mx-auto max-w-3xl">
-        <div className="flex items-end gap-2 rounded-xl border bg-background p-2 focus-within:ring-[3px] focus-within:ring-ring/30">
+        <div className="flex items-end gap-2 rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2">
           <Textarea
             value={text}
             onChange={(e) => setText(e.target.value)}
-            onKeyDown={(e) => sendOnEnter(e, () => void go())}
-            placeholder={busy ? "A turn is running — this will queue (in a terminal) or wait" : "Reply…  (Enter to send, Shift+Enter for a new line)"}
+            onKeyDown={(e) => {
+              if (!mobile) sendOnEnter(e, () => void go());
+            }}
+            placeholder={
+              busy
+                ? mobile
+                  ? "A turn is running…"
+                  : "A turn is running — this will queue (in a terminal) or wait"
+                : mobile
+                  ? "Reply…"
+                  : "Reply…  (Enter to send, Shift+Enter for a new line)"
+            }
             className="max-h-48 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0"
           />
           <Button onClick={go} disabled={sending || !text.trim()} size="icon">
             <SendIcon />
           </Button>
         </div>
-        <div className="mt-1.5 text-[11px] text-muted-foreground">
+        <div className="mt-1.5 hidden text-[11px] text-muted-foreground md:block">
           {owner?.startsWith("tui")
             ? "This session is open in a terminal: your prompt runs there, exactly as if typed, and streams here."
             : target && target !== "host"

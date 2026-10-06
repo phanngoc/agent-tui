@@ -102,7 +102,7 @@ func (s *Server) termRoutes(m *http.ServeMux) {
 		return t, ok
 	}
 
-	m.HandleFunc("GET /api/term/{id}/stream", func(w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("/api/term/{id}/stream", func(w http.ResponseWriter, r *http.Request) {
 		t, ok := get(w, r)
 		if !ok {
 			return

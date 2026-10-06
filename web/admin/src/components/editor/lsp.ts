@@ -2,6 +2,7 @@
 
 import type * as Monaco from "monaco-editor";
 import { api, gatewayBase, qs } from "@/lib/api";
+import { StreamSource } from "@/lib/sse";
 import type { MonacoNS } from "@/lib/monaco";
 import { editorService } from "./service";
 import { useEditor } from "./store";
@@ -37,7 +38,7 @@ export class LspClient {
   private root: string;
   private id = "";
   private rootUri = "";
-  private es: EventSource | null = null;
+  private es: StreamSource | null = null;
   private seq = 0;
   private pending = new Map<number, Pending>();
   private chain: Promise<unknown> = Promise.resolve();
@@ -75,7 +76,7 @@ export class LspClient {
     this.id = r.id;
     this.rootUri = r.root_uri;
     await new Promise<void>((resolve, reject) => {
-      const es = new EventSource(gatewayBase() + `/api/lsp/${r.id}/stream`);
+      const es = new StreamSource(gatewayBase() + `/api/lsp/${r.id}/stream`);
       this.es = es;
       let opened = false;
       es.onopen = () => {
@@ -85,7 +86,7 @@ export class LspClient {
         }
       };
       es.onmessage = (e) => this.receive(e.data);
-      es.addEventListener("exit", (e) => this.exited(JSON.parse((e as MessageEvent).data || '""')));
+      es.addEventListener("exit", (e) => this.exited(JSON.parse(e.data || '""')));
       es.onerror = () => {
         if (!opened) reject(new Error("could not reach the language server"));
       };

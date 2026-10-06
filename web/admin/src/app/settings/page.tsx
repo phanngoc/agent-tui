@@ -10,6 +10,7 @@ import type { EngineInfo, Prefs, ProjectSettings, Trace } from "@/lib/types";
 import { CopyButton, ErrorNote, Field, Mono, NativeSelect, PageHeader } from "@/components/common";
 import { TraceView } from "@/components/trace-panel";
 import { GatewayCard } from "@/components/gateway-card";
+import { TelegramCard } from "@/components/telegram-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -42,10 +43,11 @@ export default function SettingsPage() {
         title="Settings"
         description="Changes save to the same files the terminal reads — a terminal picks them up on its next session or turn. A command-line flag still outranks both."
       />
-      <div className="grid gap-6 p-6 xl:grid-cols-2">
+      <div className="grid gap-4 p-4 md:gap-6 md:p-6 xl:grid-cols-2">
         <GlobalCard key={JSON.stringify(data.prefs)} data={data} />
         {root ? <ProjectCard key={root + JSON.stringify(data.project)} data={data} root={root} /> : <Card><CardHeader><CardTitle>Project</CardTitle><CardDescription>Pick a project at the top to override settings for it.</CardDescription></CardHeader></Card>}
         <GatewayCard />
+        <TelegramCard />
         <Effective data={data} root={root} />
         <ContextPreview root={root} engines={data.engines} />
         <Paths data={data} />

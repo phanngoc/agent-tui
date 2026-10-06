@@ -58,6 +58,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "mcp" {
 		return mcpCmd(os.Args[2:])
 	}
+	if len(os.Args) > 1 && os.Args[1] == "telegram" {
+		return telegramCmd(os.Args[2:])
+	}
 	if len(os.Args) > 1 && os.Args[1] == "web" {
 		path := ""
 		if len(os.Args) > 2 {

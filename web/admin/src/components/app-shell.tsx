@@ -20,6 +20,8 @@ import {
   AlarmClockIcon,
   NetworkIcon,
   CodeXmlIcon,
+  RadioTowerIcon,
+  EllipsisIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
@@ -31,6 +33,8 @@ import { baseName } from "@/lib/format";
 import { Toaster } from "@/components/ui/sonner";
 import { FolderPicker } from "@/components/folder-picker";
 import { isTyping, useLayout } from "@/lib/layout";
+import { useIsMobile } from "@/lib/mobile";
+import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
@@ -41,8 +45,14 @@ const NAV = [
   { href: "/skills", label: "Skills", icon: SparklesIcon },
   { href: "/mcp", label: "MCP servers", icon: PlugIcon },
   { href: "/schedules", label: "Schedules", icon: AlarmClockIcon },
+  { href: "/remote", label: "Remote & Telegram", icon: RadioTowerIcon },
   { href: "/settings", label: "Settings", icon: SettingsIcon },
 ];
+
+// On a phone, the pages at the bottom, under the thumb; the rest behind More.
+const MOBILE_TABS = ["/", "/sessions", "/agents", "/schedules"];
+
+const isActive = (href: string, pathname: string | null) => (href === "/" ? pathname === "/" : !!pathname?.startsWith(href));
 
 export function AppShell({ children }: { children: React.ReactNode }) {
   const connect = useGateway((s) => s.connect);
@@ -96,12 +106,13 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   }, [toggleNav, setFocus]);
 
   const rail = navCollapsed || focus;
+  const mobile = useIsMobile();
 
   return (
-    <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-background text-foreground">
+    <div className="flex h-dvh min-h-0 w-full overflow-hidden bg-background pt-[env(safe-area-inset-top)] text-foreground">
       <aside
         className={cn(
-          "flex shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out",
+          "hidden shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-[width] duration-200 ease-out md:flex",
           rail ? "w-14" : "w-56",
         )}
       >
@@ -118,7 +129,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
         <nav className="flex flex-col gap-0.5 px-2">
           {NAV.map((n) => {
-            const active = n.href === "/" ? pathname === "/" : pathname?.startsWith(n.href);
+            const active = isActive(n.href, pathname);
             const Icon = n.icon;
             return (
               <Link
@@ -171,6 +182,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         {!focus && <TopBar />}
         {!connected && <OfflineBanner />}
         <main className="min-h-0 flex-1 overflow-auto">{children}</main>
+        <MobileNav busy={busy} connected={connected} />
       </div>
       {focus && (
         <button
@@ -180,14 +192,79 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           Focus mode · Esc or Alt+\ to bring the panels back
         </button>
       )}
-      <Toaster position="bottom-right" />
+      <Toaster position={mobile ? "top-center" : "bottom-right"} />
     </div>
+  );
+}
+
+/** MobileNav is the bottom tab bar on a phone, with the rest of the pages behind More. */
+function MobileNav({ busy, connected }: { busy: number; connected: boolean }) {
+  const pathname = usePathname();
+  const [more, setMore] = React.useState(false);
+  const tabs = NAV.filter((n) => MOBILE_TABS.includes(n.href));
+  const rest = NAV.filter((n) => !MOBILE_TABS.includes(n.href));
+  const moreActive = rest.some((n) => isActive(n.href, pathname));
+  const tab = "relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 py-1.5 text-[11px]";
+  return (
+    <nav className="flex shrink-0 border-t bg-sidebar pb-[env(safe-area-inset-bottom)] md:hidden">
+      {tabs.map((n) => {
+        const Icon = n.icon;
+        const active = isActive(n.href, pathname);
+        return (
+          <Link key={n.href} href={n.href} className={cn(tab, active ? "font-medium text-foreground" : "text-muted-foreground")}>
+            <Icon className="size-5" />
+            <span className="truncate">{n.label}</span>
+            {n.href === "/sessions" && busy > 0 && (
+              <span className="absolute top-1 left-1/2 ml-2 rounded-full bg-emerald-500 px-1 text-[10px] leading-4 font-medium text-white">{busy}</span>
+            )}
+          </Link>
+        );
+      })}
+      <button type="button" onClick={() => setMore(true)} className={cn(tab, moreActive ? "font-medium text-foreground" : "text-muted-foreground")}>
+        <EllipsisIcon className="size-5" />
+        <span>More</span>
+        {!connected && <span className="absolute top-1.5 left-1/2 ml-2 size-2 rounded-full bg-amber-500" />}
+      </button>
+      <Sheet open={more} onOpenChange={setMore}>
+        <SheetContent side="bottom" className="max-h-[85dvh] rounded-t-2xl pb-[calc(env(safe-area-inset-bottom)+1rem)]">
+          <SheetTitle className="px-5 pt-4 text-base">agent-tui</SheetTitle>
+          <div className="grid grid-cols-3 gap-2 px-4">
+            {rest.map((n) => {
+              const Icon = n.icon;
+              return (
+                <Link
+                  key={n.href}
+                  href={n.href}
+                  onClick={() => setMore(false)}
+                  className={cn(
+                    "flex flex-col items-center gap-1.5 rounded-xl border px-2 py-3 text-center text-xs",
+                    isActive(n.href, pathname) ? "border-primary bg-muted font-medium" : "text-muted-foreground",
+                  )}
+                >
+                  <Icon className="size-5" />
+                  {n.label}
+                </Link>
+              );
+            })}
+          </div>
+          <div className="flex items-center gap-4 border-t px-5 pt-3 text-xs">
+            <span className="flex items-center gap-2">
+              <Dot on={connected} pulse />
+              {connected ? "Gateway connected" : "Gateway offline"}
+            </span>
+            <span className="ml-auto">
+              <ThemeToggle />
+            </span>
+          </div>
+        </SheetContent>
+      </Sheet>
+    </nav>
   );
 }
 
 function OfflineBanner() {
   return (
-    <div className="border-b bg-amber-500/10 px-6 py-2 text-xs text-amber-700 dark:text-amber-300">
+    <div className="border-b bg-amber-500/10 px-3 py-2 text-xs text-amber-700 md:px-6 dark:text-amber-300">
       Cannot reach the gateway. Start it with <code className="font-mono">agent-tui serve</code> — opening <code className="font-mono">tui</code> starts one too. This page reconnects on its own.
     </div>
   );
@@ -207,9 +284,9 @@ function TopBar() {
   }, [projects, root]);
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b px-6">
-      <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">Project</span>
-      <div className="flex min-w-0 items-center gap-2">
+    <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3 md:px-6">
+      <span className="hidden text-xs font-medium tracking-wide text-muted-foreground uppercase md:inline">Project</span>
+      <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none">
         {root ? <FolderIcon className="size-4 text-muted-foreground" /> : <GlobeIcon className="size-4 text-muted-foreground" />}
         <select
           value={root}
@@ -217,7 +294,7 @@ function TopBar() {
             if (e.target.value === "__custom") setPicking(true);
             else setRoot(e.target.value);
           }}
-          className="h-8 max-w-[28rem] truncate rounded-lg border bg-background px-2 text-sm outline-none dark:bg-input/30"
+          className="h-9 w-full min-w-0 truncate rounded-lg border bg-background px-2 text-sm outline-none md:h-8 md:w-auto md:max-w-[28rem] dark:bg-input/30"
         >
           <option value="">No project — everything</option>
           {options.map((p) => (
@@ -228,12 +305,12 @@ function TopBar() {
           ))}
           <option value="__custom">Browse for a folder…</option>
         </select>
-        <button className="text-xs text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)} title="Browse folders, WSL included">
+        <button className="shrink-0 text-xs text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)} title="Browse folders, WSL included">
           browse…
         </button>
       </div>
       <FolderPicker open={picking} onOpenChange={setPicking} initial={root} onPick={setRoot} title="Choose the project to look at" />
-      <span className="ml-auto truncate text-xs text-muted-foreground">
+      <span className="ml-auto hidden truncate text-xs text-muted-foreground lg:inline">
         {root ? "Project scope: settings, skills and MCP in .agent-tui · memory in the data folder" : "Sessions and memory of every project; skills, MCP and settings at global scope"}
       </span>
     </header>
