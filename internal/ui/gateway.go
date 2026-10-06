@@ -191,6 +191,31 @@ func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 	case gateway.CmdCancel:
 		m.cancelSession(s)
 		m.notice = "stopped from the web"
+	case gateway.CmdSettings:
+		// Chosen on the web for a session held here: applied as if chosen
+		// here, from its next turn.
+		var did []string
+		if c.Engine != "" && c.Engine != s.Engine {
+			if e := m.reg.Get(c.Engine); e != nil && e.Available() {
+				m.switchEngineOf(s, e)
+				did = append(did, e.Label())
+			}
+		}
+		if c.Model != "" && c.Model != s.Model {
+			s.Model = c.Model
+			did = append(did, agent.ModelFor(c.Model).Label)
+		}
+		if c.Mode != "" {
+			if mode := agent.ParseMode(c.Mode).String(); mode != s.Mode {
+				s.Mode = mode
+				did = append(did, "mode "+mode)
+			}
+		}
+		if len(did) > 0 {
+			m.mgr.Save(s)
+			m.publishSummary(s)
+			m.notice = "from the web: " + strings.Join(did, ", ") + " from the next turn"
+		}
 	case gateway.CmdApprove:
 		for i, p := range m.approvals {
 			if p.id != c.ID || p.sess != s {

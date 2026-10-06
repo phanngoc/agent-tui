@@ -18,6 +18,7 @@ package gateway
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"github.com/phanngoc/agent-tui/internal/agent"
@@ -78,6 +79,9 @@ const (
 	CmdApprove = "approve"
 	CmdChoose  = "choose"
 	CmdReload  = "reload"
+	// CmdSettings changes what a session runs on — model, mode, engine —
+	// from its next turn.
+	CmdSettings = "settings"
 	// CmdOpen tells a terminal working in a project that a conversation in
 	// it was started or continued elsewhere, so it can list it too.
 	CmdOpen = "open"
@@ -94,6 +98,11 @@ type Command struct {
 	Verdict string `json:"verdict,omitempty"`
 	Index   int    `json:"index,omitempty"`
 	From    string `json:"from,omitempty"`
+	// Model, Mode and Engine are a settings command's; empty leaves one as
+	// it is.
+	Model  string `json:"model,omitempty"`
+	Mode   string `json:"mode,omitempty"`
+	Engine string `json:"engine,omitempty"`
 }
 
 // SubAgentData is a sub-agent tree, from the top-level call that started it.
@@ -122,6 +131,8 @@ type Summary struct {
 	OutToks  int64     `json:"output_tokens"`
 	Closed   bool      `json:"closed,omitempty"`
 	SideOf   string    `json:"side_of,omitempty"`
+	// Job is the scheduled job the session is a run of.
+	Job string `json:"job,omitempty"`
 }
 
 // SummaryOf summarises a session.
@@ -130,8 +141,20 @@ func SummaryOf(s *session.Session) Summary {
 		ID: s.ID, Title: s.Label(), Root: s.Root, Engine: s.Engine, Model: s.Model, Mode: s.Mode,
 		Target: s.Target, CWD: s.CWD, Messages: len(s.Messages), Created: s.Created, Updated: s.Updated,
 		Busy: s.Busy, Status: s.Status, InTokens: s.InputTokens, OutToks: s.OutputTokens,
-		Closed: s.Closed, SideOf: s.SideOf,
+		Closed: s.Closed, SideOf: s.SideOf, Job: jobOf(s),
 	}
+}
+
+// jobOf is the job a session is a run of. Runs from before sessions said so
+// are known by the header the scheduler starts their prompt with.
+func jobOf(s *session.Session) string {
+	if s.Job != "" {
+		return s.Job
+	}
+	if len(s.Messages) > 0 && strings.HasPrefix(s.Messages[0].Text, "[scheduled: ") {
+		return "scheduled"
+	}
+	return ""
 }
 
 // Payloads.

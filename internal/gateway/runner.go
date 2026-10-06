@@ -155,6 +155,15 @@ func Load(id string) (*session.Session, error) {
 // Linux folder as its directory. target and cwd say so explicitly, for a
 // location copied from an earlier session.
 func (r *Runner) NewSession(root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
+	return r.newSession("", root, target, cwd, engineID, model, mode, prompt)
+}
+
+// NewJobSession is NewSession for a run of a scheduled job, marked as one.
+func (r *Runner) NewJobSession(job, root, engineID, model, mode, prompt string) (*session.Session, error) {
+	return r.newSession(job, root, "", "", engineID, model, mode, prompt)
+}
+
+func (r *Runner) newSession(job, root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
 	// One spelling per folder: it is the project's identity for memory,
 	// skills and settings.
 	root = filepath.Clean(root)
@@ -173,6 +182,7 @@ func (r *Runner) NewSession(root, target, cwd, engineID, model, mode, prompt str
 	prefs := config.LoadPrefs()
 	ps := config.LoadProjectSettings(root)
 	s := p.mgr.New()
+	s.Job = job
 	if !isHost(target) {
 		s.Target, s.CWD = target, p.dir
 	}
@@ -243,6 +253,8 @@ func (r *Runner) Handle(cmd Command) error {
 		return nil
 	case CmdReload:
 		return nil
+	case CmdSettings:
+		return r.settings(cmd)
 	}
 	return fmt.Errorf("unknown command %q", cmd.Type)
 }
@@ -387,6 +399,64 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 			r.Hub.Publish(*out)
 		}
 	}
+}
+
+// settings changes what a session the gateway holds runs on, from its next
+// turn. A turn under way keeps its engine and model; the change is made on
+// the session it is writing, so its end saves it rather than undoing it.
+func (r *Runner) settings(cmd Command) error {
+	r.mu.Lock()
+	t := r.turns[cmd.Session]
+	r.mu.Unlock()
+	var s *session.Session
+	if t != nil {
+		s = t.s
+	} else {
+		var err error
+		if s, err = Load(cmd.Session); err != nil {
+			return err
+		}
+	}
+	cwd := ""
+	if !isHost(s.Target) {
+		cwd = s.CWD
+	}
+	p, err := r.project(s.Root, s.Target, cwd)
+	if err != nil {
+		return err
+	}
+	if t == nil {
+		// The project's manager may hold the session from an earlier turn,
+		// and would write that copy back over this change.
+		if held := p.mgr.Get(cmd.Session); held != nil {
+			s = held
+		}
+	}
+	if cmd.Engine != "" {
+		e := p.reg.Get(cmd.Engine)
+		if e == nil || !e.Available() {
+			return fmt.Errorf("engine %s is not available here", cmd.Engine)
+		}
+		if s.Engine != e.ID() {
+			// As the terminal hands over (ui/handoff.go): the new engine's own
+			// conversation, if it had one, and no reasoning context, which
+			// cannot travel.
+			s.Engine = e.ID()
+			s.ExternalID = s.StateFor(e.ID()).ExternalID
+			s.Live = nil
+		}
+	}
+	if cmd.Model != "" {
+		s.Model = cmd.Model
+	}
+	if cmd.Mode != "" {
+		s.Mode = agent.ParseMode(cmd.Mode).String()
+	}
+	// Queued behind the turn's own saves, so it is the last write and not
+	// overwritten by one of them.
+	p.mgr.Save(s)
+	r.publishSummary(s, t != nil)
+	return nil
 }
 
 // Running lists the sessions whose turns run here now: what stopping the

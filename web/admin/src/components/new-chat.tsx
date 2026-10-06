@@ -63,7 +63,10 @@ function Pill({
 export function NewChat({ root, onCreated }: { root: string; onCreated: (id: string) => void }) {
   const { data: recent } = useFetch<Summary[]>("/api/sessions" + qs({ root }), [root]);
   if (!recent) return <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">…</div>;
-  return <Draft key={recent[0]?.id ?? "none"} last={recent[0]} fallbackRoot={root} onCreated={onCreated} />;
+  // The last conversation someone had: a scheduled run or a side chat is not
+  // one, and a job's model must not become everyone's default.
+  const last = recent.find((s) => !s.job && !s.side_of);
+  return <Draft key={last?.id ?? "none"} last={last} fallbackRoot={root} onCreated={onCreated} />;
 }
 
 function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot: string; onCreated: (id: string) => void }) {

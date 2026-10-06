@@ -46,8 +46,10 @@ func (m *Model) handoffBrief(s *session.Session, engineID string) string {
 // cache belong to one conversation with one server and cannot be moved. The id
 // belongs to the engine that earned it, and keeping it is what makes coming
 // back a resume rather than a second cold start.
-func (m *Model) switchEngine(to agent.Engine) {
-	s := m.mgr.Active()
+func (m *Model) switchEngine(to agent.Engine) { m.switchEngineOf(m.mgr.Active(), to) }
+
+// switchEngineOf hands a session to another engine.
+func (m *Model) switchEngineOf(s *session.Session, to agent.Engine) {
 	if s.Engine == to.ID() {
 		return
 	}

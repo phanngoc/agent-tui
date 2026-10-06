@@ -223,8 +223,8 @@ func (h *Hub) offer(e Event) {
 		return
 	}
 	var sum Summary
-	if json.Unmarshal(e.Data, &sum) != nil || sum.Busy || sum.Root == "" {
-		return
+	if json.Unmarshal(e.Data, &sum) != nil || sum.Busy || sum.Root == "" || sum.Job != "" {
+		return // a scheduled run is not a conversation to pick up
 	}
 	for _, p := range h.peers {
 		if p.held[sum.ID] || !samePath(p.Root, sum.Root) {

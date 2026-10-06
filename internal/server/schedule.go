@@ -13,6 +13,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/phanngoc/agent-tui/internal/agent"
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/schedule"
 	"github.com/phanngoc/agent-tui/internal/session"
@@ -39,7 +40,7 @@ func (h *schedHost) Start(j *schedule.Job, prompt string) (string, error) {
 		_, err := h.s.Hub.Route(gateway.Command{Type: gateway.CmdPrompt, Session: j.SessionID, Text: prompt, From: "schedule"})
 		return j.SessionID, err
 	}
-	sess, err := h.s.Runner.NewSession(j.Root, "", "", j.Engine, j.Model, j.Mode, prompt)
+	sess, err := h.s.Runner.NewJobSession(j.ID, j.Root, j.Engine, j.Model, j.Mode, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -170,6 +171,13 @@ func (s *Server) scheduleRoutes(m *http.ServeMux) {
 			in.Session = schedule.SessionNew
 		}
 		in.Root = filepath.Clean(in.Root)
+		if in.Model != "" {
+			// "sonnet" from an agent is a model id here, so the runs and the
+			// sessions they leave say which one.
+			if spec, ok := agent.ResolveModel(in.Model); ok {
+				in.Model = spec.ID
+			}
+		}
 		if err := in.Validate(); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return

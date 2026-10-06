@@ -17,6 +17,7 @@ import { LiveTail, MessageView } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
 import { PaneToggle, RightPane, Workspace, useWorkspace } from "@/components/workspace";
 import { FocusButton } from "@/components/focus-button";
+import { SessionSettings } from "@/components/session-settings";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -133,6 +134,7 @@ function SessionList({ selected, onSelect, onNew }: { selected: string; onSelect
               <div className="flex items-center gap-2 pl-4 text-xs text-muted-foreground">
                 <span className="truncate">{baseName(s.root)}</span>
                 <span>·</span>
+                {s.job && <span className="rounded bg-amber-500/15 px-1 text-amber-700 dark:text-amber-300">scheduled</span>}
                 <span>{s.engine || "api"}</span>
                 <span>·</span>
                 <span>{s.messages} msg</span>
@@ -165,6 +167,8 @@ function Conversation({ id }: { id: string }) {
   const [tab, setTab] = React.useState("context");
   const ws = useWorkspace();
   const { scroller, content, below, toBottom } = useFollow(!!data);
+  // What was just chosen in the header, shown until the session says so.
+  const [chosen, setChosen] = React.useState<{ engine?: string; model?: string; mode?: string }>({});
 
   // Messages arrive as events; a turn's end refetches to settle on disk.
   React.useEffect(
@@ -243,15 +247,14 @@ function Conversation({ id }: { id: string }) {
               <span className="max-w-full truncate font-mono @max-lg:max-w-48" title={s.root}>
                 {s.root}
               </span>
-              <Badge variant="outline" className="font-normal">
-                {s.engine || "api"}
-              </Badge>
-              <Badge variant="outline" className="font-normal">
-                {s.model}
-              </Badge>
-              <Badge variant="outline" className="font-normal">
-                mode {s.mode || "auto"}
-              </Badge>
+              <SessionSettings
+                id={id}
+                root={s.root}
+                engine={chosen.engine ?? summary?.engine ?? s.engine}
+                model={chosen.model ?? summary?.model ?? s.model}
+                mode={chosen.mode ?? summary?.mode ?? s.mode}
+                onChanged={(p) => setChosen((c) => ({ ...c, ...p }))}
+              />
               {s.target && s.target !== "host" && (
                 <Badge variant="outline" className="font-normal">
                   {s.target}
