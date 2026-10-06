@@ -85,6 +85,8 @@ type fakeTelegram struct {
 	updates []Update
 	sent    []map[string]any
 	nextID  int64
+	// floodEdits answers that many edits with flood control (429).
+	floodEdits int
 }
 
 func (f *fakeTelegram) push(u Update) {
@@ -131,6 +133,16 @@ func (f *fakeTelegram) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		f.mu.Unlock()
 		reply(Message{MessageID: id})
 	case "editMessageText", "deleteMessage":
+		f.mu.Lock()
+		flood := method == "editMessageText" && f.floodEdits > 0
+		if flood {
+			f.floodEdits--
+		}
+		f.mu.Unlock()
+		if flood {
+			_, _ = w.Write([]byte(`{"ok":false,"error_code":429,"description":"Too Many Requests: retry after 1","parameters":{"retry_after":1}}`))
+			return
+		}
 		f.mu.Lock()
 		p["method"] = method
 		f.sent = append(f.sent, p)
