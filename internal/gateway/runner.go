@@ -71,8 +71,12 @@ func NewRunner(h *Hub, cfg config.Config) *Runner {
 // a CLI engine is pointed at its filesystem.
 func (r *Runner) project(root, target, cwd string) (*project, error) {
 	key := root
-	if !isHost(target) {
+	elsewhere := isHost(target) && cwd != "" && filepath.Clean(cwd) != filepath.Clean(root)
+	switch {
+	case !isHost(target):
 		key += "|" + target + "|" + cwd
+	case elsewhere:
+		key += "|cwd|" + cwd
 	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -81,6 +85,12 @@ func (r *Runner) project(root, target, cwd string) (*project, error) {
 	}
 	var fs vfs.FS = vfs.NewLocal(root)
 	dir := root
+	if elsewhere {
+		// A session working elsewhere on this machine — a git worktree of
+		// the project — has its own tools there; the project (memory,
+		// skills, settings) is still root.
+		fs, dir = vfs.NewLocal(cwd), cwd
+	}
 	if !isHost(target) {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		fs = vfs.Open(ctx, target, root)
@@ -171,7 +181,8 @@ func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode
 	root = filepath.Clean(root)
 	if isHost(target) {
 		if d, linux, ok := WSLPath(root); ok {
-			target, cwd = "wsl:"+d, linux
+			// A worktree of the project, given as cwd, is kept.
+			target, cwd = "wsl:"+d, cmp.Or(cwd, linux)
 		}
 	}
 	if !config.IsDir(root) {
@@ -187,6 +198,8 @@ func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode
 	s.Job, s.Title = job, title
 	if !isHost(target) {
 		s.Target, s.CWD = target, p.dir
+	} else if cwd != "" {
+		s.CWD = p.dir
 	}
 	s.Engine = cmp.Or(engineID, ps.Engine, prefs.Engine, r.Cfg.Engine, "api")
 	s.Model = cmp.Or(model, ps.Model, prefs.Model, r.Cfg.Model)
@@ -211,11 +224,7 @@ func (r *Runner) Handle(cmd Command) error {
 		if err != nil {
 			return err
 		}
-		cwd := ""
-		if !isHost(s.Target) {
-			cwd = s.CWD
-		}
-		p, err := r.project(s.Root, s.Target, cwd)
+		p, err := r.project(s.Root, s.Target, s.CWD)
 		if err != nil {
 			return err
 		}
@@ -422,11 +431,7 @@ func (r *Runner) settings(cmd Command) error {
 			return err
 		}
 	}
-	cwd := ""
-	if !isHost(s.Target) {
-		cwd = s.CWD
-	}
-	p, err := r.project(s.Root, s.Target, cwd)
+	p, err := r.project(s.Root, s.Target, s.CWD)
 	if err != nil {
 		return err
 	}

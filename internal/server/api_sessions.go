@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -62,6 +63,13 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			Model  string `json:"model"`
 			Mode   string `json:"mode"`
 			Prompt string `json:"prompt"`
+			// Worktree, when set, runs the conversation in a new git
+			// worktree of the project, on a new branch from Base (the
+			// current branch when empty), as the Claude app's worktree
+			// option does: the main tree is left as it is.
+			Worktree *struct {
+				Base string `json:"base"`
+			} `json:"worktree"`
 		}
 		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
@@ -71,12 +79,22 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			fail(w, http.StatusBadRequest, errors.New("a new conversation starts with a prompt"))
 			return
 		}
+		branch := ""
+		if in.Worktree != nil {
+			branch = worktreeBranch(in.Prompt, time.Now())
+			wt, err := s.worktreeFor(r.Context(), in.Root, branch, in.Worktree.Base, true)
+			if err != nil {
+				fail(w, http.StatusBadRequest, fmt.Errorf("making the worktree: %w", err))
+				return
+			}
+			in.CWD = wt
+		}
 		sess, err := s.Runner.NewSession(in.Root, in.Target, in.CWD, in.Engine, in.Model, in.Mode, in.Prompt)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		writeJSON(w, map[string]string{"id": sess.ID})
+		writeJSON(w, map[string]string{"id": sess.ID, "branch": branch, "cwd": in.CWD})
 	})
 
 	route := func(typ string) http.HandlerFunc {
@@ -172,4 +190,32 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			"modes":   []string{"plan", "ask", "auto", "full"},
 		})
 	})
+}
+
+// worktreeBranch names a conversation's worktree branch from its first
+// prompt: agent/<month-day>-<a few words>.
+func worktreeBranch(prompt string, now time.Time) string {
+	var words []string
+	for _, f := range strings.Fields(strings.ToLower(prompt)) {
+		var b strings.Builder
+		for _, r := range f {
+			if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+				b.WriteRune(r)
+			}
+		}
+		if b.Len() > 0 {
+			words = append(words, b.String())
+		}
+		if len(words) == 4 {
+			break
+		}
+	}
+	name := "agent/" + now.Format("0102-1504")
+	if len(words) > 0 {
+		name += "-" + strings.Join(words, "-")
+	}
+	if len(name) > 60 {
+		name = strings.TrimRight(name[:60], "-")
+	}
+	return name
 }

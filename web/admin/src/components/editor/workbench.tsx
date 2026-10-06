@@ -90,11 +90,7 @@ export function Workbench() {
     return () => {
       live = false;
       mo.disconnect();
-      editorService.editor?.dispose();
-      editorService.diff?.dispose();
-      editorService.editor = null;
-      editorService.diff = null;
-      editorService.reset();
+      editorService.detach();
     };
   }, []);
 

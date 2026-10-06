@@ -35,6 +35,8 @@ class EditorService {
   private codeEl: HTMLElement | null = null;
   private gate: Promise<void> = Promise.resolve();
   private diffEl: HTMLElement | null = null;
+  // Counts attaches, so one the page left before Monaco loaded does nothing.
+  private attaches = 0;
 
   get root() {
     return useEditor.getState().root;
@@ -42,7 +44,9 @@ class EditorService {
 
   /** attach creates the editors in the given elements, once Monaco is loaded. */
   async attach(codeEl: HTMLElement, diffEl: HTMLElement, dark: boolean) {
+    const turn = ++this.attaches;
     const monaco = await loadMonaco();
+    if (turn !== this.attaches || !codeEl.isConnected) return;
     this.monaco = monaco;
     this.codeEl = codeEl;
     this.diffEl = diffEl;
@@ -81,7 +85,36 @@ class EditorService {
     // first TS model, or it can never be turned off.
     this.gate = prepareLsp(monaco, this.root);
     const active = useEditor.getState().active;
-    if (active) void this.show(active);
+    if (active) void this.reveal(active);
+  }
+
+  /**
+   * detach lets the page go: the editors go with it, the documents stay.
+   * Coming back to the editor then shows the same files, where they were,
+   * unsaved changes and all — before, it came back empty.
+   */
+  detach() {
+    this.attaches++;
+    const cur = this.shown && !this.shown.startsWith("diff:") ? this.docs.get(this.shown) : null;
+    if (cur && this.editor?.getModel() === cur.model) cur.view = this.editor.saveViewState();
+    stopLsp();
+    this.editor?.dispose();
+    this.diff?.dispose();
+    this.editor = null;
+    this.diff = null;
+    this.codeEl = null;
+    this.diffEl = null;
+    this.shown = null;
+  }
+
+  /** reveal shows a tab, reading its file first if it is not open yet. */
+  private async reveal(key: string) {
+    const isDiff = key.startsWith("diff:");
+    const path = isDiff ? key.slice(5) : key;
+    const doc = this.docs.get(path);
+    if (isDiff && !doc?.head) return this.openDiff(path);
+    if (!doc && !(await this.load(path))) return;
+    if (useEditor.getState().active === key) this.show(key);
   }
 
   setTheme(dark: boolean) {

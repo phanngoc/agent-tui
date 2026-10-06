@@ -256,3 +256,41 @@ func TestRunnerFreshRunsShareTheJobSession(t *testing.T) {
 		t.Fatalf("session: %d messages, title %q, job %q", len(got.Messages), got.Title, got.Job)
 	}
 }
+
+// A conversation started in a worktree of the project, on this machine,
+// runs its turns there; the project is still the root.
+func TestRunnerRunsAHostSessionInItsWorktree(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root, wt := t.TempDir(), t.TempDir()
+	eng := &script{events: []agent.Event{agent.EvDone{}}}
+	h := NewHub()
+	r := NewRunner(h, config.Default())
+	h.Local = r
+	reg := engine.NewRegistryWith(eng)
+	r.roots[root] = &project{root: root, fs: vfs.NewLocal(root), dir: root, mgr: session.NewManager(config.DataDir(), root, "m"), reg: reg}
+	r.roots[root+"|cwd|"+wt] = &project{root: root, fs: vfs.NewLocal(wt), dir: wt, mgr: session.NewManager(config.DataDir(), root, "m"), reg: reg}
+	s, err := r.NewSession(root, "", wt, "api", "", "", "go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.Root != root || s.CWD != wt {
+		t.Fatalf("session root %q cwd %q", s.Root, s.CWD)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		eng.mu.Lock()
+		n := len(eng.turns)
+		eng.mu.Unlock()
+		if n > 0 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	eng.mu.Lock()
+	defer eng.mu.Unlock()
+	if len(eng.turns) == 0 || eng.turns[0].Root != wt {
+		t.Fatalf("the turn ran in %v; want the worktree %s", eng.turns, wt)
+	}
+	r.Shutdown()
+}
