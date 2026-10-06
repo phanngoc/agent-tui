@@ -545,7 +545,18 @@ function Composer({
   return (
     <div className="border-t p-2 md:p-3">
       <div className="mx-auto max-w-3xl">
-        <div className="rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2">
+        {/* Who runs the prompt is a tooltip, not a line of its own: the room
+            under the composer goes to the conversation. */}
+        <div
+          title={
+            owner?.startsWith("tui")
+              ? "This session is open in a terminal: your prompt runs there, exactly as if typed, and streams here."
+              : target && target !== "host"
+                ? `No terminal holds this session: the gateway runs it inside ${target}, with the same engines, memory, skills and MCP servers.`
+                : "No terminal holds this session: the gateway runs it, with the same engines, memory, skills and MCP servers."
+          }
+          className="rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2"
+        >
           {queue.items.length > 0 && (
             <div className="mb-1.5 flex flex-col gap-1">
               {queue.items.map((q) => (
@@ -648,13 +659,6 @@ function Composer({
               </span>
             )}
           </div>
-        </div>
-        <div className="mt-1.5 hidden text-[11px] text-muted-foreground md:block">
-          {owner?.startsWith("tui")
-            ? "This session is open in a terminal: your prompt runs there, exactly as if typed, and streams here."
-            : target && target !== "host"
-              ? `No terminal holds this session: the gateway runs it inside ${target}, with the same engines, memory, skills and MCP servers.`
-              : "No terminal holds this session: the gateway runs it, with the same engines, memory, skills and MCP servers."}
         </div>
       </div>
     </div>
