@@ -31,6 +31,7 @@ interface TelegramView {
   allowed: Person[];
   pending: Pairing[];
   quiet_schedules: boolean;
+  streaming: string;
   status: { state: string; username?: string; error?: string };
 }
 
@@ -104,6 +105,29 @@ export function TelegramCard() {
               Save
             </Button>
           </div>
+        </Field>
+        <Field
+          label="While the agent works"
+          hint={
+            data.streaming === "partial"
+              ? "The answer streams into one message as it is written."
+              : data.streaming === "block"
+                ? "One message of progress, and what the agent says between steps as messages of their own."
+                : data.streaming === "off"
+                  ? "Only the typing indicator, then the answer."
+                  : "One message of progress — what it is thinking, each step with ⏳/✅/❌ and its time — that folds into a summary; then the answer."
+          }
+        >
+          <NativeSelect
+            value={data.streaming}
+            onChange={(m) => act(() => api.put("/api/telegram", { streaming: m }))}
+            options={[
+              { value: "progress", label: "progress — steps as they happen (default)" },
+              { value: "partial", label: "partial — stream the answer" },
+              { value: "block", label: "block — progress, and each thing it says" },
+              { value: "off", label: "off — just the answer" },
+            ]}
+          />
         </Field>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Who may use it" hint={data.dm_policy === "pairing" ? "Strangers get a code to approve here." : data.dm_policy === "allowlist" ? "Only those approved; strangers get no answer." : "Nobody."}>

@@ -114,6 +114,7 @@ func (s *Server) telegramView() map[string]any {
 		"allowed":         allowed,
 		"pending":         pending,
 		"quiet_schedules": st.QuietSchedules,
+		"streaming":       telegram.ResolveStreaming(st.Streaming),
 		"paused":          st.Paused,
 		"status":          s.bot.Status(),
 	}
@@ -128,6 +129,7 @@ func (s *Server) telegramRoutes(m *http.ServeMux) {
 			Token          *string `json:"token"`
 			Policy         *string `json:"dm_policy"`
 			QuietSchedules *bool   `json:"quiet_schedules"`
+			Streaming      *string `json:"streaming"`
 		}
 		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
@@ -158,6 +160,12 @@ func (s *Server) telegramRoutes(m *http.ServeMux) {
 			}
 			if in.QuietSchedules != nil {
 				st.QuietSchedules = *in.QuietSchedules
+			}
+			if in.Streaming != nil {
+				if telegram.ResolveStreaming(*in.Streaming) != *in.Streaming {
+					return errors.New("streaming is progress, partial, block or off")
+				}
+				st.Streaming = *in.Streaming
 			}
 			if st.Enabled && st.Token == "" {
 				return errors.New("paste the bot's token first")

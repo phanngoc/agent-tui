@@ -55,6 +55,9 @@ type Settings struct {
 	Chats map[string]*ChatState `json:"chats,omitempty"`
 	// QuietSchedules keeps scheduled runs' reports out of Telegram.
 	QuietSchedules bool `json:"quiet_schedules,omitempty"`
+	// Streaming is how a running turn shows (progress.go): progress (the
+	// default), partial, block or off.
+	Streaming string `json:"streaming,omitempty"`
 	// Offset is the next update to ask for, so a restart neither misses
 	// nor repeats messages.
 	Offset int64 `json:"offset,omitempty"`

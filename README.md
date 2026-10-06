@@ -403,8 +403,21 @@ What changes when the gateway is reachable from outside:
   - `/status`, `/stop` and `/model` do what they say.
   - Plain text is a prompt to the current conversation.
 - **Turns:**
-  - While a turn runs, one message shows the tools as they run, and the
-    typing indicator stays on.
+  - **While a turn runs** (after OpenClaw's streaming), one message shows
+    progress and is edited at most once a second:
+    - a headline with the elapsed time and the step count;
+    - 🧠 what the agent is thinking, 💬 what it says between tool calls;
+    - a line per tool call: ⏳/✅/❌, the kind of tool (📖 💻 🔎 ✏️ 🌐 🤖
+      🔌), what it touches, and how long it took.
+    - At the end the message folds into a summary, for example
+      `✅ Done · 52s · 3 steps — 💻 Bash · 📖 Read · 🔎 Grep`.
+    - A quick answer comes alone, with no progress message flashing past.
+    - Three failed edits leave the message as it is.
+  - **Streaming modes** (Settings, Telegram):
+    - `partial` streams the answer itself into the message;
+    - `block` also sends what the agent says between steps as messages
+      of their own;
+    - `off` shows only the typing indicator.
   - The answer arrives as Telegram HTML, split under 4096 characters.
   - An approval or a question comes with inline buttons.
 - **Schedules:** a scheduled run with something to report is sent to

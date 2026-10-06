@@ -94,18 +94,20 @@ type ref struct {
 	text    string
 }
 
-// turnView is a turn shown in a chat: the progress message and what the
-// answer has been so far.
+// turnView is a turn shown in a chat: its progress (progress.go) and the
+// message that shows it.
 type turnView struct {
-	chat     int64
-	session  string
-	draft    int64
-	head     string
-	lines    []string
-	answer   string
-	dirty    bool
-	lastEdit time.Time
-	stop     chan struct{}
+	chat      int64
+	session   string
+	p         *progress
+	draft     int64
+	dirty     bool
+	sending   bool
+	broken    bool
+	failures  int
+	lastEdit  time.Time
+	lastBlock string
+	stop      chan struct{}
 }
 
 // Status is the bot's state now.
@@ -595,19 +597,30 @@ func (b *Bot) show(ctx context.Context, v *turnView, e gateway.Event) {
 	switch e.Type {
 	case gateway.EvTurnStarted:
 		b.mu.Lock()
-		v.head, v.lines, v.answer, v.draft = "⏳ Working…", nil, "", 0
 		if v.stop != nil {
 			close(v.stop)
 		}
+		v.p = newProgress(Load().Streaming, time.Now())
+		v.draft, v.failures, v.broken, v.dirty, v.lastBlock = 0, 0, false, false, ""
+		v.lastEdit = time.Time{}
 		v.stop = make(chan struct{})
 		stop := v.stop
 		b.mu.Unlock()
 		go func() {
-			t := time.NewTicker(4 * time.Second)
+			// Once a second: the progress message when it has news (and its
+			// clock every few seconds); the typing indicator every four.
+			t := time.NewTicker(editEvery)
 			defer t.Stop()
-			for {
-				b.c.typing(ctx, v.chat)
-				b.flush(ctx, v, false)
+			for i := 0; ; i++ {
+				if i%4 == 0 {
+					b.c.typing(ctx, v.chat)
+				}
+				b.mu.Lock()
+				if v.p != nil && v.draft != 0 && time.Since(v.lastEdit) >= 5*time.Second {
+					v.dirty = true // the headline's clock
+				}
+				b.mu.Unlock()
+				b.flush(ctx, v)
 				select {
 				case <-ctx.Done():
 					return
@@ -617,34 +630,6 @@ func (b *Bot) show(ctx context.Context, v *turnView, e gateway.Event) {
 				}
 			}
 		}()
-	case gateway.EvStatus:
-		var d gateway.TextData
-		_ = json.Unmarshal(e.Data, &d)
-		if d.Text != "" {
-			b.mu.Lock()
-			v.head, v.dirty = "⏳ "+d.Text, true
-			b.mu.Unlock()
-			b.flush(ctx, v, false)
-		}
-	case gateway.EvToolStart:
-		var d gateway.ToolData
-		_ = json.Unmarshal(e.Data, &d)
-		b.mu.Lock()
-		v.lines = append(v.lines, "🔧 "+toolLine(d.Call))
-		if len(v.lines) > 8 {
-			v.lines = v.lines[len(v.lines)-8:]
-		}
-		v.dirty = true
-		b.mu.Unlock()
-		b.flush(ctx, v, false)
-	case gateway.EvMessage:
-		var d gateway.MessageData
-		_ = json.Unmarshal(e.Data, &d)
-		if d.Message.Role == session.RoleAssistant && strings.TrimSpace(d.Message.Text) != "" {
-			b.mu.Lock()
-			v.answer = d.Message.Text
-			b.mu.Unlock()
-		}
 	case gateway.EvApprovalRequest:
 		var d gateway.ApprovalData
 		_ = json.Unmarshal(e.Data, &d)
@@ -692,61 +677,136 @@ func (b *Bot) show(ctx context.Context, v *turnView, e gateway.Event) {
 	case gateway.EvTurnDone:
 		var d gateway.TurnData
 		_ = json.Unmarshal(e.Data, &d)
+		b.finish(ctx, v, d.Error)
+	default:
 		b.mu.Lock()
-		if v.stop != nil {
-			close(v.stop)
-			v.stop = nil
+		if v.p == nil {
+			b.mu.Unlock()
+			return
 		}
-		draft, answer := v.draft, v.answer
-		v.draft, v.lines, v.answer = 0, nil, ""
+		changed, block := v.p.apply(e, time.Now())
+		if changed {
+			v.dirty = true
+		}
 		b.mu.Unlock()
-		if draft != 0 {
-			b.c.delete(ctx, v.chat, draft)
-		}
-		switch {
-		case d.Error != "":
-			b.reply(ctx, v.chat, "⚠️ "+esc(clip(d.Error, 1500)))
-		case strings.TrimSpace(answer) == "":
-			b.reply(ctx, v.chat, "✅ Done.")
-		default:
-			for _, piece := range Chunks(answer) {
+		if block != "" {
+			// Block mode: said on the way, sent as it is said.
+			for _, piece := range Chunks(block) {
 				b.reply(ctx, v.chat, HTML(piece))
 			}
+			b.mu.Lock()
+			v.lastBlock = block
+			b.mu.Unlock()
+		}
+		if changed {
+			b.flush(ctx, v)
 		}
 	}
 }
 
-// flush shows the progress message: sent the first time, edited after, at
-// most every 1.5 s unless forced.
-func (b *Bot) flush(ctx context.Context, v *turnView, force bool) {
+// flush shows the progress message: sent once it is worth it, then edited
+// at most once a second while there is news. Three failed edits in a row
+// and it is left as it is, as OpenClaw does.
+func (b *Bot) flush(ctx context.Context, v *turnView) {
 	b.mu.Lock()
-	if v.stop == nil || (!v.dirty && v.draft != 0) || (!force && time.Since(v.lastEdit) < 1500*time.Millisecond) {
+	now := time.Now()
+	if v.stop == nil || v.p == nil || v.broken || v.sending || (!v.dirty && v.draft != 0) ||
+		now.Sub(v.lastEdit) < editEvery || (v.draft == 0 && !v.p.worth(now)) {
 		b.mu.Unlock()
 		return
 	}
-	text := esc(v.head)
-	if len(v.lines) > 0 {
-		text += "\n" + esc(strings.Join(v.lines, "\n"))
-	}
+	text := v.p.render(now)
 	draft := v.draft
-	v.dirty, v.lastEdit = false, time.Now()
+	v.dirty, v.lastEdit, v.sending = false, now, true
 	b.mu.Unlock()
 	if draft == 0 {
 		id, err := b.c.send(ctx, v.chat, text, nil)
-		if err == nil {
-			b.mu.Lock()
-			if v.stop != nil {
-				v.draft = id
-				b.mu.Unlock()
-			} else {
-				// The turn ended while this was on its way.
-				b.mu.Unlock()
-				b.c.delete(ctx, v.chat, id)
-			}
+		b.mu.Lock()
+		v.sending = false
+		if err != nil {
+			v.failures++
+			v.broken = v.failures >= 3
+			b.mu.Unlock()
+			return
 		}
+		if v.stop == nil {
+			// The turn ended while this was on its way.
+			b.mu.Unlock()
+			b.c.delete(ctx, v.chat, id)
+			return
+		}
+		v.draft = id
+		b.mu.Unlock()
 		return
 	}
-	_ = b.c.edit(ctx, v.chat, draft, text, nil, true)
+	err := b.c.edit(ctx, v.chat, draft, text, nil, true)
+	b.mu.Lock()
+	v.sending = false
+	switch {
+	case err == nil:
+		v.failures = 0
+	case errors.Is(err, errSkipped):
+		v.dirty = true // flood control: the next tick tries again
+	default:
+		v.failures++
+		v.broken = v.failures >= 3
+	}
+	b.mu.Unlock()
+}
+
+// finish ends a turn in the chat: the progress message folds into what was
+// done (or, streaming the answer, becomes it), and the answer follows.
+func (b *Bot) finish(ctx context.Context, v *turnView, errText string) {
+	b.mu.Lock()
+	if v.stop != nil {
+		close(v.stop)
+		v.stop = nil
+	}
+	p, draft, broken, lastBlock := v.p, v.draft, v.broken, v.lastBlock
+	v.p, v.draft = nil, 0
+	b.mu.Unlock()
+	if p == nil {
+		return
+	}
+	now := time.Now()
+	answer := strings.TrimSpace(p.answer)
+	if answer == "" {
+		answer = strings.TrimSpace(p.partial)
+	}
+	chunks := Chunks(answer)
+	stopped := strings.Contains(errText, "context canceled")
+	if p.mode == StreamPartial && draft != 0 && !broken && len(chunks) > 0 {
+		// The answer streamed into the message: it ends there, with a line
+		// of what it took; a long one carries on in more messages.
+		head := strings.SplitN(p.summary(now, errText), "\n", 2)[0]
+		first := "<i>" + plain(head) + "</i>\n\n" + HTML(chunks[0])
+		if err := b.c.edit(ctx, v.chat, draft, first, nil, false); err != nil {
+			b.c.delete(ctx, v.chat, draft)
+			b.reply(ctx, v.chat, first)
+		}
+		for _, piece := range chunks[1:] {
+			b.reply(ctx, v.chat, HTML(piece))
+		}
+	} else {
+		if draft != 0 {
+			if broken {
+				b.c.delete(ctx, v.chat, draft)
+			} else if err := b.c.edit(ctx, v.chat, draft, p.summary(now, errText), nil, false); err != nil {
+				b.c.delete(ctx, v.chat, draft)
+			}
+		}
+		if !(p.mode == StreamBlock && answer == strings.TrimSpace(lastBlock)) {
+			for _, piece := range chunks {
+				b.reply(ctx, v.chat, HTML(piece))
+			}
+		}
+	}
+	switch {
+	case errText != "" && !stopped:
+		b.reply(ctx, v.chat, "⚠️ "+esc(clip(errText, 1500)))
+	case answer == "" && draft == 0 && !stopped:
+		b.reply(ctx, v.chat, "✅ Done.")
+	}
 }
 
 // resolve takes the buttons off a message once its question is answered.
