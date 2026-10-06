@@ -65,6 +65,12 @@ const (
 
 // Model is the root Bubble Tea model.
 type Model struct {
+	// steerQ holds queued prompts for the engine to take mid-turn
+	// (steer.go); sendNow marks a session whose turn was stopped so its
+	// queue goes at once.
+	steerQ  *steerBox
+	sendNow map[string]bool
+
 	cfg    config.Config
 	st     *theme.Styles
 	idx    *fsx.Index
@@ -380,6 +386,7 @@ func New(cfg config.Config, st *theme.Styles, idx *fsx.Index, ld *preview.Loader
 
 	m := &Model{
 		cfg: cfg, st: st, idx: idx, loader: ld, mgr: mgr, reg: reg, tasks: tasks,
+		steerQ: &steerBox{}, sendNow: map[string]bool{},
 		sc:           ld.Scheme(),
 		showSessions: true, showPreview: true,
 		chat:     viewport.New(),
@@ -783,6 +790,10 @@ func (m *Model) startTurn(s *session.Session, text string, files []session.Attac
 		Model:      m.sessionModel(s),
 		FS:         fsys,
 		Files:      files,
+	}
+	if m.steers(s) {
+		id := s.ID
+		turn.Steer = func() []string { return m.steerQ.take(id) }
 	}
 	if m.useKit {
 		// Memory, skills, instructions and MCP servers: the same assembly

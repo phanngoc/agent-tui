@@ -48,22 +48,22 @@ func TestServersForWSL(t *testing.T) {
 	}
 }
 
-// Claude Code's own schedulers are withheld, and the list flag never ends
-// the command line, where it would take the prompt for one of its items.
-func TestClaudeArgvWithholdsSchedulersAndEndsWithThePrompt(t *testing.T) {
+// Claude Code's own schedulers are withheld, the list flag never ends the
+// command line, and the prompt is not on it at all: it goes in on stdin.
+func TestClaudeArgvWithholdsSchedulers(t *testing.T) {
 	c := &CLI{id: IDClaude}
 	turn := agent.Turn{Prompt: "check the logs every hour"}
 	for _, servers := range []map[string]any{nil, {"x": map[string]any{"type": "http", "url": "https://x"}}} {
 		turn.MCPServers = servers
 		a := claudeArgv(c, turn, nil)
-		if a[len(a)-1] != turn.PromptText() {
-			t.Fatalf("the last argument is %q, not the prompt", a[len(a)-1])
+		if indexOf(a, turn.PromptText()) >= 0 {
+			t.Fatalf("the prompt is on the command line: %q", a)
 		}
 		i := indexOf(a, "--disallowedTools")
 		if i < 0 || !strings.Contains(a[i+1], "Skill(schedule)") || !strings.Contains(a[i+1], "RemoteTrigger") {
 			t.Fatalf("schedulers not withheld: %q", a)
 		}
-		if i+2 >= len(a)-1 || !strings.HasPrefix(a[i+2], "--") {
+		if i+2 >= len(a) || !strings.HasPrefix(a[i+2], "--") {
 			t.Fatalf("the list flag is not followed by another flag: %q", a)
 		}
 	}

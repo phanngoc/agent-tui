@@ -300,6 +300,31 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
   once, and when Datadog was slow (CONNECT_TIMEOUT), the whole run went
   without it.
 
+**Steer, queue, send now, as in Claude Code** ([its
+design](https://code.claude.com/docs/en/interactive-mode#queue-messages-while-claude-works)).
+A message sent while the agent works is not refused:
+- **Enter queues it.** It shows as `queued` above the composer.
+- **Steering:** if the agent is running tool calls, it gets the message as
+  soon as they finish, within the same turn. The message enters the
+  transcript there, tagged *sent while working*.
+  - The built-in engine adds it, as text, to the user turn that carries the
+    tool results.
+  - Claude Code reads its prompt as stream-json on stdin, and agent-tui
+    writes the message there while a tool call runs. Claude Code passes it
+    on after the calls; measured against 2.1.290.
+  - Codex and opencode cannot take it mid-turn, so for them it waits for
+    the turn to end.
+- **When the turn ends,** whatever is still queued goes next, in order, as
+  one message. This also happens after a stop.
+- **Send now** (Ctrl+Enter, or ⏭) stops the turn so the queue goes at once.
+- **Taking one back:** ↑ in an empty composer, or *edit* and *×* on the
+  queued item.
+- **Telegram** queues the same way, and `/now <text>` stops the turn and
+  sends.
+- **In a terminal,** a queued prompt steers too, when the engine can take
+  it. Esc there still puts what was queued back in the prompt, rather than
+  sending it.
+
 **The composer, as in the Claude app.**
 - **Selection as context:** select text in a conversation, and *Add to
   chat* puts it above the composer as a quote. It goes with the next

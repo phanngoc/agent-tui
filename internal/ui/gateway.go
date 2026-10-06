@@ -120,6 +120,14 @@ func (m *Model) publishAgent(s *session.Session, ev agent.Event) {
 		out.Root = s.Root
 		m.publish(out)
 		return
+	case agent.EvSteered:
+		for i, t := range e.Texts {
+			msg := session.Message{Role: session.RoleUser, Text: t, Steered: true}
+			out := gateway.New(gateway.EvMessage, s.ID, gateway.MessageData{Index: len(s.Messages) + i, Message: msg})
+			out.Root = s.Root
+			m.publish(out)
+		}
+		return
 	case agent.EvApproval, agent.EvChoice:
 		return // published by the queue, which gives them their ids
 	}
@@ -184,6 +192,17 @@ func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 		if s.Busy {
 			s.Queued = append(s.Queued, session.Queued{Text: text})
 			m.notice = "a prompt from the web is queued behind this turn"
+			if m.steers(s) {
+				m.steerQ.put(s.ID, text)
+			}
+			if c.Now {
+				// Send now: stop the turn; its end sends the queue.
+				m.sendNow[s.ID] = true
+				if cancel := m.runs[s.ID]; cancel != nil {
+					cancel()
+				}
+				m.notice = "stopped from the web to send a prompt now"
+			}
 			return next
 		}
 		m.notice = "prompt from the web: " + firstLineOf(text)

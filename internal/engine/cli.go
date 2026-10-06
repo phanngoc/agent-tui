@@ -51,6 +51,9 @@ type CLI struct {
 
 	argv   func(c *CLI, t agent.Turn, br *broker) []string
 	newDec func() decoder
+	// streamIn is a CLI that reads its prompt as stream-json user messages
+	// on stdin, and more of them while it works (Claude Code).
+	streamIn bool
 
 	detectOnce sync.Once
 }
@@ -282,6 +285,15 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	// A nil Stdin gives the child /dev/null. Codex otherwise blocks reading a
 	// prompt from a pipe it will never receive.
 	cmd.Stdin = nil
+	var in *streamInput
+	if c.streamIn {
+		w, err := cmd.StdinPipe()
+		if err != nil {
+			send(agent.EvDone{Err: err})
+			return
+		}
+		in = &streamInput{w: w}
+	}
 	// Cancelling a turn kills the process we spawned, but not a grandchild it
 	// left behind — a node process behind a .cmd shim on Windows, say. That
 	// grandchild keeps the output pipes open and Wait would block on them for
@@ -304,6 +316,16 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	if err := cmd.Start(); err != nil {
 		send(agent.EvDone{Err: fmt.Errorf("%s: %w", c.bin, err)})
 		return
+	}
+	if in != nil {
+		if err := in.user(t.PromptText()); err != nil {
+			send(agent.EvDone{Err: fmt.Errorf("%s: writing the prompt: %w", c.bin, err)})
+			return
+		}
+		defer in.close()
+		if t.Steer != nil {
+			go in.steer(ctx, t.Steer, func(texts []string) { send(agent.EvSteered{Texts: texts}) })
+		}
 	}
 
 	var errTail tail
@@ -330,7 +352,13 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		if len(raw) == 0 || raw[0] != '{' {
 			continue // banners and progress noise
 		}
+		if in != nil && isResult(raw) {
+			in.close() // the turn is over: nothing more goes in
+		}
 		dec.line(raw, func(e agent.Event) {
+			if in != nil {
+				in.track(e)
+			}
 			if !send(e) {
 				stopped = true
 			}
@@ -357,6 +385,9 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		send(agent.EvDone{})
 	}
 }
+
+// CanSteer: a CLI that reads stream-json on stdin takes messages mid-turn.
+func (c *CLI) CanSteer() bool { return c.streamIn }
 
 // missingBinary reports whether a run failed because the binary was not there.
 //

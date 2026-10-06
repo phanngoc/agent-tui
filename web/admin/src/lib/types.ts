@@ -44,6 +44,15 @@ export interface Message {
   err?: string;
   shell?: { command: string; output?: string; exit: number; where?: string };
   files?: { path: string; media?: string }[];
+  /** steered: sent while a turn ran, and handed to the agent within it. */
+  steered?: boolean;
+}
+
+/** QueueData is what waits for a running turn: messages sent meanwhile. */
+export interface QueueData {
+  items: { id: string; text: string; at: string }[];
+  /** steers: the engine takes them mid-turn, after the running step. */
+  steers: boolean;
 }
 
 export interface Session {

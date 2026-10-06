@@ -129,6 +129,11 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
           <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">you</span>
             <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
+            {m.steered && (
+              <span className="rounded bg-sky-500/10 px-1.5 text-[10px] font-medium text-sky-700 dark:text-sky-300" title="Sent while the agent worked, and handed to it within that turn">
+                sent while working
+              </span>
+            )}
             <span className="opacity-0 group-hover:opacity-100">#{index}</span>
             {!m.shell && <RawToggle raw={raw} setRaw={setRaw} />}
             {onTrace && (

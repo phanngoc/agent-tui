@@ -1101,6 +1101,12 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 		}
 		m.mgr.Save(s)
 
+	case agent.EvSteered:
+		m.steered(s, e.Texts)
+		if foreground {
+			m.followChat()
+		}
+
 	case agent.EvApproval:
 		m.queueApproval(s, e)
 

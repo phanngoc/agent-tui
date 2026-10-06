@@ -171,6 +171,9 @@ type Message struct {
 	// part of the conversation, not a detour from it. Only the rendering
 	// differs, and this is what tells the transcript to render it that way.
 	Shell *ShellRun `json:"shell,omitempty"`
+	// Steered marks a message the user sent while a turn ran, handed to the
+	// agent mid-turn rather than as a turn of its own.
+	Steered bool `json:"steered,omitempty"`
 
 	// Files are what the user attached to this message: today, images pasted
 	// from the clipboard.

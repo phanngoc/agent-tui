@@ -188,6 +188,7 @@ var commands = []map[string]string{
 	{"command": "projects", "description": "Pick the project to work on"},
 	{"command": "status", "description": "What this chat is working on"},
 	{"command": "stop", "description": "Stop the turn that is running"},
+	{"command": "now", "description": "Stop the running turn and send this at once (/now <text>)"},
 	{"command": "model", "description": "Change the model (/model opus)"},
 	{"command": "whoami", "description": "Your Telegram user id"},
 	{"command": "help", "description": "How to use this bot"},
@@ -383,6 +384,12 @@ func (b *Bot) command(ctx context.Context, chat int64, from User, text string) {
 			rows = append(rows, []Button{{Text: "Open in the browser", URL: u + "/sessions?id=" + cs.Session}})
 		}
 		b.reply(ctx, chat, msg, rows...)
+	case "now":
+		if arg == "" {
+			b.reply(ctx, chat, "/now &lt;text&gt; stops the running turn and sends the text at once.")
+			return
+		}
+		b.send(ctx, chat, arg, true)
 	case "stop":
 		if cs.Session == "" {
 			b.reply(ctx, chat, "Nothing is running here.")
@@ -419,7 +426,11 @@ func (b *Bot) command(ctx context.Context, chat int64, from User, text string) {
 
 // prompt sends text to the chat's conversation, starting one if there is
 // none.
-func (b *Bot) prompt(ctx context.Context, chat int64, text string) {
+func (b *Bot) prompt(ctx context.Context, chat int64, text string) { b.send(ctx, chat, text, false) }
+
+// send is prompt, or with now set, a prompt that stops a running turn so it
+// goes at once.
+func (b *Bot) send(ctx context.Context, chat int64, text string, now bool) {
 	cs := b.chatState(chat)
 	if cs.Root == "" {
 		roots := b.Host.Projects()
@@ -433,7 +444,17 @@ func (b *Bot) prompt(ctx context.Context, chat int64, text string) {
 	}
 	if cs.Session != "" {
 		if sum, ok := b.Host.Session(cs.Session); ok && sum.Busy {
-			b.reply(ctx, chat, "A turn is still running here. Wait for it, or /stop it.")
+			// Sent while the agent works: queued, and handed to it after its
+			// running step when its engine can take it (Claude Code's way).
+			if err := b.Host.Route(gateway.Command{Type: gateway.CmdPrompt, Session: cs.Session, Text: text, Now: now, From: "telegram"}); err != nil {
+				b.reply(ctx, chat, "Could not queue it: "+esc(err.Error()))
+				return
+			}
+			if now {
+				b.reply(ctx, chat, "⏭ Stopping the turn to send it now.")
+			} else {
+				b.reply(ctx, chat, "📥 Queued — the agent gets it after its current step, or when this turn ends. /now &lt;text&gt; stops the turn and sends right away.")
+			}
 			return
 		}
 		b.watch(chat, cs.Session)
