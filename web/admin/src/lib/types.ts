@@ -60,6 +60,7 @@ export interface Session {
   messages: Message[];
   input_tokens: number;
   output_tokens: number;
+  job?: string; // the scheduled job this session is a run of
   cache_reads: number;
   engines?: Record<string, { external_id?: string; seen?: number }>;
 }
@@ -79,6 +80,7 @@ export interface Summary {
   busy: boolean;
   status?: string;
   owner?: string;
+  job?: string; // the scheduled job this session is a run of
   input_tokens: number;
   output_tokens: number;
   closed?: boolean;

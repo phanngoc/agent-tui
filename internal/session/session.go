@@ -342,6 +342,10 @@ type Session struct {
 	// beside rather than standing on its own, so it is shown in that
 	// conversation's pane instead of in the list of them.
 	SideOf string `json:"side_of,omitempty"`
+	// Job is the scheduled job this session is a run of, if it is one. A run
+	// is not a conversation someone had: it does not set the defaults of the
+	// next one, and terminals are not handed it.
+	Job string `json:"job,omitempty"`
 	// SideFrom is how much of the parent it inherited. The agent is given all
 	// of it — that is what makes the aside worth asking — but the reader has
 	// it already, in the pane next to this one, so the pane shows what was

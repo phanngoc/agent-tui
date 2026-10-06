@@ -107,6 +107,35 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			writeJSON(w, map[string]string{"owner": owner})
 		}
 	}
+	// settings changes a session's model, mode or engine from its next turn,
+	// wherever it is held: a terminal holding it applies it as if chosen
+	// there.
+	m.HandleFunc("PUT /api/sessions/{id}/settings", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Model  string `json:"model"`
+			Mode   string `json:"mode"`
+			Engine string `json:"engine"`
+		}
+		if err := readJSON(r, &in); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if in.Model != "" {
+			spec, ok := agent.ResolveModel(in.Model)
+			if !ok {
+				fail(w, http.StatusBadRequest, errors.New("no model called "+in.Model))
+				return
+			}
+			in.Model = spec.ID
+		}
+		owner, err := s.Hub.Route(gateway.Command{Type: gateway.CmdSettings, Session: r.PathValue("id"),
+			Model: in.Model, Mode: in.Mode, Engine: in.Engine, From: "web"})
+		if err != nil {
+			fail(w, http.StatusConflict, err)
+			return
+		}
+		writeJSON(w, map[string]string{"owner": owner})
+	})
 	m.HandleFunc("POST /api/sessions/{id}/prompt", route(gateway.CmdPrompt))
 	m.HandleFunc("POST /api/sessions/{id}/cancel", route(gateway.CmdCancel))
 	m.HandleFunc("POST /api/sessions/{id}/approve", route(gateway.CmdApprove))
