@@ -72,7 +72,10 @@ export function NewChat({ root, onCreated }: { root: string; onCreated: (id: str
 function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot: string; onCreated: (id: string) => void }) {
   const [dir, setDir] = React.useState(() => (last ? placePath({ root: last.root, target: last.target, cwd: last.cwd }) : fallbackRoot));
   const [engine, setEngine] = React.useState(last?.engine ?? "");
-  const [model, setModel] = React.useState(last?.model ?? "");
+  // The model is what Settings say (project, then global, then the default),
+  // not the last conversation's: changing the default in Settings is meant
+  // to change what new conversations run on. Where and how carry over.
+  const [model, setModel] = React.useState("");
   const [mode, setMode] = React.useState(last?.mode ?? "");
   const [text, setText] = React.useState("");
   const [picking, setPicking] = React.useState(!last && !fallbackRoot);
@@ -82,6 +85,11 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
     dir ? "/api/engines" + qs({ root: dir }) : null,
     [dir],
   );
+  const { data: cfg } = useFetch<{ prefs: { model?: string }; config: { model: string }; project?: { model?: string } }>(
+    dir ? "/api/settings" + qs({ root: dir }) : null,
+    [dir],
+  );
+  const settings = cfg ? { effective: cfg.project?.model || cfg.prefs.model || cfg.config.model } : undefined;
   const where = describePath(dir);
 
   const start = async () => {
@@ -155,7 +163,16 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
                 "engine from settings",
               )}
             />
-            <Pill icon={SparklesIcon} title="Model" value={model} onChange={setModel} options={withDefault((eng?.models ?? []).map((m) => ({ value: m.id, label: m.label })), "model from settings")} />
+            <Pill
+              icon={SparklesIcon}
+              title="Model"
+              value={model}
+              onChange={setModel}
+              options={withDefault(
+                (eng?.models ?? []).map((m) => ({ value: m.id, label: m.label })),
+                `${eng?.models.find((m) => m.id === settings?.effective)?.label ?? settings?.effective ?? "model"} · from settings`,
+              )}
+            />
             <Pill icon={ShieldIcon} title="Mode: how much the agent may do without asking" value={mode} onChange={setMode} options={withDefault((eng?.modes ?? []).map((m) => ({ value: m, label: m })), "mode from settings")} />
             <Button size="icon" className="ml-auto rounded-full" disabled={busy || !text.trim()} onClick={() => void start()} title="Start (Enter)">
               <ArrowUpIcon />
