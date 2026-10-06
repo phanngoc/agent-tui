@@ -80,6 +80,7 @@ func profilePath() string {
 // rebuilds it from the persisted transcript.
 func (e *apiEngine) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	x := t.Resolve(ctx)
+	x.Steer = t.Steer
 	hist, ok := t.State.([]anthropic.MessageParam)
 	if !ok {
 		// History already ends with this turn's prompt, so replaying it is the
@@ -92,6 +93,10 @@ func (e *apiEngine) Run(ctx context.Context, t agent.Turn, out chan<- agent.Even
 	}
 	e.ag.RunWith(ctx, hist, t.Mode, t.Model, x, out)
 }
+
+// CanSteer: the built-in loop hands messages sent mid-turn to the model at
+// each round of tool calls.
+func (e *apiEngine) CanSteer() bool { return true }
 
 // HasAPICredentials reports whether the built-in engine can find a credential:
 // the same test the engine picker uses, for anything else that wants to call

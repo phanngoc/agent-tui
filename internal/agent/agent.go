@@ -98,6 +98,10 @@ type (
 		ToolUse string
 		Agent   session.SubAgent
 	}
+	// EvSteered says the agent was handed messages the user sent while it
+	// worked, there and then: at the end of a round of tool calls, beside
+	// their results, as Claude Code passes queued messages on.
+	EvSteered struct{ Texts []string }
 	// EvDone ends the turn. Err is nil on success. State is whatever the engine
 	// wants handed back on the next turn (SDK message history, an external
 	// session id); it travels through the event stream rather than a callback
@@ -166,7 +170,16 @@ type Turn struct {
 	System string
 	// MCPServers is Extras' servers in Claude Code's --mcp-config shape.
 	MCPServers map[string]any
+	// Steer, when set, takes the messages the user has sent since the turn
+	// began. An engine that can hand them to the model mid-turn calls it at
+	// each tool boundary (Steerer); what it never takes waits for the turn
+	// to end and goes as the next one.
+	Steer func() []string
 }
+
+// Steerer is an engine that can pass messages to the model while a turn
+// runs.
+type Steerer interface{ CanSteer() bool }
 
 // Extras is what a project adds to a turn beyond the transcript.
 type Extras struct {
@@ -179,6 +192,9 @@ type Extras struct {
 	// Effort, when set, overrides the agent's for this turn: a project's own
 	// setting, applied without rebuilding the agent other turns share.
 	Effort string
+	// Steer is the turn's (Turn.Steer), for the loop to call between
+	// rounds of tool calls.
+	Steer func() []string
 }
 
 // Extension is a tool defined outside the executor: a skill loader, the
@@ -528,6 +544,17 @@ func (a *Agent) RunWith(ctx context.Context, history []anthropic.MessageParam, m
 		for _, call := range pending {
 			done := a.runTool(ctx, call, mode, &trusted, ext, send)
 			results = append(results, anthropic.NewToolResultBlock(done.ID, done.Result, done.IsError))
+		}
+		// What the user sent while the tools ran goes in now, after their
+		// results and as plain text of the same user turn: the model reads
+		// it before deciding its next step, as in Claude Code.
+		if x.Steer != nil {
+			if more := x.Steer(); len(more) > 0 {
+				for _, t := range more {
+					results = append(results, anthropic.NewTextBlock(t))
+				}
+				send(EvSteered{Texts: more})
+			}
 		}
 		params.Messages = append(params.Messages, anthropic.NewUserMessage(results...))
 	}

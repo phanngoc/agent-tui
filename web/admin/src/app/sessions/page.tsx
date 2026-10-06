@@ -3,14 +3,14 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon, CodeXmlIcon } from "lucide-react";
+import { FastForwardIcon, PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon, CodeXmlIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
 import { useFollow } from "@/lib/follow";
 import { onEvent, useGateway, useVersion } from "@/lib/store";
-import type { Message, MemoryRecord, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
+import type { Message, MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
 import { Ago, CopyButton, Dot, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
 import { LiveTail, MessageView } from "@/components/transcript";
@@ -164,6 +164,7 @@ interface Detail {
   live: Live;
   traces: Trace[];
   learning?: SessionState;
+  queue?: QueueData;
 }
 
 function Conversation({ id }: { id: string }) {
@@ -213,6 +214,22 @@ function Conversation({ id }: { id: string }) {
   const { scroller, content, below, toBottom } = useFollow(!!data);
   // Selections added to the next message, quoted above the composer.
   const [quotes, setQuotes] = React.useState<string[]>([]);
+  // Messages sent while a turn runs, waiting for the agent (Claude Code's
+  // queue): from the session as loaded, then from its events.
+  const [queue, setQueue] = React.useState<QueueData>({ items: [], steers: false });
+  const loadedQueue = data?.queue;
+  const [seenQueue, setSeenQueue] = React.useState<QueueData | undefined>();
+  if (loadedQueue && loadedQueue !== seenQueue) {
+    setSeenQueue(loadedQueue);
+    setQueue(loadedQueue);
+  }
+  React.useEffect(
+    () =>
+      onEvent((e) => {
+        if (e.session === id && e.type === "queue" && e.data) setQueue(e.data as QueueData);
+      }),
+    [id],
+  );
   // What was just chosen in the header, shown until the session says so.
   const [chosen, setChosen] = React.useState<{ engine?: string; model?: string; mode?: string }>({});
 
@@ -260,14 +277,29 @@ function Conversation({ id }: { id: string }) {
 
   const owner = summary?.owner ?? data?.summary.owner;
   const busy = live?.busy ?? false;
+  const busyRef = React.useRef(busy);
+  React.useEffect(() => {
+    busyRef.current = busy;
+  }, [busy]);
 
-  const send = async (text: string) => {
+  const send = async (text: string, now = false) => {
     toBottom();
     try {
-      const r = await api.post<{ owner: string }>(`/api/sessions/${id}/prompt`, { text });
-      toast.success(r.owner.startsWith("tui") ? "Sent to the terminal holding this session" : "Running in the gateway");
+      const r = await api.post<{ owner: string }>(`/api/sessions/${id}/prompt`, { text, now });
+      if (now) toast("Stopping the turn to send it now");
+      else if (busyRef.current) toast(queue.steers ? "Queued: the agent gets it after its current step" : "Queued: it goes when this turn ends");
+      else toast.success(r.owner.startsWith("tui") ? "Sent to the terminal holding this session" : "Running in the gateway");
     } catch (e) {
       toast.error((e as Error).message);
+    }
+  };
+  const unqueue = async (item: string): Promise<string | null> => {
+    try {
+      const r = await api.post<{ text: string }>(`/api/sessions/${id}/unqueue`, { item });
+      return r.text;
+    } catch (e) {
+      toast.error((e as Error).message);
+      return null;
     }
   };
   const cmd = async (path: string, body: unknown) => {
@@ -371,7 +403,18 @@ function Conversation({ id }: { id: string }) {
         </div>
 
         <SelectionAction container={content} onAdd={(t) => setQuotes((q) => [...q, t])} />
-        <Composer session={id} root={s.root} busy={busy} owner={owner} target={s.target} onSend={send} quotes={quotes} onQuotes={setQuotes} />
+        <Composer
+          session={id}
+          root={s.root}
+          busy={busy}
+          owner={owner}
+          target={s.target}
+          onSend={send}
+          quotes={quotes}
+          onQuotes={setQuotes}
+          queue={queue}
+          onUnqueue={unqueue}
+        />
         {termOpen && (
           <BottomDock>
             <TerminalPanel root={s.root} onClose={() => toggleTerm(false)} />
@@ -454,15 +497,19 @@ function Composer({
   onSend,
   quotes,
   onQuotes,
+  queue,
+  onUnqueue,
 }: {
   session: string;
   root: string;
   busy: boolean;
   owner?: string;
   target?: string;
-  onSend: (t: string) => Promise<void>;
+  onSend: (t: string, now?: boolean) => Promise<void>;
   quotes: string[];
   onQuotes: (q: string[]) => void;
+  queue: QueueData;
+  onUnqueue: (item: string) => Promise<string | null>;
 }) {
   const [text, setText] = React.useState("");
   const [sending, setSending] = React.useState(false);
@@ -474,19 +521,54 @@ function Composer({
   React.useEffect(() => {
     if (quotes.length) box.current?.focus();
   }, [quotes.length]);
-  const go = async () => {
+  // While a turn runs, Enter queues (the agent gets it after its current
+  // step, or when the turn ends); send now stops the turn so the queue goes
+  // at once — Claude Code's Enter and Ctrl+Enter.
+  const go = async (now = false) => {
     const t = withQuotes(quotes, text);
-    if (!t) return;
+    if (!t && !(now && queue.items.length)) return;
     setSending(true);
-    await onSend(t);
+    await onSend(t, now && busy);
     setSending(false);
     setText("");
     onQuotes([]);
   };
+  // Taking a queued message back to change it: ↑ in an empty box, or edit.
+  const takeBack = async (item: string) => {
+    const back = await onUnqueue(item);
+    if (back !== null) {
+      setText((cur) => (cur.trim() ? back + "\n" + cur : back));
+      box.current?.focus();
+    }
+  };
+  const canNow = busy && (!!text.trim() || quotes.length > 0 || queue.items.length > 0);
   return (
     <div className="border-t p-2 md:p-3">
       <div className="mx-auto max-w-3xl">
         <div className="rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2">
+          {queue.items.length > 0 && (
+            <div className="mb-1.5 flex flex-col gap-1">
+              {queue.items.map((q) => (
+                <div key={q.id} className="flex items-start gap-2 rounded-lg border border-dashed px-2 py-1 text-xs text-muted-foreground">
+                  <span className="shrink-0 font-medium">queued</span>
+                  <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap">{q.text}</span>
+                  <button type="button" title="Take it back to edit (↑ in an empty box)" onClick={() => void takeBack(q.id)} className="shrink-0 rounded px-1 hover:bg-muted hover:text-foreground">
+                    edit
+                  </button>
+                  <button type="button" title="Drop it" onClick={() => void onUnqueue(q.id)} className="shrink-0 rounded px-1 hover:bg-muted hover:text-foreground">
+                    ×
+                  </button>
+                </div>
+              ))}
+              <div className="px-1 text-[11px] text-muted-foreground">
+                {busy
+                  ? queue.steers
+                    ? "The agent gets these as soon as its running step finishes, within this turn."
+                    : "These go when the turn ends."
+                  : "Sending…"}
+              </div>
+            </div>
+          )}
           {quotes.length > 0 && (
             <div className="mb-1.5 flex flex-col gap-1">
               {quotes.map((q, i) => (
@@ -510,20 +592,51 @@ function Composer({
               value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
+              if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && busy) {
+                e.preventDefault();
+                void go(true);
+                return;
+              }
+              if (e.key === "ArrowUp" && !text && queue.items.length > 0) {
+                e.preventDefault();
+                void takeBack(queue.items[queue.items.length - 1].id);
+                return;
+              }
               if (!mobile) sendOnEnter(e, () => void go());
             }}
             placeholder={
               busy
                 ? mobile
-                  ? "A turn is running…"
-                  : "A turn is running — this will queue (in a terminal) or wait"
+                  ? queue.steers
+                    ? "Steer the agent…"
+                    : "Queue a message…"
+                  : queue.steers
+                    ? "Steer it — the agent gets this after its current step  (Ctrl+Enter: stop and send now)"
+                    : "Queue a message — it goes when this turn ends  (Ctrl+Enter: stop and send now)"
                 : mobile
                   ? "Reply…"
                   : "Reply…  (Enter to send, Shift+Enter for a new line)"
             }
               className="max-h-48 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0"
             />
-            <Button onClick={go} disabled={sending || (!text.trim() && !quotes.length)} size="icon">
+            {busy && (
+              <Button
+                onClick={() => void go(true)}
+                disabled={sending || !canNow}
+                size="icon"
+                variant="outline"
+                title="Send now: stop the turn and send (Ctrl+Enter)"
+                aria-label="Send now"
+              >
+                <FastForwardIcon />
+              </Button>
+            )}
+            <Button
+              onClick={() => void go()}
+              disabled={sending || (!text.trim() && !quotes.length)}
+              size="icon"
+              title={busy ? (queue.steers ? "Queue: the agent gets it after its current step (Enter)" : "Queue: it goes when this turn ends (Enter)") : "Send (Enter)"}
+            >
               <SendIcon />
             </Button>
           </div>

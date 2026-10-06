@@ -47,7 +47,26 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			"live":     live,
 			"traces":   kit.Traces(id),
 			"learning": learn.Default().Status().Sessions[id],
+			"queue":    s.Runner.Queue(id),
 		})
+	})
+
+	// unqueue takes back a message queued for a running turn, to edit or
+	// drop: its text comes back.
+	m.HandleFunc("POST /api/sessions/{id}/unqueue", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Item string `json:"item"`
+		}
+		if err := readJSON(r, &in); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		text, ok := s.Runner.Unqueue(r.PathValue("id"), in.Item)
+		if !ok {
+			fail(w, http.StatusNotFound, errors.New("already sent"))
+			return
+		}
+		writeJSON(w, map[string]string{"text": text})
 	})
 
 	m.HandleFunc("GET /api/sessions/{id}/trace", func(w http.ResponseWriter, r *http.Request) {
@@ -104,6 +123,7 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 				ID      string `json:"id"`
 				Verdict string `json:"verdict"`
 				Index   int    `json:"index"`
+				Now     bool   `json:"now"`
 			}
 			if r.ContentLength != 0 {
 				if err := readJSON(r, &in); err != nil {
@@ -112,8 +132,9 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 				}
 			}
 			cmd := gateway.Command{Type: typ, Session: r.PathValue("id"), Text: in.Text,
-				ID: in.ID, Verdict: in.Verdict, Index: in.Index, From: "web"}
-			if typ == gateway.CmdPrompt && strings.TrimSpace(cmd.Text) == "" {
+				ID: in.ID, Verdict: in.Verdict, Index: in.Index, Now: in.Now, From: "web"}
+			// Send now with nothing typed sends what is already queued.
+			if typ == gateway.CmdPrompt && strings.TrimSpace(cmd.Text) == "" && !cmd.Now {
 				fail(w, http.StatusBadRequest, errors.New("empty prompt"))
 				return
 			}

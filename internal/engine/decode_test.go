@@ -312,13 +312,19 @@ func TestPromptIsAlwaysLast(t *testing.T) {
 	}{
 		{"codex fresh", codexArgv(newCodex("/p"), agent.Turn{Prompt: "do it", Mode: agent.ModeAuto}, nil)},
 		{"codex resume", codexArgv(newCodex("/p"), agent.Turn{Prompt: "do it", ExternalID: "t", Mode: agent.ModeAuto}, nil)},
-		{"claude fresh", claudeArgv(newClaude("/p"), agent.Turn{Prompt: "do it", Mode: agent.ModeAuto}, nil)},
-		{"claude resume", claudeArgv(newClaude("/p"), agent.Turn{Prompt: "do it", ExternalID: "s", Mode: agent.ModeAuto}, nil)},
 		{"opencode fresh", opencodeArgv(newOpenCode("/p"), agent.Turn{Prompt: "do it", Mode: agent.ModeAuto}, nil)},
 		{"opencode resume", opencodeArgv(newOpenCode("/p"), agent.Turn{Prompt: "do it", ExternalID: "s", Mode: agent.ModeAuto}, nil)},
 	} {
 		if got := tc.argv[len(tc.argv)-1]; got != "do it" {
 			t.Errorf("%s: last argument is %q, want the prompt: %v", tc.name, got, tc.argv)
+		}
+	}
+	// Claude Code takes its prompt on stdin, as stream-json, so that more
+	// can follow while it works: none of it is in the argv.
+	for _, ext := range []string{"", "s"} {
+		a := claudeArgv(newClaude("/p"), agent.Turn{Prompt: "do it", ExternalID: ext, Mode: agent.ModeAuto}, nil)
+		if i := indexOf(a, "--input-format"); i < 0 || a[i+1] != "stream-json" || indexOf(a, "do it") >= 0 {
+			t.Errorf("claude: want the prompt on stdin: %v", a)
 		}
 	}
 }
@@ -332,7 +338,6 @@ func TestABriefedTurnStillEndsWithThePrompt(t *testing.T) {
 		argv []string
 	}{
 		{"codex", codexArgv(newCodex("/p"), turn, nil)},
-		{"claude", claudeArgv(newClaude("/p"), turn, nil)},
 		{"opencode", opencodeArgv(newOpenCode("/p"), turn, nil)},
 	} {
 		last := tc.argv[len(tc.argv)-1]

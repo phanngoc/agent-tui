@@ -17,14 +17,21 @@ func newClaude(root string) *CLI {
 	return &CLI{
 		id: IDClaude, label: "Claude Code", bin: "claude",
 		root: root, fs: vfs.NewLocal(root), approvals: true,
-		argv:   claudeArgv,
-		newDec: func() decoder { return &claudeDec{} },
+		streamIn: true,
+		argv:     claudeArgv,
+		newDec:   func() decoder { return &claudeDec{} },
 	}
 }
 
 func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 	a := []string{
 		"-p",
+		// The prompt goes in on stdin, and so do messages sent while the
+		// turn runs: Claude Code hands them to the model as soon as the
+		// running tool calls finish, within the same turn, as its own UI
+		// does with queued messages (measured against 2.1.290). It also
+		// keeps the prompt off a Windows command line, which ends at 32767.
+		"--input-format", "stream-json",
 		"--output-format", "stream-json",
 		"--include-partial-messages",
 		"--verbose",
@@ -110,7 +117,7 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		// one.
 		a = append(a, "--permission-mode", "bypassPermissions")
 	}
-	return append(a, t.PromptText())
+	return a
 }
 
 // claudeWithheld are Claude Code's tools and skills that schedule work, which

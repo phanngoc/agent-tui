@@ -38,6 +38,10 @@ type Runner struct {
 	mu    sync.Mutex
 	roots map[string]*project
 	turns map[string]*turn
+	// queues are the messages sent while a session's turn runs (queue.go).
+	queues map[string][]Queued
+	// closing is a shutdown under way: turns it cancels start nothing.
+	closing bool
 }
 
 type project struct {
@@ -58,11 +62,13 @@ type turn struct {
 	cancel    context.CancelFunc
 	approvals map[string]chan agent.Verdict
 	choices   map[string]chan int
+	// steers says the engine hands queued messages to the model mid-turn.
+	steers bool
 }
 
 // NewRunner makes a runner publishing to hub.
 func NewRunner(h *Hub, cfg config.Config) *Runner {
-	return &Runner{Hub: h, Cfg: cfg, roots: map[string]*project{}, turns: map[string]*turn{}}
+	return &Runner{Hub: h, Cfg: cfg, roots: map[string]*project{}, turns: map[string]*turn{}, queues: map[string][]Queued{}}
 }
 
 // project assembles the engines for one place work happens: a host folder,
@@ -220,11 +226,9 @@ func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode
 func (r *Runner) Handle(cmd Command) error {
 	switch cmd.Type {
 	case CmdPrompt:
-		r.mu.Lock()
-		_, busy := r.turns[cmd.Session]
-		r.mu.Unlock()
-		if busy {
-			return errors.New("this session is already running a turn")
+		// Sent while a turn runs: queued for it (queue.go).
+		if r.enqueue(cmd.Session, cmd.Text, cmd.Now) {
+			return nil
 		}
 		s, err := Load(cmd.Session)
 		if err != nil {
@@ -322,6 +326,10 @@ func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool
 	s.ForkPending = false
 	ctx, cancel := context.WithCancel(context.Background())
 	tr := &turn{s: s, cancel: cancel, approvals: map[string]chan agent.Verdict{}, choices: map[string]chan int{}}
+	if st, ok := eng.(agent.Steerer); ok && st.CanSteer() {
+		tr.steers = true
+		t.Steer = func() []string { return r.takeQueue(s.ID) }
+	}
 	r.mu.Lock()
 	r.turns[s.ID] = tr
 	r.mu.Unlock()
@@ -354,9 +362,14 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 		delete(r.turns, s.ID)
 		r.mu.Unlock()
 		tr.cancel()
+		// What was sent meanwhile and not yet heard goes now.
+		r.next(p, s)
 	}()
 	for ev := range ch {
 		switch e := ev.(type) {
+		case agent.EvSteered:
+			r.steered(p, s, e.Texts)
+			continue
 		case agent.EvAssistant:
 			s.Append(e.Message)
 			p.mgr.Save(s)
@@ -491,6 +504,7 @@ func (r *Runner) Running() []string {
 // Shutdown cancels running turns and flushes saves.
 func (r *Runner) Shutdown() {
 	r.mu.Lock()
+	r.closing = true
 	for _, t := range r.turns {
 		t.cancel()
 	}

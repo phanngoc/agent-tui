@@ -30,6 +30,12 @@ func (m *Model) queuePrompt(s *session.Session, text string) {
 	s.Queued = append(s.Queued, session.Queued{Text: text, Files: files})
 	n := len(s.Queued)
 	m.notice = "queued — it goes when this turn ends · ↑ edits it · esc stops the turn"
+	// An engine that steers takes it at the next tool boundary; one with
+	// images waits for a turn of its own, where they can go too.
+	if len(files) == 0 && m.steers(s) {
+		m.steerQ.put(s.ID, text)
+		m.notice = "queued — the agent gets it after the running step · ↑ edits it · esc stops the turn"
+	}
 	if n > 1 {
 		m.notice = plural(n, "prompt") + " queued — each goes when the turn before it ends"
 	}
@@ -39,6 +45,13 @@ func (m *Model) queuePrompt(s *session.Session, text string) {
 // finished well. A turn that failed or was stopped leaves the queue to the
 // reader: what to do next depends on why it stopped.
 func (m *Model) nextQueued(s *session.Session, ok bool) tea.Cmd {
+	// The turn is over: what the engine did not take goes as a turn now.
+	m.steerQ.take(s.ID)
+	if m.sendNow[s.ID] {
+		// Stopped so that the queue would go at once (send now).
+		delete(m.sendNow, s.ID)
+		ok = true
+	}
 	if len(s.Queued) == 0 {
 		return nil
 	}
@@ -61,6 +74,7 @@ func (m *Model) nextQueued(s *session.Session, ok bool) tea.Cmd {
 // unqueue puts everything queued back in the prompt, ahead of anything typed
 // since, with its images staged again.
 func (m *Model) unqueue(s *session.Session) {
+	m.steerQ.take(s.ID)
 	if len(s.Queued) == 0 {
 		return
 	}
