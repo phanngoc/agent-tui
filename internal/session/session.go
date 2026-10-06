@@ -260,6 +260,25 @@ func (s *Session) SetExternalID(engine, id string) {
 	s.Dirty = true
 }
 
+// Fresh starts the agent's context at the next message: the next turn is
+// given nothing before it, and no engine resumes the conversation it had.
+func (s *Session) Fresh() {
+	s.ContextFrom = len(s.Messages)
+	s.Engines, s.ExternalID = nil, ""
+	s.Dirty = true
+}
+
+// Context is the part of the transcript an engine is given.
+func (s *Session) Context() []Message {
+	return s.Messages[min(max(s.ContextFrom, 0), len(s.Messages)):]
+}
+
+// SeenBy is where an engine's catching up begins: after what it was last
+// given, and never before the context does.
+func (s *Session) SeenBy(engine string) int {
+	return max(s.StateFor(engine).Seen, s.ContextFrom)
+}
+
 // SetSeen records how much of the transcript an engine has been given.
 func (s *Session) SetSeen(engine string, n int) {
 	if engine == "" {
@@ -351,6 +370,11 @@ type Session struct {
 	// it already, in the pane next to this one, so the pane shows what was
 	// said after this point and nothing before it.
 	SideFrom int `json:"side_from,omitempty"`
+	// ContextFrom is where the agent's context begins. What comes before it
+	// stays for the reader but is given to no engine. The runs of a
+	// scheduled job share one session so they do not crowd the list, and
+	// each starts afresh (Fresh) rather than carrying every earlier run.
+	ContextFrom int `json:"context_from,omitempty"`
 	// CWD is the directory this session's agent runs in. It defaults to the
 	// project root but can be narrowed to a subdirectory, and the file tree
 	// always shows whatever it points at.

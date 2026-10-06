@@ -155,15 +155,17 @@ func Load(id string) (*session.Session, error) {
 // Linux folder as its directory. target and cwd say so explicitly, for a
 // location copied from an earlier session.
 func (r *Runner) NewSession(root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
-	return r.newSession("", root, target, cwd, engineID, model, mode, prompt)
+	return r.newSession("", "", root, target, cwd, engineID, model, mode, prompt)
 }
 
 // NewJobSession is NewSession for a run of a scheduled job, marked as one.
-func (r *Runner) NewJobSession(job, root, engineID, model, mode, prompt string) (*session.Session, error) {
-	return r.newSession(job, root, "", "", engineID, model, mode, prompt)
+// A title names the session for good, as the job's own; without one it is
+// taken from the prompt.
+func (r *Runner) NewJobSession(job, title, root, engineID, model, mode, prompt string) (*session.Session, error) {
+	return r.newSession(job, title, root, "", "", engineID, model, mode, prompt)
 }
 
-func (r *Runner) newSession(job, root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
+func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
 	// One spelling per folder: it is the project's identity for memory,
 	// skills and settings.
 	root = filepath.Clean(root)
@@ -182,7 +184,7 @@ func (r *Runner) newSession(job, root, target, cwd, engineID, model, mode, promp
 	prefs := config.LoadPrefs()
 	ps := config.LoadProjectSettings(root)
 	s := p.mgr.New()
-	s.Job = job
+	s.Job, s.Title = job, title
 	if !isHost(target) {
 		s.Target, s.CWD = target, p.dir
 	}
@@ -192,7 +194,7 @@ func (r *Runner) newSession(job, root, target, cwd, engineID, model, mode, promp
 	if !p.reg.Has(s.Engine) {
 		s.Engine = p.reg.Default().ID()
 	}
-	return s, r.start(p, s, prompt)
+	return s, r.start(p, s, prompt, false)
 }
 
 // Handle runs a command for a session the gateway owns.
@@ -217,7 +219,7 @@ func (r *Runner) Handle(cmd Command) error {
 		if err != nil {
 			return err
 		}
-		return r.start(p, s, cmd.Text)
+		return r.start(p, s, cmd.Text, cmd.Fresh)
 	case CmdCancel:
 		r.mu.Lock()
 		t := r.turns[cmd.Session]
@@ -259,7 +261,7 @@ func (r *Runner) Handle(cmd Command) error {
 	return fmt.Errorf("unknown command %q", cmd.Type)
 }
 
-func (r *Runner) start(p *project, s *session.Session, prompt string) error {
+func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool) error {
 	eng := p.reg.Get(s.Engine)
 	if eng == nil || !eng.Available() {
 		eng = p.reg.Default()
@@ -268,12 +270,15 @@ func (r *Runner) start(p *project, s *session.Session, prompt string) error {
 		return errors.New("no engine is available")
 	}
 	s.Engine = eng.ID()
+	if fresh {
+		s.Fresh()
+	}
 	s.Append(session.Message{Role: session.RoleUser, Text: prompt, At: time.Now()})
 	p.mgr.SaveNow(s)
 
 	brief := ""
 	if end := len(s.Messages) - 1; end > 0 {
-		if seen := s.StateFor(eng.ID()).Seen; seen < end {
+		if seen := s.SeenBy(eng.ID()); seen < end {
 			brief = session.Brief(s.Messages[seen:end], session.BriefLimit)
 		}
 	}
@@ -281,7 +286,7 @@ func (r *Runner) start(p *project, s *session.Session, prompt string) error {
 	t := agent.Turn{
 		Prompt:     prompt,
 		Brief:      brief,
-		History:    append([]session.Message(nil), s.Messages...),
+		History:    append([]session.Message(nil), s.Context()...),
 		ExternalID: s.StateFor(eng.ID()).ExternalID,
 		Fork:       s.ForkPending,
 		Root:       cmp.Or(s.CWD, p.dir),

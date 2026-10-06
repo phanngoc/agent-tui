@@ -146,7 +146,7 @@ func (k *Kit) scheduleTool() agent.Extension {
 	return agent.Extension{
 		Name: "schedule",
 		Def: toolDef("schedule", "Schedule work to run later on its own, in this project, through the agent-tui gateway — or pace the scheduled run you are in. "+
-			"action create: a reminder (at) or recurring work (every / cron / pacing); each run is a fresh session unless same_session. "+
+			"action create: a reminder (at) or recurring work (every / cron / pacing); its runs share one session of their own, each with a fresh context, unless same_session. "+
 			"action list: this project's schedules. action delete: remove one by id. "+
 			"action next: only inside a scheduled run — say when to check again (in) and why, or stop: true when the work is done for good.",
 			map[string]any{
@@ -158,7 +158,7 @@ func (k *Kit) scheduleTool() agent.Extension {
 				"cron":         str("create: repeat by a 5-field cron expression in local time, e.g. \"3 9 * * 1-5\"."),
 				"pacing_min":   str("create: let each run choose the next within min..max, e.g. 1m."),
 				"pacing_max":   str("create: the upper bound for pacing, e.g. 1h."),
-				"same_session": map[string]any{"type": "boolean", "description": "create: run in this conversation, as a /loop does, instead of a fresh session each time."},
+				"same_session": map[string]any{"type": "boolean", "description": "create: run in this conversation, as a /loop does, continuing this conversation run after run, instead of a session of the job's own."},
 				"kind":         map[string]any{"type": "string", "enum": []string{"task", "heartbeat"}, "description": "create: task (default) runs prompt; heartbeat works through the project's .agent-tui/HEARTBEAT.md checklist each run (give prompt to write that checklist)."},
 				"gate":         str("create: a shell command run in the project before each run; the run happens only if it exits 0, and its output is given to the agent."),
 				"model":        str("create: the model for the runs; empty means the project's."),

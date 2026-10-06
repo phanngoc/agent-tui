@@ -353,7 +353,7 @@ export interface ScheduleJob {
   pacing?: { min: string; max: string } | null;
   active_hours?: { start: string; end: string; days?: number[] } | null;
   until?: string;
-  session?: "new" | "same";
+  session?: "thread" | "new" | "same";
   session_id?: string;
   engine?: string;
   model?: string;

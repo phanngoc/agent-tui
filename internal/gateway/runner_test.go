@@ -3,6 +3,8 @@ package gateway
 import (
 	"context"
 	"encoding/json"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -14,7 +16,11 @@ import (
 )
 
 // script is an engine that plays back a fixed turn.
-type script struct{ events []agent.Event }
+type script struct {
+	events []agent.Event
+	mu     sync.Mutex
+	turns  []agent.Turn
+}
 
 func (s *script) ID() string      { return "api" }
 func (s *script) Label() string   { return "script" }
@@ -23,6 +29,9 @@ func (s *script) Available() bool { return true }
 func (s *script) CanAsk() bool    { return true }
 func (s *script) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	defer close(out)
+	s.mu.Lock()
+	s.turns = append(s.turns, t)
+	s.mu.Unlock()
 	for _, e := range s.events {
 		if a, ok := e.(agent.EvApproval); ok {
 			out <- a
@@ -122,7 +131,7 @@ func TestRunnerSettingsAndJobSessions(t *testing.T) {
 	_, events, cancel := h.Subscribe(0)
 	defer cancel()
 
-	s, err := r.NewJobSession("job1", root, "api", "claude-sonnet-5-5", "auto", "[scheduled: x · scheduled · now]\ncheck")
+	s, err := r.NewJobSession("job1", "", root, "api", "claude-sonnet-5-5", "auto", "[scheduled: x · scheduled · now]\ncheck")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -173,5 +182,77 @@ func TestRunnerSettingsAndJobSessions(t *testing.T) {
 	case c := <-cmds:
 		t.Fatalf("offered twice — the run too: %+v", c)
 	case <-time.After(200 * time.Millisecond):
+	}
+}
+
+// A scheduled job's runs share its session, each with a context of its own:
+// the reader sees every run, the agent only the one it is doing, and a reply
+// afterwards carries on from that run.
+func TestRunnerFreshRunsShareTheJobSession(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	eng := &script{events: []agent.Event{agent.EvAssistant{Message: session.Message{Role: session.RoleAssistant, Text: "ok"}}, agent.EvDone{}}}
+	h := NewHub()
+	r := NewRunner(h, config.Default())
+	h.Local = r
+	r.roots[root] = &project{root: root, fs: vfs.NewLocal(root), dir: root, mgr: session.NewManager(config.DataDir(), root, "m"), reg: engine.NewRegistryWith(eng)}
+	// A turn is over for the next prompt once the runner has let it go and
+	// its answer is on disk, which the next prompt reads.
+	var id string
+	wait := func(messages int) {
+		t.Helper()
+		deadline := time.Now().Add(10 * time.Second)
+		for {
+			r.mu.Lock()
+			_, busy := r.turns[id]
+			r.mu.Unlock()
+			if s, err := Load(id); err == nil && !busy && len(s.Messages) == messages {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatal("the turn never finished")
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+
+	s, err := r.NewJobSession("job1", "⏰ watch", root, "api", "", "", "run 1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	id = s.ID
+	wait(2)
+	for i, c := range []Command{
+		{Type: CmdPrompt, Session: s.ID, Text: "run 2", From: "schedule", Fresh: true},
+		{Type: CmdPrompt, Session: s.ID, Text: "why?", From: "web"},
+	} {
+		if _, err := h.Route(c); err != nil {
+			t.Fatal(err)
+		}
+		wait(4 + 2*i)
+	}
+	r.Shutdown()
+
+	eng.mu.Lock()
+	defer eng.mu.Unlock()
+	texts := func(ms []session.Message) (out []string) {
+		for _, m := range ms {
+			out = append(out, m.Text)
+		}
+		return out
+	}
+	if got := texts(eng.turns[1].History); strings.Join(got, "|") != "run 2" {
+		t.Fatalf("the fresh run was given %q; want only its own prompt", got)
+	}
+	if got := texts(eng.turns[2].History); strings.Join(got, "|") != "run 2|ok|why?" {
+		t.Fatalf("the reply was given %q; want the run it follows", got)
+	}
+	got, err := Load(s.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got.Messages) != 6 || got.Title != "⏰ watch" || got.Job != "job1" {
+		t.Fatalf("session: %d messages, title %q, job %q", len(got.Messages), got.Title, got.Job)
 	}
 }

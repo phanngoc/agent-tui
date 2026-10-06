@@ -251,6 +251,13 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
 - **Failures:** a failing job backs off (30s → 1h) and pauses after five
   failures in a row.
 - **Missed runs:** runs missed while the gateway was off get one catch-up run.
+- **One session per job.** A job's runs share one session, named for the job
+  (⏰ fpaas-log-watch), so an hourly job does not leave 24 sessions a day in
+  the list. Each run starts with a fresh context, so the session does not
+  grow more expensive with the job's age. A reply in that session carries on
+  from the latest run. The job's Session setting can instead give each run a
+  session of its own (*new each run*), or continue one conversation run
+  after run (*one conversation*, like `/loop`).
 - **In a terminal:**
   - `/loop 5m check the deploy` repeats a prompt in that session.
   - `/loop <prompt>` lets the agent pace it, between 1m and 1h.

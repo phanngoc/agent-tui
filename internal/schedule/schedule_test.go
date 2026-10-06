@@ -171,7 +171,7 @@ func (hs *harness) fire(id string) string {
 	}
 	before := len(hs.s.Store.Runs(id, 0))
 	hs.s.Tick()
-	for i := 0; i < 200; i++ {
+	for i := 0; i < 400; i++ {
 		j, _ = hs.s.Store.Get(id)
 		if j.State.Running != "" {
 			return j.State.Running

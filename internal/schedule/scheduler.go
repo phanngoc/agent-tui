@@ -215,7 +215,7 @@ func (s *Scheduler) Tick() {
 		if busy >= s.MaxConcurrent {
 			return // the rest wait for a slot
 		}
-		if j.Session == SessionSame && j.SessionID != "" && s.Host.Busy(j.SessionID) {
+		if j.OneSession() && j.SessionID != "" && s.Host.Busy(j.SessionID) {
 			continue // after the turn under way, as /loop waits for an idle session
 		}
 		reason := "scheduled"
@@ -364,7 +364,7 @@ func (s *Scheduler) dispatch(j *Job, reason string) {
 			j.State.RunReason = reason
 		}
 		j.State.Proposed, j.State.ProposedWhy, j.State.StopProposed = time.Time{}, "", false
-		if j.Session == SessionSame && j.SessionID == "" {
+		if j.OneSession() && j.SessionID != sess {
 			j.SessionID = sess
 		}
 		return true

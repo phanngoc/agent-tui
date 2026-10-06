@@ -32,7 +32,8 @@ type schedHost struct {
 }
 
 func (h *schedHost) Start(j *schedule.Job, prompt string) (string, error) {
-	if j.Session == schedule.SessionSame && j.SessionID != "" {
+	style := j.Style()
+	if style == schedule.SessionSame && j.SessionID != "" {
 		if _, err := gateway.Load(j.SessionID); err != nil {
 			return "", errors.New("its session is gone")
 		}
@@ -40,7 +41,20 @@ func (h *schedHost) Start(j *schedule.Job, prompt string) (string, error) {
 		_, err := h.s.Hub.Route(gateway.Command{Type: gateway.CmdPrompt, Session: j.SessionID, Text: prompt, From: "schedule"})
 		return j.SessionID, err
 	}
-	sess, err := h.s.Runner.NewJobSession(j.ID, j.Root, j.Engine, j.Model, j.Mode, prompt)
+	title := ""
+	if style == schedule.SessionThread {
+		// The job's session, a fresh context for this run. One deleted or
+		// closed is replaced by a new one, which the job then keeps.
+		if j.SessionID != "" {
+			if old, err := gateway.Load(j.SessionID); err == nil && !old.Closed {
+				h.forget(j.SessionID)
+				_, err := h.s.Hub.Route(gateway.Command{Type: gateway.CmdPrompt, Session: j.SessionID, Text: prompt, From: "schedule", Fresh: true})
+				return j.SessionID, err
+			}
+		}
+		title = "⏰ " + j.Name
+	}
+	sess, err := h.s.Runner.NewJobSession(j.ID, title, j.Root, j.Engine, j.Model, j.Mode, prompt)
 	if err != nil {
 		return "", err
 	}
@@ -168,7 +182,7 @@ func (s *Server) scheduleRoutes(m *http.ServeMux) {
 			in.Kind = schedule.KindTask
 		}
 		if in.Session == "" {
-			in.Session = schedule.SessionNew
+			in.Session = schedule.SessionThread
 		}
 		in.Root = filepath.Clean(in.Root)
 		if in.Model != "" {
@@ -189,7 +203,7 @@ func (s *Server) scheduleRoutes(m *http.ServeMux) {
 				return
 			}
 			in.ID, in.State, in.Origin = id, old.State, old.Origin
-			if in.Session == schedule.SessionSame && in.SessionID == "" {
+			if in.OneSession() && in.SessionID == "" && old.OneSession() {
 				in.SessionID = old.SessionID
 			}
 		} else if in.Origin == "" {
