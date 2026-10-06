@@ -208,6 +208,10 @@ func (f *flaky) Complete(_ context.Context, _, user string, _ int64) (string, er
 }
 
 func TestAskRetriesOnceWithTheReason(t *testing.T) {
+	// Isolated, or the user's own learn_model would pick a real model over
+	// the one injected here.
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
 	l := New(t.TempDir())
 	f := &flaky{}
 	l.llm = f
@@ -228,5 +232,23 @@ func TestConsolidateReportsEachStore(t *testing.T) {
 	}
 	if reps[0].Note != "no memories yet" || reps[1].Folded != 1 || reps[1].ScenesAfter != 1 || !reps[1].Persona {
 		t.Fatalf("reports: %+v", reps)
+	}
+}
+
+// The periodic consolidation asks the model without a job having picked it
+// first. That was a nil pointer that took the gateway down; with no model to
+// be had, it is now an error.
+func TestAskWithoutAPickedModelIsAnErrorNotACrash(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("USERPROFILE", t.TempDir())
+	t.Setenv("ANTHROPIC_API_KEY", "")
+	t.Setenv("PATH", t.TempDir()) // no claude CLI either
+	l := New(t.TempDir())
+	var v struct{}
+	err := l.ask(context.Background(), "sys", "user", 100, &v)
+	if err == nil {
+		t.Skip("a model was found on this machine after all")
 	}
 }

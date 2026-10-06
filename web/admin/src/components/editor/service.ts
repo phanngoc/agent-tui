@@ -5,6 +5,7 @@ import { toast } from "sonner";
 import { api, ApiError, qs } from "@/lib/api";
 import { languageFor, loadMonaco, type MonacoNS } from "@/lib/monaco";
 import { useEditor, type Tab } from "./store";
+import { lspSaved, prepareLsp, stopLsp } from "./lsp";
 
 // The editor service: one Monaco editor and one diff editor for the whole
 // workbench, and a document per open file — its model, the modification time
@@ -32,6 +33,7 @@ class EditorService {
   private pending = new Map<string, Promise<Doc | null>>();
   private shown: string | null = null;
   private codeEl: HTMLElement | null = null;
+  private gate: Promise<void> = Promise.resolve();
   private diffEl: HTMLElement | null = null;
 
   get root() {
@@ -74,6 +76,10 @@ class EditorService {
     // Ctrl+S inside the editor, where the page's own shortcut does not reach
     // first on every browser.
     ed.addCommand(monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyS, () => void this.saveActive());
+    // A language server for the project, from its first TS/JS file. Files
+    // wait for the decision: Monaco's own TypeScript must be off before the
+    // first TS model, or it can never be turned off.
+    this.gate = prepareLsp(monaco, this.root);
     const active = useEditor.getState().active;
     if (active) void this.show(active);
   }
@@ -112,6 +118,7 @@ class EditorService {
     const p = (async () => {
       const monaco = this.monaco ?? (await loadMonaco());
       this.monaco = monaco;
+      await this.gate;
       try {
         const f = await api.get<{ text?: string; binary: boolean; truncated: boolean; mtime: number; size: number }>(
           "/api/files/read" + qs({ root: this.root, path, max: READ_MAX }),
@@ -254,6 +261,7 @@ class EditorService {
       doc.base = r.modified;
       doc.saved = version;
       this.markDirty(path);
+      lspSaved(path);
       for (const t of useEditor.getState().tabs) if (t.path === path) useEditor.getState().patchTab(t.key, { stale: false });
       return true;
     } catch (e) {
@@ -352,6 +360,7 @@ class EditorService {
   }
 
   reset() {
+    stopLsp();
     for (const [, d] of this.docs) {
       d.head?.dispose();
       d.model.dispose();

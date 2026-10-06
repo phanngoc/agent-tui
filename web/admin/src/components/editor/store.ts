@@ -38,6 +38,8 @@ interface EditorState {
   quick: Quick;
   conflict: Conflict;
   branch: string;
+  lsp: { state: "off" | "starting" | "loading" | "ready" | "error"; message?: string };
+  setLsp: (s: EditorState["lsp"]) => void;
   setRoot: (r: string) => void;
   upsertTab: (t: Tab, opts?: { activate?: boolean }) => void;
   closeTab: (key: string) => void;
@@ -67,6 +69,8 @@ export const useEditor = create<EditorState>((set) => ({
   quick: null,
   conflict: null,
   branch: "",
+  lsp: { state: "off" },
+  setLsp: (lsp) => set({ lsp }),
   setRoot: (root) => set({ root, tabs: [], active: null }),
   upsertTab: (t, opts) =>
     set((s) => {
