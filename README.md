@@ -251,6 +251,22 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
 - **Failures:** a failing job backs off (30s → 1h) and pauses after five
   failures in a row.
 - **Missed runs:** runs missed while the gateway was off get one catch-up run.
+- **Keep awake** (Settings → Keep awake, `keep_awake` in `prefs.json`):
+  caffeinate for agent-tui. A long task or an hourly schedule is no use on a
+  laptop that sleeps after a few idle minutes.
+  - Modes:
+    - `busy` (the default): while a turn runs, in the gateway or a terminal;
+    - `schedules`: also while any scheduled job is on;
+    - `always`: while the gateway runs;
+    - `off`.
+  - *Keep the screen on too* holds the display as well.
+  - How it holds:
+    - Windows: `SetThreadExecutionState`, held on one OS thread;
+    - macOS: `caffeinate -i -w <pid>`;
+    - Linux: `systemd-inhibit --what=idle:sleep`.
+  - It stops the idle timer only. Closing the lid or choosing Sleep still
+    sleeps.
+  - The sidebar says when the computer is being held awake.
 - **One session per job.** A job's runs share one session, named for the job
   (⏰ fpaas-log-watch), so an hourly job does not leave 24 sessions a day in
   the list. Each run starts with a fresh context, so the session does not

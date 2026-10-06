@@ -147,15 +147,21 @@ func (r *Runner) Engines(root string) []map[string]any {
 
 // Load reads a session from disk.
 func Load(id string) (*session.Session, error) {
-	b, err := os.ReadFile(filepath.Join(config.DataDir(), "sessions", id+".json"))
-	if err != nil {
-		return nil, session.ErrNoSession
+	p := filepath.Join(config.DataDir(), "sessions", id+".json")
+	// A save replaces the file by renaming a new one over it; on Windows a
+	// read in that instant fails though the session is there. A few tries,
+	// while the file exists, ride it out.
+	for try := 0; ; try++ {
+		b, err := os.ReadFile(p)
+		var s session.Session
+		if err == nil && json.Unmarshal(b, &s) == nil && s.ID != "" {
+			return &s, nil
+		}
+		if _, serr := os.Stat(p); serr != nil || try == 4 {
+			return nil, session.ErrNoSession
+		}
+		time.Sleep(time.Duration(10*(try+1)) * time.Millisecond)
 	}
-	var s session.Session
-	if err := json.Unmarshal(b, &s); err != nil || s.ID == "" {
-		return nil, session.ErrNoSession
-	}
-	return &s, nil
 }
 
 // NewSession creates a session in a project and runs its first prompt.

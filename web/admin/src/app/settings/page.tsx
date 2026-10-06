@@ -11,6 +11,7 @@ import { CopyButton, ErrorNote, Field, Mono, NativeSelect, PageHeader } from "@/
 import { TraceView } from "@/components/trace-panel";
 import { GatewayCard } from "@/components/gateway-card";
 import { TelegramCard } from "@/components/telegram-card";
+import { KeepAwakeCard } from "@/components/keep-awake-card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -47,6 +48,7 @@ export default function SettingsPage() {
         <GlobalCard key={JSON.stringify(data.prefs)} data={data} />
         {root ? <ProjectCard key={root + JSON.stringify(data.project)} data={data} root={root} /> : <Card><CardHeader><CardTitle>Project</CardTitle><CardDescription>Pick a project at the top to override settings for it.</CardDescription></CardHeader></Card>}
         <GatewayCard />
+        <KeepAwakeCard />
         <TelegramCard />
         <Effective data={data} root={root} />
         <ContextPreview root={root} engines={data.engines} />
@@ -61,7 +63,11 @@ function GlobalCard({ data }: { data: SettingsData }) {
   const set = (patch: Partial<Prefs>) => setP({ ...p, ...patch });
   const save = async () => {
     try {
-      await api.put("/api/settings/global", p);
+      // Keep awake has a card of its own, saved as it changes: this form's
+      // copy is from when the page opened, and must not undo it.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { keep_awake, keep_display, ...rest } = p;
+      await api.put("/api/settings/global", rest);
       toast.success("Global settings saved");
     } catch (e) {
       toast.error((e as Error).message);

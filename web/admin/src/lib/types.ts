@@ -320,6 +320,8 @@ export interface Prefs {
   learn_skills?: boolean | null;
   gateway_autostart?: boolean | null;
   instructions?: string;
+  keep_awake?: string;
+  keep_display?: boolean;
 }
 
 export interface ProjectSettings {
