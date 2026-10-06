@@ -9,14 +9,28 @@ import { Markdown } from "@/components/markdown";
 import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { SubAgentCard } from "@/components/subagent";
+import { useFileOpener } from "@/lib/file-opener";
 
 export function ToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   if (call.agent) return <SubAgentCard a={call.agent} />;
   return <PlainToolRow call={call} output={output} running={running} />;
 }
 
+/** filePathOf is the file a tool call worked on, when it names one. */
+function filePathOf(input: unknown): string | undefined {
+  if (!input || typeof input !== "object") return undefined;
+  const o = input as Record<string, unknown>;
+  for (const k of ["file_path", "path", "notebook_path", "filePath"]) {
+    const v = o[k];
+    if (typeof v === "string" && v.trim() && /\.[A-Za-z0-9]{1,8}$/.test(v)) return v;
+  }
+  return undefined;
+}
+
 function PlainToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   const [open, setOpen] = React.useState(false);
+  const openFile = useFileOpener();
+  const file = openFile ? filePathOf(call.input) : undefined;
   const isMcp = call.name.startsWith("mcp__");
   const isKit = ["skill", "memory_search", "memory_read", "memory_save"].includes(call.name);
   return (
@@ -32,6 +46,26 @@ function PlainToolRow({ call, output, running }: { call: ToolCall; output?: stri
         <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">{toolSummary(call.input)}</span>
         {call.denied && <span className="text-amber-600">denied</span>}
         {running ? <span className="text-sky-600">running…</span> : <span className="text-muted-foreground">{nanos(call.elapsed)}</span>}
+        {file && (
+          <span
+            role="link"
+            tabIndex={0}
+            title={`Open ${file} in the project explorer`}
+            onClick={(e) => {
+              e.stopPropagation();
+              openFile?.(file);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                openFile?.(file);
+              }
+            }}
+            className="rounded px-1 text-sky-700 hover:bg-sky-500/10 dark:text-sky-300"
+          >
+            open
+          </span>
+        )}
       </button>
       {(open || (running && output)) && (
         <div className="space-y-2 border-t px-2.5 py-2">

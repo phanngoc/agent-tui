@@ -4,6 +4,7 @@ import * as React from "react";
 import ReactMarkdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { cn } from "@/lib/utils";
+import { looksLikePath, useFileOpener } from "@/lib/file-opener";
 import { CopyButton } from "@/components/common";
 import { MermaidBlock } from "@/components/mermaid-block";
 
@@ -51,9 +52,31 @@ const base: Components = {
   code: ({ className, children }) => {
     const block = /language-/.test(className ?? "") || String(children).includes("\n");
     if (block) return <code className={cn("font-mono", className)}>{children}</code>;
-    return <code className="rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] font-normal before:content-none after:content-none">{children}</code>;
+    return <InlineCode>{children}</InlineCode>;
   },
 };
+
+/** InlineCode is a code span; one naming a project file opens it, in a session. */
+function InlineCode({ children }: { children?: React.ReactNode }) {
+  const open = useFileOpener();
+  const text = extractText(children);
+  const cls = "rounded bg-muted px-1 py-0.5 font-mono text-[0.85em] font-normal before:content-none after:content-none";
+  if (open && looksLikePath(text)) {
+    return (
+      <code
+        role="link"
+        tabIndex={0}
+        title="Open in the project explorer"
+        onClick={() => open(text)}
+        onKeyDown={(e) => (e.key === "Enter" || e.key === " ") && open(text)}
+        className={cn(cls, "cursor-pointer text-sky-700 underline decoration-sky-500/40 underline-offset-2 hover:decoration-sky-500 dark:text-sky-300")}
+      >
+        {children}
+      </code>
+    );
+  }
+  return <code className={cls}>{children}</code>;
+}
 
 function extractText(node: React.ReactNode): string {
   if (typeof node === "string" || typeof node === "number") return String(node);

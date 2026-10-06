@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -18,6 +18,9 @@ import { TracePanel } from "@/components/trace-panel";
 import { PaneToggle, RightPane, Workspace, useWorkspace } from "@/components/workspace";
 import { FocusButton } from "@/components/focus-button";
 import { SessionSettings } from "@/components/session-settings";
+import { Explorer } from "@/components/explorer";
+import { TerminalPanel } from "@/components/terminal-panel";
+import { FileOpener } from "@/lib/file-opener";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -166,6 +169,43 @@ function Conversation({ id }: { id: string }) {
   const [traceFor, setTraceFor] = React.useState<number | null>(null);
   const [tab, setTab] = React.useState("context");
   const ws = useWorkspace();
+  // A path clicked in the conversation opens in the Files tab.
+  const [fileReq, setFileReq] = React.useState<{ path: string; seq: number } | undefined>();
+  const openFile = React.useCallback(
+    (path: string) => {
+      setFileReq({ path, seq: Date.now() });
+      setTab("files");
+      ws.openRight();
+    },
+    [ws],
+  );
+  // The terminal panel, open or not, remembered across reloads.
+  const [termOpen, setTermOpen] = React.useState(() => {
+    try {
+      return localStorage.getItem("agent-tui.term") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const toggleTerm = React.useCallback((on?: boolean) => {
+    setTermOpen((cur) => {
+      const next = on ?? !cur;
+      try {
+        localStorage.setItem("agent-tui.term", next ? "1" : "0");
+      } catch {}
+      return next;
+    });
+  }, []);
+  React.useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === "`") {
+        e.preventDefault();
+        toggleTerm();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [toggleTerm]);
   const { scroller, content, below, toBottom } = useFollow(!!data);
   // What was just chosen in the header, shown until the session says so.
   const [chosen, setChosen] = React.useState<{ engine?: string; model?: string; mode?: string }>({});
@@ -237,6 +277,7 @@ function Conversation({ id }: { id: string }) {
   const s = data.session;
 
   return (
+    <FileOpener.Provider value={openFile}>
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="@container flex items-start gap-3 border-b px-5 py-3">
@@ -276,6 +317,9 @@ function Conversation({ id }: { id: string }) {
             <Button size="icon-sm" variant="ghost" title="Reload from disk" onClick={() => reload()}>
               <RefreshCwIcon />
             </Button>
+            <Button size="icon-sm" variant={termOpen ? "secondary" : "ghost"} title="Terminal in this project (Ctrl+`)" onClick={() => toggleTerm()}>
+              <SquareTerminalIcon />
+            </Button>
             <FocusButton />
             <PaneToggle side="right" />
           </div>
@@ -313,6 +357,11 @@ function Conversation({ id }: { id: string }) {
         </div>
 
         <Composer busy={busy} owner={owner} target={s.target} onSend={send} />
+        {termOpen && (
+          <BottomDock>
+            <TerminalPanel root={s.root} onClose={() => toggleTerm(false)} />
+          </BottomDock>
+        )}
       </div>
 
       <RightPane>
@@ -321,6 +370,7 @@ function Conversation({ id }: { id: string }) {
             <TabsList>
               <TabsTrigger value="context">Context trace</TabsTrigger>
               <TabsTrigger value="learned">Learned</TabsTrigger>
+              <TabsTrigger value="files">Files</TabsTrigger>
               <TabsTrigger value="details">Details</TabsTrigger>
             </TabsList>
           </div>
@@ -330,11 +380,52 @@ function Conversation({ id }: { id: string }) {
           <TabsContent value="learned" className="min-h-0 flex-1 overflow-auto p-3">
             <LearnedPanel id={id} root={s.root} state={data.learning} count={s.messages.length} />
           </TabsContent>
+          <TabsContent value="files" className="flex min-h-0 flex-1 flex-col">
+            <Explorer root={s.root} cwd={s.cwd} request={fileReq} />
+          </TabsContent>
           <TabsContent value="details" className="min-h-0 flex-1 overflow-auto p-3">
             <DetailsPanel s={s} />
           </TabsContent>
         </Tabs>
       </RightPane>
+    </div>
+    </FileOpener.Provider>
+  );
+}
+
+/** BottomDock holds the terminal under the conversation, its height dragged
+ * from its top edge and remembered. */
+function BottomDock({ children }: { children: React.ReactNode }) {
+  const [h, setH] = React.useState(() => {
+    try {
+      return Number(localStorage.getItem("agent-tui.term.h")) || 280;
+    } catch {
+      return 280;
+    }
+  });
+  const drag = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const y0 = e.clientY;
+    const h0 = h;
+    let last = h0;
+    const move = (ev: PointerEvent) => {
+      last = Math.min(Math.max(120, h0 + (y0 - ev.clientY)), Math.round(window.innerHeight * 0.8));
+      setH(last);
+    };
+    const up = () => {
+      window.removeEventListener("pointermove", move);
+      window.removeEventListener("pointerup", up);
+      try {
+        localStorage.setItem("agent-tui.term.h", String(last));
+      } catch {}
+    };
+    window.addEventListener("pointermove", move);
+    window.addEventListener("pointerup", up);
+  };
+  return (
+    <div className="relative shrink-0 border-t" style={{ height: h }}>
+      <div onPointerDown={drag} className="absolute -top-1 right-0 left-0 z-10 h-2 cursor-row-resize hover:bg-primary/20" title="Drag to resize" />
+      {children}
     </div>
   );
 }
