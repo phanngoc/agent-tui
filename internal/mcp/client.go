@@ -36,6 +36,10 @@ type Client struct {
 		Name    string `json:"name"`
 		Version string `json:"version"`
 	}
+	// From the handshake: what the server can do, and what it tells a model
+	// about using it.
+	Capabilities json.RawMessage
+	Instructions string
 
 	t     transport
 	next  atomic.Int64
@@ -52,6 +56,16 @@ type rpcError struct {
 	Code    int    `json:"code"`
 	Message string `json:"message"`
 }
+
+// RPCError is a server's answer refusing a request, as opposed to a request
+// that never got an answer: the connection is fine, and asking again on a new
+// one would get the same.
+type RPCError struct {
+	Code    int
+	Message string
+}
+
+func (e *RPCError) Error() string { return fmt.Sprintf("%s (code %d)", e.Message, e.Code) }
 
 type rpcResponse struct {
 	ID     *int64          `json:"id"`
@@ -73,7 +87,9 @@ func Connect(ctx context.Context, s Server) (*Client, error) {
 		return nil, err
 	}
 	var init struct {
-		ServerInfo json.RawMessage `json:"serverInfo"`
+		ServerInfo   json.RawMessage `json:"serverInfo"`
+		Capabilities json.RawMessage `json:"capabilities"`
+		Instructions string          `json:"instructions"`
 	}
 	raw, err := c.Call(ctx, "initialize", map[string]any{
 		"protocolVersion": protocolVersion,
@@ -86,6 +102,7 @@ func Connect(ctx context.Context, s Server) (*Client, error) {
 	}
 	_ = json.Unmarshal(raw, &init)
 	_ = json.Unmarshal(init.ServerInfo, &c.Info)
+	c.Capabilities, c.Instructions = init.Capabilities, init.Instructions
 	b, _ := json.Marshal(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"})
 	_ = c.t.notify(ctx, b)
 	return c, nil
@@ -265,7 +282,7 @@ func (t *stdioTransport) call(ctx context.Context, req []byte, id int64) (json.R
 	select {
 	case resp := <-ch:
 		if resp.Error != nil {
-			return nil, fmt.Errorf("%s (code %d)", resp.Error.Message, resp.Error.Code)
+			return nil, &RPCError{Code: resp.Error.Code, Message: resp.Error.Message}
 		}
 		return resp.Result, nil
 	case <-t.done:
@@ -418,7 +435,7 @@ func (t *httpTransport) call(ctx context.Context, req []byte, id int64) (json.Ra
 			return nil, false, nil
 		}
 		if r.Error != nil {
-			return nil, true, fmt.Errorf("%s (code %d)", r.Error.Message, r.Error.Code)
+			return nil, true, &RPCError{Code: r.Error.Code, Message: r.Error.Message}
 		}
 		return r.Result, true, nil
 	}

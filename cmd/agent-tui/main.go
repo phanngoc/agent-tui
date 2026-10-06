@@ -76,6 +76,16 @@ func run() error {
 		kit.GatewayAddr = *gw
 		return kit.ServeMCP(context.Background(), *root, *sess, os.Stdin, os.Stdout)
 	}
+	// `agent-tui mcp-proxy -root R -name N` serves one of the project's MCP
+	// servers on stdio, connecting to it from here: how a CLI in a WSL
+	// distribution uses this machine's servers and sign-ins.
+	if len(os.Args) > 1 && os.Args[1] == "mcp-proxy" {
+		fs := flag.NewFlagSet("mcp-proxy", flag.ExitOnError)
+		root := fs.String("root", "", "project root")
+		name := fs.String("name", "", "the server")
+		_ = fs.Parse(os.Args[2:])
+		return mcpProxy(*root, *name)
+	}
 
 	var (
 		root        = flag.String("C", ".", "project root directory")
