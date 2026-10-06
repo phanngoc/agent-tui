@@ -49,8 +49,13 @@ func ResolveStreaming(m string) string {
 }
 
 const (
-	shownSteps   = 8
+	shownSteps = 8
+	// editEvery is how often the bot looks; firstEvery how often the
+	// message may change at first, and slowestEvery after Telegram has
+	// asked to wait (about one call a second per chat is its limit).
 	editEvery    = time.Second
+	firstEvery   = 1500 * time.Millisecond
+	slowestEvery = 5 * time.Second
 	firstPreview = 1500 * time.Millisecond
 )
 

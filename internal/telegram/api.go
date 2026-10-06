@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"strings"
 	"sync"
@@ -98,6 +99,17 @@ type client struct {
 	hc    *http.Client
 	mu    sync.Mutex
 	gate  time.Time
+	// floods counts 429s; lastFlood is the latest wait Telegram asked for.
+	floods    int
+	lastFlood time.Duration
+}
+
+// flood says how many times Telegram has asked to slow down, the latest
+// wait it asked for, and until when it holds.
+func (c *client) flood() (n int, last time.Duration, until time.Time) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.floods, c.lastFlood, c.gate
 }
 
 func newClient(token string) *client {
@@ -135,7 +147,10 @@ func (c *client) call(ctx context.Context, method string, params, out any, repla
 			if t := time.Now().Add(after); t.After(c.gate) {
 				c.gate = t
 			}
+			c.floods++
+			c.lastFlood = after
 			c.mu.Unlock()
+			log.Printf("telegram: %s: flood control, Telegram asks to wait %s", method, after)
 			if replaceable {
 				return errSkipped
 			}
@@ -228,6 +243,15 @@ func (c *client) edit(ctx context.Context, chat, msg int64, html string, rows []
 	err := c.call(ctx, "editMessageText", p, nil, replaceable)
 	if err != nil && strings.Contains(err.Error(), "not modified") {
 		return nil
+	}
+	if isAPI(err, http.StatusBadRequest) && strings.Contains(err.Error(), "parse") {
+		// HTML Telegram will not take: the same words, plain.
+		delete(p, "parse_mode")
+		p["text"] = plain(html)
+		err = c.call(ctx, "editMessageText", p, nil, replaceable)
+		if err != nil && strings.Contains(err.Error(), "not modified") {
+			return nil
+		}
 	}
 	return err
 }

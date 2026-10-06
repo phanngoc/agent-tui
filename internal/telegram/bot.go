@@ -62,6 +62,16 @@ type Status struct {
 	Error    string `json:"error,omitempty"`
 	// Transport is how updates arrive: webhook or polling.
 	Transport string `json:"transport,omitempty"`
+	// How the progress messages fare: edits that landed, skipped while
+	// Telegram asked to wait, failed; the latest failure; Telegram's
+	// flood control — how often, the latest wait, until when.
+	Edits     int       `json:"edits"`
+	Skipped   int       `json:"skipped"`
+	Failed    int       `json:"failed"`
+	LastError string    `json:"last_error,omitempty"`
+	Floods    int       `json:"floods"`
+	LastFlood string    `json:"last_flood,omitempty"`
+	FloodTill time.Time `json:"flood_until,omitzero"`
 }
 
 // Bot runs the bot while the gateway serves.
@@ -72,16 +82,19 @@ type Bot struct {
 	// (transport.go); nil polls in this one.
 	PollCommand func(offset int64) *exec.Cmd
 
-	mu     sync.Mutex
-	st     Status
-	ctx    context.Context // the running bot's, for webhook updates
-	seen   []int64         // update ids lately handled, against redelivery
-	cancel context.CancelFunc
-	done   chan struct{}
-	c      *client
-	turns  map[string]*turnView // by chat:session
-	refs   map[string]*ref      // the pending buttons, by short id
-	lists  map[int64][]string   // the projects a chat was last shown
+	mu sync.Mutex
+	st Status
+	// edits, skipped, failed and lastErr are the progress messages' record.
+	edits, skipped, failed int
+	lastErr                string
+	ctx                    context.Context // the running bot's, for webhook updates
+	seen                   []int64         // update ids lately handled, against redelivery
+	cancel                 context.CancelFunc
+	done                   chan struct{}
+	c                      *client
+	turns                  map[string]*turnView // by chat:session
+	refs                   map[string]*ref      // the pending buttons, by short id
+	lists                  map[int64][]string   // the projects a chat was last shown
 }
 
 // ref is what an inline button stands for.
@@ -107,7 +120,10 @@ type turnView struct {
 	failures  int
 	lastEdit  time.Time
 	lastBlock string
-	stop      chan struct{}
+	// every is how often the message may be edited: from firstEvery,
+	// slower each time Telegram asks to wait.
+	every time.Duration
+	stop  chan struct{}
 }
 
 // Status is the bot's state now.
@@ -117,6 +133,17 @@ func (b *Bot) Status() Status {
 	st := b.st
 	if st.State == "" {
 		st.State = "off"
+	}
+	st.Edits, st.Skipped, st.Failed, st.LastError = b.edits, b.skipped, b.failed, b.lastErr
+	if b.c != nil {
+		n, last, until := b.c.flood()
+		st.Floods = n
+		if last > 0 {
+			st.LastFlood = last.String()
+		}
+		if until.After(time.Now()) {
+			st.FloodTill = until
+		}
 	}
 	return st
 }
@@ -602,7 +629,7 @@ func (b *Bot) show(ctx context.Context, v *turnView, e gateway.Event) {
 		}
 		v.p = newProgress(Load().Streaming, time.Now())
 		v.draft, v.failures, v.broken, v.dirty, v.lastBlock = 0, 0, false, false, ""
-		v.lastEdit = time.Time{}
+		v.lastEdit, v.every = time.Time{}, firstEvery
 		v.stop = make(chan struct{})
 		stop := v.stop
 		b.mu.Unlock()
@@ -612,14 +639,18 @@ func (b *Bot) show(ctx context.Context, v *turnView, e gateway.Event) {
 			t := time.NewTicker(editEvery)
 			defer t.Stop()
 			for i := 0; ; i++ {
-				if i%4 == 0 {
-					b.c.typing(ctx, v.chat)
-				}
 				b.mu.Lock()
-				if v.p != nil && v.draft != 0 && time.Since(v.lastEdit) >= 5*time.Second {
+				showing := v.draft != 0
+				if v.p != nil && showing && time.Since(v.lastEdit) >= 5*time.Second {
 					v.dirty = true // the headline's clock
 				}
 				b.mu.Unlock()
+				// Typing until the progress message shows; after that the
+				// message is the sign of life, and every call counts against
+				// Telegram's limit of about one a second per chat.
+				if !showing && i%4 == 0 {
+					b.c.typing(ctx, v.chat)
+				}
 				b.flush(ctx, v)
 				select {
 				case <-ctx.Done():
@@ -711,7 +742,7 @@ func (b *Bot) flush(ctx context.Context, v *turnView) {
 	b.mu.Lock()
 	now := time.Now()
 	if v.stop == nil || v.p == nil || v.broken || v.sending || (!v.dirty && v.draft != 0) ||
-		now.Sub(v.lastEdit) < editEvery || (v.draft == 0 && !v.p.worth(now)) {
+		now.Sub(v.lastEdit) < v.every || (v.draft == 0 && !v.p.worth(now)) {
 		b.mu.Unlock()
 		return
 	}
@@ -726,7 +757,10 @@ func (b *Bot) flush(ctx context.Context, v *turnView) {
 		if err != nil {
 			v.failures++
 			v.broken = v.failures >= 3
+			b.failed++
+			b.lastErr = err.Error()
 			b.mu.Unlock()
+			log.Printf("telegram: progress message: %v", err)
 			return
 		}
 		if v.stop == nil {
@@ -745,11 +779,19 @@ func (b *Bot) flush(ctx context.Context, v *turnView) {
 	switch {
 	case err == nil:
 		v.failures = 0
+		b.edits++
 	case errors.Is(err, errSkipped):
-		v.dirty = true // flood control: the next tick tries again
+		// Telegram asked to wait: the next tick tries again, and this turn
+		// edits more slowly from now on.
+		v.dirty = true
+		v.every = min(v.every*2, slowestEvery)
+		b.skipped++
 	default:
 		v.failures++
 		v.broken = v.failures >= 3
+		b.failed++
+		b.lastErr = err.Error()
+		log.Printf("telegram: editing the progress message: %v", err)
 	}
 	b.mu.Unlock()
 }

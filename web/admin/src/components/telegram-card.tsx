@@ -32,7 +32,19 @@ interface TelegramView {
   pending: Pairing[];
   quiet_schedules: boolean;
   streaming: string;
-  status: { state: string; username?: string; error?: string };
+  status: {
+    state: string;
+    username?: string;
+    error?: string;
+    transport?: string;
+    edits?: number;
+    skipped?: number;
+    failed?: number;
+    last_error?: string;
+    floods?: number;
+    last_flood?: string;
+    flood_until?: string;
+  };
 }
 
 const TONE: Record<string, string> = {
@@ -81,6 +93,21 @@ export function TelegramCard() {
       </CardHeader>
       <CardContent className="grid gap-3">
         {st.error && <ErrorNote error={st.error} />}
+        {st.state === "up" && (
+          <p className="text-xs text-muted-foreground">
+            {st.transport && <>Messages arrive by {st.transport}. </>}
+            Progress messages: {st.edits ?? 0} edits
+            {!!st.skipped && <>, {st.skipped} held back by Telegram&apos;s flood control</>}
+            {!!st.failed && <>, {st.failed} failed</>}.
+            {!!st.floods && (
+              <>
+                {" "}
+                Telegram asked to slow down {st.floods}× (latest wait {st.last_flood}).
+              </>
+            )}
+            {st.last_error && <span className="block text-red-600">Last error: {st.last_error}</span>}
+          </p>
+        )}
         {st.username && (
           <p className="text-sm">
             Open{" "}

@@ -124,6 +124,7 @@ func streamBot(t *testing.T, mode string) (*fakeTelegram, *fakeHost, func()) {
 	})
 	host := &fakeHost{events: make(chan gateway.Event, 64), roots: []string{"/work/app"}}
 	b := &Bot{Host: host}
+	lastBot = b
 	b.Start()
 	deadline := time.Now().Add(5 * time.Second)
 	for b.Status().State != "up" && time.Now().Before(deadline) {
@@ -186,5 +187,29 @@ func TestPartialModeStreamsTheAnswerIntoTheMessage(t *testing.T) {
 	time.Sleep(300 * time.Millisecond)
 	if n := countSent(tg, "sendMessage", "null first."); n != 0 {
 		t.Fatalf("the answer was sent again as %d new message(s)", n)
+	}
+}
+
+var lastBot *Bot
+
+// Telegram asking to slow down is ridden out: the edit waits its turn and
+// lands, the turn edits more slowly, and the status says it happened.
+func TestFloodControlIsRiddenOut(t *testing.T) {
+	tg, host, stop := streamBot(t, StreamProgress)
+	defer stop()
+	tg.mu.Lock()
+	tg.floodEdits = 1
+	tg.mu.Unlock()
+	host.events <- gateway.New(gateway.EvTurnStarted, "s1", gateway.TurnData{Prompt: "go"})
+	a := call("t1", "Bash", `{"command":"make build"}`)
+	host.events <- gateway.New(gateway.EvToolStart, "s1", gateway.ToolData{Call: a})
+	waitFor(t, "no progress message", func() bool { return countSent(tg, "sendMessage", "make build") == 1 })
+	done := a
+	done.Done = true
+	host.events <- gateway.New(gateway.EvToolDone, "s1", gateway.ToolData{Call: done})
+	waitFor(t, "the edit never landed after the flood wait", func() bool { return countSent(tg, "editMessageText", "✅ 💻 Bash") >= 1 })
+	st := lastBot.Status()
+	if st.Floods < 1 || st.Skipped < 1 || st.Edits < 1 {
+		t.Fatalf("status %+v", st)
 	}
 }
