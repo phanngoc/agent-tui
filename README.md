@@ -310,6 +310,17 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
 - The conversation header fits one row, and the composer's Enter key makes a
   new line, as a phone's keyboard expects.
 - Share → Add to Home Screen opens it as an app.
+- **No project bar across the top:**
+  - The project in view is a chip under the logo, at the head of the
+    session list, and in More.
+  - In a conversation it shares the composer's chip with the branch:
+    `📁 project / ⎇ branch`.
+- **The folder picker on a phone:**
+  - It fills the screen. Places (recent projects, drives, WSL) are a row
+    of chips, and the crumbs scroll sideways.
+  - Rows are tall enough for a thumb, and a git project has a *Use*
+    button.
+  - *Use this folder* sits at the bottom.
 
 **Remote access: a Cloudflare tunnel** (admin → *Remote & Telegram*). The
 gateway is reached from the internet through `cloudflared`, which connects
