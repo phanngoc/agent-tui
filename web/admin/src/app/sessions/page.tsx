@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon } from "lucide-react";
+import { PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon, CodeXmlIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -317,6 +317,9 @@ function Conversation({ id }: { id: string }) {
             <Button size="icon-sm" variant="ghost" title="Reload from disk" onClick={() => reload()}>
               <RefreshCwIcon />
             </Button>
+            <Link href={"/editor" + qs({ root: s.root })} title="Open the project in the editor" className="grid size-7 place-items-center rounded-md hover:bg-muted">
+              <CodeXmlIcon className="size-4" />
+            </Link>
             <Button size="icon-sm" variant={termOpen ? "secondary" : "ghost"} title="Terminal in this project (Ctrl+`)" onClick={() => toggleTerm()}>
               <SquareTerminalIcon />
             </Button>

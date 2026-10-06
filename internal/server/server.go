@@ -221,6 +221,7 @@ func (s *Server) routes() {
 	s.fsRoutes(m)
 	s.scheduleRoutes(m)
 	s.fileRoutes(m)
+	s.editRoutes(m)
 	s.termRoutes(m)
 
 	m.HandleFunc("/", s.static)
@@ -243,6 +244,11 @@ func (s *Server) static(w http.ResponseWriter, r *http.Request) {
 <p>then open <a href="http://localhost:3000">http://localhost:3000</a>. Or build it once with
 <code>npm run build</code> and restart with <code>agent-tui serve -web web/admin/out</code>.</p>`)
 		return
+	}
+	// Hashed build output and the versioned editor never change under a
+	// name, so the browser keeps them: the editor's megabytes load once.
+	if strings.HasPrefix(r.URL.Path, "/_next/static/") || strings.HasPrefix(r.URL.Path, "/monaco/") {
+		w.Header().Set("Cache-Control", "public, max-age=31536000, immutable")
 	}
 	clean := filepath.Clean(strings.TrimPrefix(r.URL.Path, "/"))
 	try := []string{clean, clean + ".html", filepath.Join(clean, "index.html")}
