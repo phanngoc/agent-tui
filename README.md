@@ -167,6 +167,31 @@ links both ways.
 | settings | `prefs.json` in the data folder | `<project>/.agent-tui/settings.json` |
 | memory | `<data>/memory/` | `<data>/projects/<path-slug>/memory/` |
 
+**A VS Code-like editor in the admin** (`/editor`, or the editor button on a
+session) edits a project's code. It edits a WSL project inside its
+distribution.
+- **Monaco, VS Code's own editor:** multi-cursor, find and replace, minimap,
+  folding, sticky scroll, bracket pairs, IntelliSense for TS/JS/JSON/CSS/HTML,
+  and syntax for everything else. One editor serves every tab and keeps each
+  tab's cursor and scroll.
+- **Explorer:** a virtualised tree, with new file, new folder, rename and
+  delete (context menu, F2, Del).
+- **Quick Open (Ctrl+P):** fuzzy, in the page over the cached file list, 2–5
+  ms a keystroke on 60,000 files. ">" gives commands (Ctrl+Shift+P), ":" a
+  line (Ctrl+G).
+- **Search (Ctrl+Shift+F):** case, regex and include globs, run in the
+  gateway.
+- **Source Control (Ctrl+Shift+G):** changed files open as a diff against
+  HEAD, with the file itself editable on the right.
+- **Terminal:** Ctrl+\`.
+- **Saving:** Ctrl+S, or Ctrl+Alt+S for all. A save never silently overwrites
+  a change made elsewhere. Files changed on disk reload by themselves when
+  you have not edited them. When you have, the tab says so and the save asks
+  what to do.
+- **Loading:** Monaco is served from a versioned copy (`public/monaco/`,
+  copied by `npm run build`) that the browser caches for good, and it loads
+  only on this page.
+
 **The project is a click away from the conversation.**
 - **Files tab:** a session's right pane has a Files tab. It is the project's
   tree, with quick find, read through the same filesystem the agent uses, so

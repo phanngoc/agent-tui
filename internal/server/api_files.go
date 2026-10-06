@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -160,14 +161,21 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 			fail(w, http.StatusBadRequest, errors.New("that is a folder"))
 			return
 		}
-		data, truncated, err := p.fs.ReadFile(ctx, abs, maxReadBytes)
+		// The editor asks for more than the viewer: a file it opens cut short
+		// would be saved cut short.
+		limit := int64(maxReadBytes)
+		if n, err := strconv.ParseInt(r.URL.Query().Get("max"), 10, 64); err == nil && n > 0 {
+			limit = min(n, 50<<20)
+		}
+		data, truncated, err := p.fs.ReadFile(ctx, abs, limit)
 		if err != nil {
 			fail(w, http.StatusNotFound, err)
 			return
 		}
 		binary := !utf8.Valid(data) && !truncated || strings.ContainsRune(string(data[:min(len(data), 8000)]), 0)
 		out := map[string]any{"path": strings.TrimPrefix(path.Clean("/"+strings.ReplaceAll(rel, `\`, "/")), "/"),
-			"size": st.Size, "truncated": truncated, "binary": binary, "modified": time.Unix(0, st.ModNano).UTC()}
+			"size": st.Size, "truncated": truncated, "binary": binary, "modified": time.Unix(0, st.ModNano).UTC(),
+			"mtime": mtimeOf(st)} // exact, for the editor's save check
 		if !binary {
 			out["text"] = string(data)
 		}

@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ChevronRightIcon, FileIcon, FolderIcon, FolderOpenIcon, ArrowLeftIcon, SearchIcon, RefreshCwIcon, ExternalLinkIcon } from "lucide-react";
+import Link from "next/link";
+import { ChevronRightIcon, FileIcon, FolderIcon, FolderOpenIcon, ArrowLeftIcon, SearchIcon, RefreshCwIcon, ExternalLinkIcon, CodeXmlIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, gatewayBase, qs } from "@/lib/api";
 import { cn } from "@/lib/utils";
@@ -114,6 +115,13 @@ function FileView({ root, path, line, onBack }: { root: string; path: string; li
           </button>
         )}
         <CopyButton text={path} />
+        <Link
+          href={"/editor" + qs({ root, path, line })}
+          className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+          title="Open in the editor"
+        >
+          <CodeXmlIcon className="size-3.5" />
+        </Link>
         <a href={gatewayBase() + "/api/files/raw" + qs({ root, path })} target="_blank" rel="noreferrer" className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground" title="Open raw">
           <ExternalLinkIcon className="size-3.5" />
         </a>
