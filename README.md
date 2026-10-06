@@ -284,6 +284,72 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
   once, and when Datadog was slow (CONNECT_TIMEOUT), the whole run went
   without it.
 
+**From a phone.** The admin works at phone width:
+- Navigation is a bottom tab bar (Overview, Sessions, Agents, Schedules, and
+  More for the rest).
+- Pages show one pane at a time. Picking a conversation closes the list.
+- The conversation header fits one row, and the composer's Enter key makes a
+  new line, as a phone's keyboard expects.
+- Share → Add to Home Screen opens it as an app.
+
+**Remote access: a Cloudflare tunnel** (admin → *Remote & Telegram*). The
+gateway is reached from the internet through `cloudflared`, which connects
+out, so nothing opens on the router. agent-tui downloads it on first use into
+`<data>/bin`. Three ways to name it:
+- **my domain, API token:** a hostname in your own Cloudflare zone, such as
+  `agent.example.com`. agent-tui makes the tunnel, its route to the gateway,
+  and the CNAME. The token needs *Account · Cloudflare Tunnel · Edit* and
+  *Zone · DNS · Edit*.
+- **my domain, tunnel token:** a tunnel you made in the dashboard, run with
+  its token.
+- **quick:** a new `https://….trycloudflare.com` each start, no account.
+
+What changes when the gateway is reachable from outside:
+- **Login.** On loopback nothing changes. Any other hostname needs a sign-in:
+  - The access key is 128 random bits, shown only on this computer, as a
+    QR code to scan with the phone.
+  - Signing in sets a cookie: HttpOnly, Secure, SameSite=Lax, 30 days.
+  - *New key* signs every browser out.
+  - Wrong keys are rate-limited.
+- **Stays on this computer:** the key, the tunnel settings, the Telegram
+  settings, terminal peers, and stopping the gateway.
+- **Live updates by POST.** A quick tunnel holds back a streamed GET until it
+  ends ([cloudflared#1449](https://github.com/cloudflare/cloudflared/issues/1449)),
+  so the admin reads its event streams by POST, which streams.
+- **HTTP/2 to Cloudflare**, because networks that block QUIC's UDP are
+  common.
+
+**A Telegram bot**, after OpenClaw's Telegram channel. Make a bot with
+@BotFather, then paste its token in Settings or on the Remote & Telegram page.
+- **Pairing:** someone the bot does not know gets an 8-letter code, valid for
+  an hour. You approve it in the admin or with
+  `agent-tui telegram approve CODE`. The policy can also be *approved only*
+  or *nobody*. Only private chats are served.
+- **Projects and conversations:**
+  - A chat works on one project and one conversation at a time.
+  - `/projects` and `/sessions` pick them with buttons, and `/new` starts a
+    conversation.
+  - `/status`, `/stop` and `/model` do what they say.
+  - Plain text is a prompt to the current conversation.
+- **Turns:**
+  - While a turn runs, one message shows the tools as they run, and the
+    typing indicator stays on.
+  - The answer arrives as Telegram HTML, split under 4096 characters.
+  - An approval or a question comes with inline buttons.
+- **Schedules:** a scheduled run with something to report is sent to
+  everyone approved, with a button to reply to it.
+- **How messages arrive:**
+  - By **webhook** while the tunnel is up. Telegram posts to
+    `/api/telegram/webhook` with a secret header.
+  - By long polling only when remote access is off, in a child process.
+- **Security software:** CrowdStrike Falcon stops programs that talk to
+  Telegram's bot API, because malware uses bots as remote control. It stopped
+  the whole gateway, with exit code `0xE0000027`.
+  - A gateway that dies while its bot connects turns the bot off on its next
+    start and says why, instead of dying on every start.
+  - On such a machine, the bot needs an exclusion from whoever runs the
+    security software.
+
 **Remote MCP servers that ask for a sign-in** (Datadog's, for one) get one
 through OAuth, as the MCP authorization spec describes. *Sign in with browser*
 on the server's page in the admin, or `agent-tui mcp login <name>` from a

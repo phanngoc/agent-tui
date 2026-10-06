@@ -72,7 +72,7 @@ func (s *Server) lspRoutes(m *http.ServeMux) {
 		writeJSON(w, map[string]any{"ok": true})
 	})
 
-	m.HandleFunc("GET /api/lsp/{id}/stream", func(w http.ResponseWriter, r *http.Request) {
+	m.HandleFunc("/api/lsp/{id}/stream", func(w http.ResponseWriter, r *http.Request) {
 		sess, ok := s.LSP.Get(r.PathValue("id"))
 		if !ok {
 			fail(w, http.StatusNotFound, errors.New("no such language server"))

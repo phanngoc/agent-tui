@@ -2,6 +2,7 @@
 
 import { create } from "zustand";
 import { api, gatewayBase } from "./api";
+import { StreamSource } from "./sse";
 import type { GatewayEvent, Live, Peer, Summary } from "./types";
 
 // One connection to the gateway's event stream per tab. Every page reads the
@@ -18,7 +19,7 @@ export function onEvent(fn: Listener): () => void {
   return () => listeners.delete(fn);
 }
 
-export type Kind = "sessions" | "memory" | "skills" | "mcp" | "settings" | "learn" | "peers" | "schedule";
+export type Kind = "sessions" | "memory" | "skills" | "mcp" | "settings" | "learn" | "peers" | "schedule" | "remote";
 
 interface State {
   root: string; // the project being looked at; "" means global only
@@ -130,7 +131,7 @@ function storedRoot(): string {
   }
 }
 
-let source: EventSource | null = null;
+let source: StreamSource | null = null;
 
 export const useGateway = create<State>((set, get) => ({
   root: "",
@@ -145,7 +146,7 @@ export const useGateway = create<State>((set, get) => ({
   live: {},
   summaries: {},
   peers: [],
-  versions: { sessions: 0, memory: 0, skills: 0, mcp: 0, settings: 0, learn: 0, peers: 0, schedule: 0 },
+  versions: { sessions: 0, memory: 0, skills: 0, mcp: 0, settings: 0, learn: 0, peers: 0, schedule: 0, remote: 0 },
   feed: [],
   bump: (k) => set((s) => ({ versions: { ...s.versions, [k]: s.versions[k] + 1 } })),
 
@@ -165,7 +166,7 @@ export const useGateway = create<State>((set, get) => ({
 
     const open = () => {
       const after = get().seq;
-      source = new EventSource(gatewayBase() + "/api/events" + (after ? `?after=${after}` : ""));
+      source = new StreamSource(gatewayBase() + "/api/events" + (after ? `?after=${after}` : ""));
       source.addEventListener("hello", () => {
         set({ connected: true });
         void snapshot();
@@ -191,7 +192,7 @@ export const useGateway = create<State>((set, get) => ({
         switch (e.type) {
           case "config.changed": {
             const kind = e.data?.kind as string;
-            const map: Record<string, Kind> = { skills: "skills", mcp: "mcp", memory: "memory", settings: "settings", skill: "skills", schedule: "schedule" };
+            const map: Record<string, Kind> = { skills: "skills", mcp: "mcp", memory: "memory", settings: "settings", skill: "skills", schedule: "schedule", remote: "remote", telegram: "remote" };
             if (map[kind]) get().bump(map[kind]);
             break;
           }
@@ -217,12 +218,11 @@ export const useGateway = create<State>((set, get) => ({
       };
       source.onerror = () => {
         set({ connected: false });
-        // EventSource retries on its own; if the gateway restarted, its
-        // sequence numbers did too, so start over from the snapshot.
-        if (source?.readyState === EventSource.CLOSED) {
-          source = null;
-          setTimeout(open, 2000);
-        }
+        // The stream does not retry on its own; if the gateway restarted,
+        // its sequence numbers did too, and the hello starts over from the
+        // snapshot.
+        source = null;
+        setTimeout(open, 2000);
       };
     };
     open();

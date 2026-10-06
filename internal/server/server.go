@@ -3,10 +3,11 @@
 // terminal apps connect to as peers, and — when it has been built — the admin
 // itself.
 //
-// It listens on loopback only and refuses requests whose Host is not a
-// loopback name, which is what stops a web page elsewhere from reaching it
-// through DNS rebinding. There is no login: whoever can reach this port is
-// already on this machine as this user.
+// It listens on loopback only. A request for a loopback name needs no login:
+// whoever can reach this port is already on this machine as this user. Any
+// other name — a page elsewhere trying DNS rebinding, or a phone through the
+// Cloudflare tunnel — is refused unless remote access is on and the request
+// is signed in (api_remote.go).
 package server
 
 import (
@@ -30,7 +31,9 @@ import (
 	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/lsp"
 	"github.com/phanngoc/agent-tui/internal/mcp"
+	"github.com/phanngoc/agent-tui/internal/remote"
 	"github.com/phanngoc/agent-tui/internal/schedule"
+	"github.com/phanngoc/agent-tui/internal/telegram"
 	"github.com/phanngoc/agent-tui/internal/term"
 )
 
@@ -65,6 +68,10 @@ type Server struct {
 	LSP      *lsp.Manager
 	lspMu    sync.Mutex
 	lspPages map[string]int
+	// remote is access through the tunnel.
+	remote remoteState
+	// bot is the Telegram bot.
+	bot *telegram.Bot
 }
 
 // pendingLogin is a sign-in to an MCP server that a page started.
@@ -98,6 +105,27 @@ func New(cfg config.Config, version, webDir string) *Server {
 				Data: mustJSON(map[string]any{"job": j.ID, "name": j.Name, "run": r})})
 		},
 		Changed: func() { s.changed("schedule", "") }}
+	s.remote.set = remote.Load()
+	s.remote.limiter = remote.Limiter{Max: 10, Every: 10 * time.Minute}
+	s.bot = &telegram.Bot{Host: tgHost{s}, OnChange: func() { s.changed("telegram", "") }, PollCommand: pollCommand}
+	var lastURL string
+	var urlMu sync.Mutex
+	s.remote.tunnel = &remote.Manager{OnChange: func(st remote.Status) {
+		s.changed("remote", "")
+		// The bot takes its messages by webhook at the tunnel's address, or
+		// polls without one: a new address, or none, restarts it.
+		url := ""
+		if st.State == remote.StateUp {
+			url = st.URL
+		}
+		urlMu.Lock()
+		moved := url != lastURL
+		lastURL = url
+		urlMu.Unlock()
+		if moved && telegram.Load().Enabled {
+			go s.bot.Start()
+		}
+	}}
 	s.routes()
 	return s
 }
@@ -116,6 +144,11 @@ func (s *Server) ListenAndServe(addr string) error {
 	go s.watchSchedule(schedCtx)
 	go s.Sched.Run(schedCtx)
 	log.Printf("agent-tui gateway on http://%s", ln.Addr())
+	s.remote.local = "http://" + ln.Addr().String()
+	if st := s.remoteSettings(); st.Enabled && st.Tunnel.AutoStart {
+		s.startTunnel()
+	}
+	s.bot.Start()
 	srv := &http.Server{Handler: s.guard(s.mux), ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.Serve(ln) }()
@@ -151,6 +184,8 @@ func (s *Server) Stop() { s.stopOnce.Do(func() { close(s.stop) }) }
 
 // Shutdown stops running turns and closes the terminals.
 func (s *Server) Shutdown() {
+	s.remote.tunnel.Stop()
+	s.bot.Stop()
 	s.Runner.Shutdown()
 	s.Terms.CloseAll()
 	s.LSP.CloseAll()
@@ -182,11 +217,12 @@ func loopbackOrigin(o string) bool {
 	return false
 }
 
-// guard enforces loopback, and answers CORS for the admin's dev server.
+// guard enforces loopback, sends a remote request through remoteGuard, and
+// answers CORS for the admin's dev server.
 func (s *Server) guard(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !loopbackHost(r.Host) {
-			http.Error(w, "forbidden host", http.StatusForbidden)
+		if !loopbackHost(r.Host) || r.Header.Get("Cf-Connecting-Ip") != "" {
+			s.remoteGuard(w, r, next)
 			return
 		}
 		origin := r.Header.Get("Origin")
@@ -217,7 +253,9 @@ func (s *Server) routes() {
 			"started": s.started, "peers": len(s.Hub.Peers()), "running": s.Runner.Running()})
 	})
 	m.HandleFunc("GET /api/overview", s.overview)
-	m.HandleFunc("GET /api/events", s.events)
+	// The streams answer POST as well as GET: through a Cloudflare quick
+	// tunnel only a POST streams (web/admin/src/lib/sse.ts).
+	m.HandleFunc("/api/events", s.events)
 	m.HandleFunc("GET /api/live", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, s.Hub.LiveAll()) })
 	m.HandleFunc("GET /api/projects", s.projects)
 
@@ -233,6 +271,8 @@ func (s *Server) routes() {
 	s.editRoutes(m)
 	s.lspRoutes(m)
 	s.termRoutes(m)
+	s.remoteRoutes(m)
+	s.telegramRoutes(m)
 
 	m.HandleFunc("/", s.static)
 }

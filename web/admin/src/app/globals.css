@@ -140,3 +140,12 @@
     @apply bg-popover text-popover-foreground;
   }
 }
+/* A phone zooms into a field whose text is smaller than 16px, and stays
+   zoomed; at that size it does not. */
+@media (max-width: 767px) {
+  input,
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}

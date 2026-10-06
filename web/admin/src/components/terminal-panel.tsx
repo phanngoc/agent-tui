@@ -4,6 +4,7 @@ import * as React from "react";
 import { PlusIcon, XIcon, SquareTerminalIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, gatewayBase, qs } from "@/lib/api";
+import { StreamSource } from "@/lib/sse";
 import { cn } from "@/lib/utils";
 import "@xterm/xterm/css/xterm.css";
 
@@ -81,10 +82,10 @@ function TermView({ id, active }: { id: string; active: boolean }) {
       ro.observe(box.current);
       resize();
 
-      const es = new EventSource(gatewayBase() + `/api/term/${id}/stream`);
-      es.addEventListener("data", (e) => term.write(decode((e as MessageEvent).data)));
+      const es = new StreamSource(gatewayBase() + `/api/term/${id}/stream`);
+      es.addEventListener("data", (e) => term.write(decode(e.data)));
       es.addEventListener("exit", (e) => {
-        term.write(`\r\n\x1b[2m[process exited with code ${(e as MessageEvent).data}]\x1b[0m\r\n`);
+        term.write(`\r\n\x1b[2m[process exited with code ${e.data}]\x1b[0m\r\n`);
         es.close();
       });
 
