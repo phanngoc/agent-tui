@@ -273,6 +273,7 @@ func (s *Server) routes() {
 	s.termRoutes(m)
 	s.remoteRoutes(m)
 	s.telegramRoutes(m)
+	s.branchRoutes(m)
 
 	m.HandleFunc("/", s.static)
 }

@@ -22,6 +22,8 @@ import { Explorer } from "@/components/explorer";
 import { TerminalPanel } from "@/components/terminal-panel";
 import { FileOpener } from "@/lib/file-opener";
 import { useIsMobile } from "@/lib/mobile";
+import { SelectionAction, withQuotes } from "@/components/selection-action";
+import { BranchPicker } from "@/components/branch-picker";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -208,6 +210,8 @@ function Conversation({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleTerm]);
   const { scroller, content, below, toBottom } = useFollow(!!data);
+  // Selections added to the next message, quoted above the composer.
+  const [quotes, setQuotes] = React.useState<string[]>([]);
   // What was just chosen in the header, shown until the session says so.
   const [chosen, setChosen] = React.useState<{ engine?: string; model?: string; mode?: string }>({});
 
@@ -365,7 +369,8 @@ function Conversation({ id }: { id: string }) {
           )}
         </div>
 
-        <Composer busy={busy} owner={owner} target={s.target} onSend={send} />
+        <SelectionAction container={content} onAdd={(t) => setQuotes((q) => [...q, t])} />
+        <Composer session={id} busy={busy} owner={owner} target={s.target} onSend={send} quotes={quotes} onQuotes={setQuotes} />
         {termOpen && (
           <BottomDock>
             <TerminalPanel root={s.root} onClose={() => toggleTerm(false)} />
@@ -439,25 +444,67 @@ function BottomDock({ children }: { children: React.ReactNode }) {
   );
 }
 
-function Composer({ busy, owner, target, onSend }: { busy: boolean; owner?: string; target?: string; onSend: (t: string) => Promise<void> }) {
+function Composer({
+  session,
+  busy,
+  owner,
+  target,
+  onSend,
+  quotes,
+  onQuotes,
+}: {
+  session: string;
+  busy: boolean;
+  owner?: string;
+  target?: string;
+  onSend: (t: string) => Promise<void>;
+  quotes: string[];
+  onQuotes: (q: string[]) => void;
+}) {
   const [text, setText] = React.useState("");
   const [sending, setSending] = React.useState(false);
   // A phone's Enter key is its new line; there the button sends.
   const mobile = useIsMobile();
+  // The branch chip asks again when a turn ends: the agent may have moved it.
+  const v = useVersion("sessions");
+  const box = React.useRef<HTMLTextAreaElement>(null);
+  React.useEffect(() => {
+    if (quotes.length) box.current?.focus();
+  }, [quotes.length]);
   const go = async () => {
-    const t = text.trim();
+    const t = withQuotes(quotes, text);
     if (!t) return;
     setSending(true);
     await onSend(t);
     setSending(false);
     setText("");
+    onQuotes([]);
   };
   return (
     <div className="border-t p-2 md:p-3">
       <div className="mx-auto max-w-3xl">
-        <div className="flex items-end gap-2 rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2">
-          <Textarea
-            value={text}
+        <div className="rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2">
+          {quotes.length > 0 && (
+            <div className="mb-1.5 flex flex-col gap-1">
+              {quotes.map((q, i) => (
+                <div key={i} className="flex items-start gap-2 rounded-lg border-l-2 border-primary/60 bg-muted/60 py-1 pr-1 pl-2 text-xs text-muted-foreground">
+                  <span className="line-clamp-2 min-w-0 flex-1 whitespace-pre-wrap">{q}</span>
+                  <button
+                    type="button"
+                    title="Remove this selection"
+                    onClick={() => onQuotes(quotes.filter((_, j) => j !== i))}
+                    className="shrink-0 rounded px-1 text-muted-foreground hover:bg-background hover:text-foreground"
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex items-end gap-2">
+            <Textarea
+              ref={box}
+              value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
               if (!mobile) sendOnEnter(e, () => void go());
@@ -471,11 +518,20 @@ function Composer({ busy, owner, target, onSend }: { busy: boolean; owner?: stri
                   ? "Reply…"
                   : "Reply…  (Enter to send, Shift+Enter for a new line)"
             }
-            className="max-h-48 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0"
-          />
-          <Button onClick={go} disabled={sending || !text.trim()} size="icon">
-            <SendIcon />
-          </Button>
+              className="max-h-48 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0"
+            />
+            <Button onClick={go} disabled={sending || (!text.trim() && !quotes.length)} size="icon">
+              <SendIcon />
+            </Button>
+          </div>
+          <div className="mt-1 flex items-center gap-2 px-1">
+            <BranchPicker session={session} disabled={busy} version={v} />
+            {quotes.length > 0 && (
+              <span className="text-[11px] text-muted-foreground">
+                {quotes.length} selection{quotes.length > 1 ? "s" : ""} as context
+              </span>
+            )}
+          </div>
         </div>
         <div className="mt-1.5 hidden text-[11px] text-muted-foreground md:block">
           {owner?.startsWith("tui")

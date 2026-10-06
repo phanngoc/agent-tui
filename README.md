@@ -284,6 +284,25 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
   once, and when Datadog was slow (CONNECT_TIMEOUT), the whole run went
   without it.
 
+**The composer, as in the Claude app.**
+- **Selection as context:** select text in a conversation, and *Add to
+  chat* puts it above the composer as a quote. It goes with the next
+  message as a Markdown quote, ahead of what you type.
+- **Branch:** a chip under the composer shows the branch the conversation's
+  working tree is on, with a dot when files are changed and a `worktree`
+  tag in a linked worktree.
+  - Click it to switch branches, check out a remote branch (which then
+    tracks it), or type a new name to create a branch.
+  - Git refuses a switch that would overwrite uncommitted changes, and the
+    chip says so. It also refuses while the agent's turn is running.
+- **Worktree:** the new-chat composer has a *Worktree* checkbox.
+  - The conversation gets a git worktree of its own, at
+    `<repo>.worktrees/<branch>` beside the project, on a new branch
+    `agent/<date>-<first words>` from the branch the chip picks.
+  - The main tree is left alone, so agents can work side by side.
+  - Memory, skills and settings are still the project's.
+  - Works on this machine and in WSL.
+
 **From a phone.** The admin works at phone width:
 - Navigation is a bottom tab bar (Overview, Sessions, Agents, Schedules, and
   More for the rest).

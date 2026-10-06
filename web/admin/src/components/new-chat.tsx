@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { FolderPicker, describePath, placePath } from "@/components/folder-picker";
 import { baseName } from "@/lib/format";
+import { BranchPicker } from "@/components/branch-picker";
 
 /**
  * sendOnEnter is the chat apps' rule: Enter sends, Shift+Enter is a new line.
@@ -81,6 +82,23 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
   const [picking, setPicking] = React.useState(!last && !fallbackRoot);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
+  // Worktree: the conversation gets a git worktree of its own, beside the
+  // project, on a new branch from `base`, and the main tree is left alone —
+  // the Claude app's option for running agents side by side.
+  const [worktree, setWorktree] = React.useState(() => {
+    try {
+      return localStorage.getItem("agent-tui.worktree") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [base, setBase] = React.useState("");
+  const toggleWorktree = (on: boolean) => {
+    setWorktree(on);
+    try {
+      localStorage.setItem("agent-tui.worktree", on ? "1" : "0");
+    } catch {}
+  };
   const { data: eng } = useFetch<{ engines: EngineInfo[]; models: { id: string; label: string }[]; modes: string[] }>(
     dir ? "/api/engines" + qs({ root: dir }) : null,
     [dir],
@@ -102,7 +120,14 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
     setBusy(true);
     setErr(null);
     try {
-      const r = await api.post<{ id: string }>("/api/sessions", { root: dir, engine, model, mode, prompt });
+      const r = await api.post<{ id: string }>("/api/sessions", {
+        root: dir,
+        engine,
+        model,
+        mode,
+        prompt,
+        worktree: worktree ? { base } : undefined,
+      });
       onCreated(r.id);
     } catch (e) {
       setErr((e as Error).message);
@@ -174,6 +199,16 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
               )}
             />
             <Pill icon={ShieldIcon} title="Mode: how much the agent may do without asking" value={mode} onChange={setMode} options={withDefault((eng?.modes ?? []).map((m) => ({ value: m, label: m })), "mode from settings")} />
+            {dir && <BranchPicker key={dir} root={dir} base={base} onBase={worktree ? setBase : undefined} disabled={busy} />}
+            {dir && (
+              <label
+                title="Run this conversation in a new git worktree beside the project, on a branch of its own"
+                className="inline-flex h-7 cursor-pointer items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs hover:bg-muted"
+              >
+                <input type="checkbox" checked={worktree} onChange={(e) => toggleWorktree(e.target.checked)} className="size-3.5 accent-primary" />
+                Worktree
+              </label>
+            )}
             <Button size="icon" className="ml-auto rounded-full" disabled={busy || !text.trim()} onClick={() => void start()} title="Start (Enter)">
               <ArrowUpIcon />
             </Button>
@@ -182,7 +217,11 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
 
         <div className="mt-2 text-center text-xs text-muted-foreground">
           Enter to start · Shift+Enter for a new line ·{" "}
-          {where.where ? `runs inside ${where.where}, in ${where.dir}` : "runs in the gateway, with the project's memory, skills and MCP servers"}
+          {worktree
+            ? `runs in a new git worktree beside the project, on a new branch from ${base || "the current branch"}`
+            : where.where
+              ? `runs inside ${where.where}, in ${where.dir}`
+              : "runs in the gateway, with the project's memory, skills and MCP servers"}
         </div>
         <ErrorNote error={err} className="mt-3" />
       </div>
