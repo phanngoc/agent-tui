@@ -138,7 +138,12 @@ Một job gồm:
   - Tuỳ chọn `pacing {min,max}`: nhịp do agent chọn.
   - `active_hours {start,end,days}`.
 - `session`:
-  - `new`: mặc định, session mới mỗi lần; rẻ, sạch.
+  - `thread`: mặc định. Một session cho mỗi job (tên "⏰ <job>"), nên job chạy mỗi
+    giờ không để lại 24 session mỗi ngày trong danh sách. Mỗi lần chạy bắt đầu với
+    ngữ cảnh mới (`Session.ContextFrom`, `Command.Fresh`): engine không nhận các lần
+    chạy trước, CLI không `--resume`. Người dùng trả lời trong session thì nối tiếp
+    lần chạy mới nhất. Session bị xoá hoặc đóng thì lần sau tạo session mới.
+  - `new`: session riêng mỗi lần chạy.
   - `same`: nối tiếp một session, như `/loop` hay `session:<id>`.
   - Với `same`, session có thể do TUI đang giữ: prompt được route tới TUI y như
     khi gửi từ web, nên lượt chạy hiện ngay trong terminal.
@@ -165,7 +170,8 @@ Một job gồm:
    `skipped: empty checklist`, không gọi model.
 4. **Gate**, nếu có.
 5. **Chạy:**
-   - `new`: `Runner.NewSession`.
+   - `new`, hoặc `thread` lần đầu: `Runner.NewJobSession`.
+   - `thread` các lần sau: `Hub.Route(prompt, fresh)` tới session của job.
    - `same`: `Hub.Route(prompt)`, tới TUI đang giữ session hoặc tới Runner.
    - Prompt có dòng đầu `[scheduled: <tên> · <lý do>]`.
    - Heartbeat dùng prompt mặc định cộng nội dung checklist.

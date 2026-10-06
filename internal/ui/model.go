@@ -774,7 +774,7 @@ func (m *Model) startTurn(s *session.Session, text string, files []session.Attac
 		// conversation now is. The built-in engine never reads it — it is
 		// handed the transcript itself — so only a CLI pays for one.
 		Brief:      m.handoffBrief(s, eng.ID()),
-		History:    append([]session.Message(nil), s.Messages...),
+		History:    append([]session.Message(nil), s.Context()...),
 		State:      s.Live,
 		ExternalID: st.ExternalID,
 		Fork:       s.ForkPending,

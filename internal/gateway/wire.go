@@ -103,6 +103,9 @@ type Command struct {
 	Model  string `json:"model,omitempty"`
 	Mode   string `json:"mode,omitempty"`
 	Engine string `json:"engine,omitempty"`
+	// Fresh starts a prompt's turn with a context of its own, in a session
+	// that keeps what came before for the reader (a scheduled job's run).
+	Fresh bool `json:"fresh,omitempty"`
 }
 
 // SubAgentData is a sub-agent tree, from the top-level call that started it.

@@ -32,7 +32,7 @@ func (m *Model) handoffBrief(s *session.Session, engineID string) string {
 	if end <= 0 {
 		return ""
 	}
-	seen := s.StateFor(engineID).Seen
+	seen := s.SeenBy(engineID)
 	if seen >= end {
 		return "" // it has seen everything; only the first turn after a switch pays
 	}

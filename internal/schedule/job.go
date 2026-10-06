@@ -7,7 +7,7 @@
 // check within bounds; a gate that decides without a model whether to run;
 // backoff on failure. From Claude Code: /loop, a prompt repeated in the
 // session it was started in, with the agent choosing the interval and able to
-// stop it; a fresh session per run by default; one catch-up run for what was
+// stop it; a fresh context for every run; one catch-up run for what was
 // missed, not one per miss; a deterministic stagger.
 package schedule
 
@@ -27,9 +27,16 @@ const (
 )
 
 // Session styles.
+//
+// Thread is the default. A job that runs hourly with a session per run left
+// twenty-four a day in the list, each saying much the same thing, and the
+// list was no longer anyone's conversations. Its runs share one session now,
+// named for the job, each starting with a context of its own, so the
+// sessions do not grow with the job's age.
 const (
-	SessionNew  = "new"  // a fresh session every run
-	SessionSame = "same" // one session, continued run after run
+	SessionThread = "thread" // one session for the job, a fresh context every run
+	SessionNew    = "new"    // a session of its own every run
+	SessionSame   = "same"   // one session, its conversation continued run after run
 )
 
 // Job is one piece of scheduled work.
@@ -53,8 +60,8 @@ type Job struct {
 	// week, as Claude Code's does, so a forgotten one stops on its own.
 	Until time.Time `json:"until,omitempty"`
 
-	Session   string `json:"session,omitempty"`    // new (default) or same
-	SessionID string `json:"session_id,omitempty"` // for same: the session
+	Session   string `json:"session,omitempty"`    // thread (default), new or same
+	SessionID string `json:"session_id,omitempty"` // for thread and same: the session
 	Engine    string `json:"engine,omitempty"`
 	Model     string `json:"model,omitempty"`
 	Mode      string `json:"mode,omitempty"`
@@ -210,12 +217,23 @@ func (j *Job) Validate() error {
 		}
 	}
 	switch j.Session {
-	case "", SessionNew, SessionSame:
+	case "", SessionThread, SessionNew, SessionSame:
 	default:
-		return fmt.Errorf("unknown session style %q (new or same)", j.Session)
+		return fmt.Errorf("unknown session style %q (thread, new or same)", j.Session)
 	}
 	return nil
 }
+
+// Style is the job's session style, the default spelled out.
+func (j *Job) Style() string {
+	if j.Session == "" {
+		return SessionThread
+	}
+	return j.Session
+}
+
+// OneSession says the job's runs share a session.
+func (j *Job) OneSession() bool { return j.Style() != SessionNew }
 
 func clock(s string) (int, error) {
 	h, m, ok := strings.Cut(s, ":")

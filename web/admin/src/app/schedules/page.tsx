@@ -76,7 +76,7 @@ function Schedules() {
     root,
     prompt: "",
     every: kind === "heartbeat" ? "30m" : "1h",
-    session: "new",
+    session: "thread",
     mode: "auto",
     enabled: true,
     state: {},
@@ -167,7 +167,7 @@ function Schedules() {
               />
             ) : (
               <Empty title="Pick a schedule, or add one">
-                Each run is a session you can open. Nothing to report means a quiet run: the agent answers HEARTBEAT_OK or NO_REPLY and nobody is notified. A failing
+                A job&apos;s runs share one session you can open, each with a fresh context. Nothing to report means a quiet run: the agent answers HEARTBEAT_OK or NO_REPLY and nobody is notified. A failing
                 job backs off (30s, 1m, 5m, 15m, 1h) and pauses itself after five failures in a row.
               </Empty>
             )}
@@ -215,7 +215,7 @@ function JobEditor({ job, isNew, onDone }: { job: ScheduleJob; isNew: boolean; o
   const [hStart, setHStart] = React.useState(job.active_hours?.start || "09:00");
   const [hEnd, setHEnd] = React.useState(job.active_hours?.end || "18:00");
   const [days, setDays] = React.useState<number[]>(job.active_hours?.days ?? []);
-  const [sessionStyle, setSessionStyle] = React.useState(job.session || "new");
+  const [sessionStyle, setSessionStyle] = React.useState(job.session || "thread");
   const [mode, setMode] = React.useState(job.mode || "auto");
   const [model, setModel] = React.useState(job.model || "");
   const [gate, setGate] = React.useState(job.gate || "");
@@ -423,13 +423,23 @@ function JobEditor({ job, isNew, onDone }: { job: ScheduleJob; isNew: boolean; o
       </div>
 
       <div className="grid gap-3 md:grid-cols-3">
-        <Field label="Session" hint={sessionStyle === "same" ? "One conversation, continued run after run." : "A fresh session each run: cheap and clean."}>
+        <Field
+          label="Session"
+          hint={
+            sessionStyle === "same"
+              ? "One conversation, continued run after run: each run remembers the last."
+              : sessionStyle === "new"
+                ? "A session of its own each run."
+                : "One session for the job, so runs do not crowd the list; each run starts with a fresh context."
+          }
+        >
           <NativeSelect
             value={sessionStyle}
-            onChange={(v) => setSessionStyle(v as "new" | "same")}
+            onChange={(v) => setSessionStyle(v as "thread" | "new" | "same")}
             options={[
+              { value: "thread", label: "one for the job" },
               { value: "new", label: "new each run" },
-              { value: "same", label: "the same one" },
+              { value: "same", label: "one conversation" },
             ]}
           />
         </Field>
