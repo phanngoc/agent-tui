@@ -12,8 +12,6 @@ import {
   SettingsIcon,
   MoonIcon,
   SunIcon,
-  FolderIcon,
-  GlobeIcon,
   TerminalIcon,
   PanelLeftCloseIcon,
   PanelLeftOpenIcon,
@@ -25,13 +23,10 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { onEvent, useGateway, useVersion } from "@/lib/store";
-import { useFetch } from "@/lib/hooks";
-import type { Project } from "@/lib/types";
+import { onEvent, useGateway } from "@/lib/store";
 import { Dot } from "@/components/common";
-import { baseName } from "@/lib/format";
 import { Toaster } from "@/components/ui/sonner";
-import { FolderPicker } from "@/components/folder-picker";
+import { ProjectSwitcher } from "@/components/project-switcher";
 import { isTyping, useLayout } from "@/lib/layout";
 import { useIsMobile } from "@/lib/mobile";
 import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
@@ -127,6 +122,12 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             </div>
           )}
         </div>
+        {/* The project in view: once a bar across the top of every page. */}
+        {!rail && (
+          <div className="px-2 pb-3">
+            <ProjectSwitcher variant="sidebar" />
+          </div>
+        )}
         <nav className="flex flex-col gap-0.5 px-2">
           {NAV.map((n) => {
             const active = isActive(n.href, pathname);
@@ -179,7 +180,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
         </div>
       </aside>
       <div className="flex min-w-0 flex-1 flex-col">
-        {!focus && <TopBar />}
         {!connected && <OfflineBanner />}
         <main className="min-h-0 flex-1 overflow-auto">{children}</main>
         <MobileNav busy={busy} connected={connected} />
@@ -228,6 +228,9 @@ function MobileNav({ busy, connected }: { busy: number; connected: boolean }) {
       <Sheet open={more} onOpenChange={setMore}>
         <SheetContent side="bottom" className="max-h-[85dvh] rounded-t-2xl pb-[calc(env(safe-area-inset-bottom)+1rem)]">
           <SheetTitle className="px-5 pt-4 text-base">agent-tui</SheetTitle>
+          <div className="px-4">
+            <ProjectSwitcher variant="row" onPicked={() => setMore(false)} />
+          </div>
           <div className="grid grid-cols-3 gap-2 px-4">
             {rest.map((n) => {
               const Icon = n.icon;
@@ -267,53 +270,6 @@ function OfflineBanner() {
     <div className="border-b bg-amber-500/10 px-3 py-2 text-xs text-amber-700 md:px-6 dark:text-amber-300">
       Cannot reach the gateway. Start it with <code className="font-mono">agent-tui serve</code> — opening <code className="font-mono">tui</code> starts one too. This page reconnects on its own.
     </div>
-  );
-}
-
-function TopBar() {
-  const root = useGateway((s) => s.root);
-  const setRoot = useGateway((s) => s.setRoot);
-  const v = useVersion("sessions", "peers");
-  const { data: projects } = useFetch<Project[]>("/api/projects", [v]);
-  const [picking, setPicking] = React.useState(false);
-
-  const options = React.useMemo(() => {
-    const list = (projects ?? []).filter((p) => p.exists);
-    if (root && !list.some((p) => p.root === root)) list.unshift({ root, name: baseName(root), sessions: 0, updated: "", exists: true, config: false });
-    return list;
-  }, [projects, root]);
-
-  return (
-    <header className="flex h-12 shrink-0 items-center gap-3 border-b px-3 md:px-6">
-      <span className="hidden text-xs font-medium tracking-wide text-muted-foreground uppercase md:inline">Project</span>
-      <div className="flex min-w-0 flex-1 items-center gap-2 md:flex-none">
-        {root ? <FolderIcon className="size-4 text-muted-foreground" /> : <GlobeIcon className="size-4 text-muted-foreground" />}
-        <select
-          value={root}
-          onChange={(e) => {
-            if (e.target.value === "__custom") setPicking(true);
-            else setRoot(e.target.value);
-          }}
-          className="h-9 w-full min-w-0 truncate rounded-lg border bg-background px-2 text-sm outline-none md:h-8 md:w-auto md:max-w-[28rem] dark:bg-input/30"
-        >
-          <option value="">No project — everything</option>
-          {options.map((p) => (
-            <option key={p.root} value={p.root}>
-              {p.name} — {p.root}
-              {p.peers?.length ? "  ● open in a terminal" : ""}
-            </option>
-          ))}
-          <option value="__custom">Browse for a folder…</option>
-        </select>
-        <button className="shrink-0 text-xs text-muted-foreground hover:text-foreground" onClick={() => setPicking(true)} title="Browse folders, WSL included">
-          browse…
-        </button>
-      </div>
-      <FolderPicker open={picking} onOpenChange={setPicking} initial={root} onPick={setRoot} title="Choose the project to look at" />
-      <span className="ml-auto hidden truncate text-xs text-muted-foreground lg:inline">
-        {root ? "Project scope: settings, skills and MCP in .agent-tui · memory in the data folder" : "Sessions and memory of every project; skills, MCP and settings at global scope"}
-      </span>
-    </header>
   );
 }
 

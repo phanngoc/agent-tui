@@ -4,6 +4,7 @@ import * as React from "react";
 import {
   CheckIcon,
   ChevronDownIcon,
+  FolderIcon,
   GitBranchIcon,
   PlusIcon,
 } from "lucide-react";
@@ -42,6 +43,7 @@ export function BranchPicker({
   disabled,
   version = "",
   className,
+  project,
 }: {
   session?: string;
   root?: string;
@@ -50,6 +52,8 @@ export function BranchPicker({
   disabled?: boolean;
   version?: string | number;
   className?: string;
+  /** project names the folder ahead of the branch, in the same chip. */
+  project?: { name: string; title: string; where?: string };
 }) {
   const path =
     session || root
@@ -59,7 +63,17 @@ export function BranchPicker({
   const [open, setOpen] = React.useState(false);
   const [filter, setFilter] = React.useState("");
   const [busy, setBusy] = React.useState(false);
-  if (error || !data) return null; // not a repository, or not yet known
+  const folder = project && (
+    <span className="flex min-w-0 shrink items-center gap-1" title={project.title}>
+      <FolderIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="max-w-32 truncate">{project.name}</span>
+      {project.where && <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">{project.where}</span>}
+    </span>
+  );
+  if (error || !data) {
+    // Not a repository (or not known yet): the folder alone.
+    return folder ? <span className={cn("inline-flex h-7 max-w-full items-center rounded-full border bg-background px-2.5 text-xs", className)}>{folder}</span> : null;
+  }
   const picking = !!onBase;
   const shown = picking ? base || data.current : data.current;
   const f = filter.trim().toLowerCase();
@@ -140,10 +154,12 @@ export function BranchPicker({
               : `Working tree: ${data.top}`
         }
         className={cn(
-          "inline-flex h-7 max-w-56 items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs hover:bg-muted disabled:opacity-50",
+          "inline-flex h-7 max-w-full items-center gap-1.5 rounded-full border bg-background px-2.5 text-xs hover:bg-muted disabled:opacity-50",
           className,
         )}
       >
+        {folder}
+        {folder && <span className="text-muted-foreground/60">/</span>}
         <GitBranchIcon className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="truncate font-mono">{shown}</span>
         {!picking && data.dirty > 0 && (

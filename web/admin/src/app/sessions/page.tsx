@@ -24,6 +24,8 @@ import { FileOpener } from "@/lib/file-opener";
 import { useIsMobile } from "@/lib/mobile";
 import { SelectionAction, withQuotes } from "@/components/selection-action";
 import { BranchPicker } from "@/components/branch-picker";
+import { ProjectSwitcher } from "@/components/project-switcher";
+import { describePath } from "@/components/folder-picker";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -108,15 +110,14 @@ function SessionList({ selected, onSelect, onNew }: { selected: string; onSelect
             <PlusIcon />
           </Button>
         </div>
-        <div className="flex gap-1 text-xs">
+        <div className="flex items-center gap-1 text-xs">
+          {/* The project in view, picked here: there is no bar across the top any more. */}
+          <ProjectSwitcher variant="pill" className={cn(root && !all ? "bg-muted" : "font-normal text-muted-foreground")} onPicked={() => setAll(false)} />
           {root && (
-            <button className={cn("rounded px-2 py-0.5", !all ? "bg-muted font-medium" : "text-muted-foreground")} onClick={() => setAll(false)}>
-              {baseName(root)}
+            <button className={cn("shrink-0 rounded px-2 py-0.5", all ? "bg-muted font-medium" : "text-muted-foreground")} onClick={() => setAll(!all)}>
+              All projects
             </button>
           )}
-          <button className={cn("rounded px-2 py-0.5", all || !root ? "bg-muted font-medium" : "text-muted-foreground")} onClick={() => setAll(true)}>
-            All projects
-          </button>
           <span className="ml-auto text-muted-foreground">{data?.length ?? 0}</span>
         </div>
       </div>
@@ -370,7 +371,7 @@ function Conversation({ id }: { id: string }) {
         </div>
 
         <SelectionAction container={content} onAdd={(t) => setQuotes((q) => [...q, t])} />
-        <Composer session={id} busy={busy} owner={owner} target={s.target} onSend={send} quotes={quotes} onQuotes={setQuotes} />
+        <Composer session={id} root={s.root} busy={busy} owner={owner} target={s.target} onSend={send} quotes={quotes} onQuotes={setQuotes} />
         {termOpen && (
           <BottomDock>
             <TerminalPanel root={s.root} onClose={() => toggleTerm(false)} />
@@ -446,6 +447,7 @@ function BottomDock({ children }: { children: React.ReactNode }) {
 
 function Composer({
   session,
+  root,
   busy,
   owner,
   target,
@@ -454,6 +456,7 @@ function Composer({
   onQuotes,
 }: {
   session: string;
+  root: string;
   busy: boolean;
   owner?: string;
   target?: string;
@@ -525,7 +528,7 @@ function Composer({
             </Button>
           </div>
           <div className="mt-1 flex items-center gap-2 px-1">
-            <BranchPicker session={session} disabled={busy} version={v} />
+            <BranchPicker session={session} disabled={busy} version={v} project={projectOf(root)} />
             {quotes.length > 0 && (
               <span className="text-[11px] text-muted-foreground">
                 {quotes.length} selection{quotes.length > 1 ? "s" : ""} as context
@@ -657,4 +660,10 @@ function SidePlaceholder() {
       <span className="text-xs">Fold it with Alt+] when you want the room.</span>
     </div>
   );
+}
+
+/** projectOf is a session's folder as the composer's chip names it. */
+function projectOf(root: string) {
+  const d = describePath(root);
+  return { name: baseName(d.where ? d.dir : root) || root, title: root, where: d.where ? d.where.replace("WSL ", "wsl ") : undefined };
 }
