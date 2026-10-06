@@ -8,56 +8,75 @@ import (
 
 // MCP servers for a CLI running in a WSL distribution.
 //
-// They used to be dropped for any CLI not running on this machine, on the
-// reasoning that their commands exist here and not there. That threw out far
-// more than it had to, and it showed: Claude Code in a distribution had no
-// skill, memory or schedule tools, so asked to "run this every hour" it wrote
-// itself a crontab entry nobody could see; and it had none of the remote
-// servers either, though a URL is the same from anywhere.
+// A distribution runs Windows programs through interop, so every server is
+// handed to the CLI as this binary, by its /mnt path, serving it on stdio
+// from the Windows side (`agent-tui mcp-proxy`, internal/mcp/proxy.go):
 //
-//   - A remote server (http, sse) is kept as it is, signed-in token and all.
-//   - agent-tui's own server (kit-mcp) is this Windows binary, which a
-//     distribution runs through interop by its /mnt path; it serves the
-//     project's tools from the Windows side, where the project's memory,
-//     skills and the gateway are.
-//   - Any other command-line server is left out: its command is a Windows
-//     one, and starting it from Linux is a guess.
+//   - A remote server (http, sse) is connected to from here, with the
+//     sign-in kept here and renewed as often as the run needs. Given the URL
+//     and an hour's token instead, Claude Code connected once and, when that
+//     was slow, ran without the server: a scheduled Datadog log watch found
+//     no Datadog.
+//   - A command-line server runs its Windows command here, as it does for a
+//     CLI on this machine, rather than being left out.
+//   - agent-tui's own server (kit-mcp) is this binary already, and only its
+//     path changes.
 //
-// A container has no interop, so a CLI in one still gets only remote servers.
+// A container has no interop, so a CLI in one gets only the remote servers,
+// as they are.
 
 // kitServer is the name agent-tui's own tools go by (kit.KitServer).
 const kitServer = "agent-tui"
 
-func serversFor(fs vfs.FS, servers map[string]any) map[string]any {
+func serversFor(fs vfs.FS, servers map[string]any, root string) map[string]any {
 	if fs == nil || fs.IsLocal() || len(servers) == 0 {
 		return servers
 	}
-	_, wsl := fs.(*vfs.WSL)
+	if _, wsl := fs.(*vfs.WSL); !wsl {
+		out := map[string]any{}
+		for name, v := range servers {
+			if def, ok := v.(map[string]any); ok && (def["type"] == "http" || def["type"] == "sse") {
+				out[name] = def
+			}
+		}
+		return out
+	}
+	// This binary, and the root the project's servers are read for: what
+	// kit-mcp was given, which is what the turn's servers came from.
+	self, _ := executable()
+	if kit, ok := servers[kitServer].(map[string]any); ok {
+		if cmd, _ := kit["command"].(string); cmd != "" {
+			self = cmd
+		}
+		if args, ok := kit["args"].([]string); ok {
+			for i := 0; i+1 < len(args); i++ {
+				if args[i] == "-root" {
+					root = args[i+1]
+				}
+			}
+		}
+	}
+	exe, ok := mntPath(self)
+	if !ok {
+		return map[string]any{}
+	}
 	out := map[string]any{}
 	for name, v := range servers {
 		def, ok := v.(map[string]any)
 		if !ok {
 			continue
 		}
-		switch def["type"] {
-		case "http", "sse":
-			out[name] = def
-		case "stdio", nil:
-			if name != kitServer || !wsl {
-				continue
-			}
-			cmd, _ := def["command"].(string)
-			p, ok := mntPath(cmd)
-			if !ok {
-				continue
-			}
+		if name == kitServer {
 			cp := map[string]any{}
 			for k, x := range def {
 				cp[k] = x
 			}
-			cp["command"] = p
+			cp["command"] = exe
 			out[name] = cp
+			continue
 		}
+		out[name] = map[string]any{"type": "stdio", "command": exe,
+			"args": []string{"mcp-proxy", "-root", root, "-name", name}}
 	}
 	return out
 }

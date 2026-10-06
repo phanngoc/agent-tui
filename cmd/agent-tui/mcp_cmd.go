@@ -91,3 +91,13 @@ func mcpCmd(args []string) error {
 	fmt.Fprint(os.Stderr, mcpUsage)
 	return fmt.Errorf("unknown mcp command %q", sub)
 }
+
+// mcpProxy serves the server named name, as the project at root sees it.
+func mcpProxy(root, name string) error {
+	for _, s := range kit.MCPStore(root).List() {
+		if s.Name == name && !s.Shadowed {
+			return mcp.Proxy(context.Background(), os.Stdin, os.Stdout, s)
+		}
+	}
+	return fmt.Errorf("no MCP server named %q for %s", name, root)
+}

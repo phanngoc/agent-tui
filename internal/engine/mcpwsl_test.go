@@ -8,27 +8,39 @@ import (
 	"github.com/phanngoc/agent-tui/internal/vfs"
 )
 
-// A CLI in a distribution keeps the remote servers and agent-tui's own, run
-// by its /mnt path; a Windows command-line server is left out. On this
-// machine nothing changes.
+// A CLI in a distribution is handed every server as agent-tui.exe by its
+// /mnt path: its own tools as they are, the others through mcp-proxy, which
+// connects from Windows with the sign-ins kept there, so no token goes to the
+// distribution. A container keeps only the remote servers. On this machine
+// nothing changes.
 func TestServersForWSL(t *testing.T) {
+	root := `\\wsl.localhost\Ubuntu\home\me\app`
 	in := map[string]any{
-		"agent-tui": map[string]any{"type": "stdio", "command": `C:\Users\me\go\bin\agent-tui.exe`, "args": []string{"kit-mcp", "-root", `\wsl.localhost\Ubuntu\home\me\app`}},
+		"agent-tui": map[string]any{"type": "stdio", "command": `C:\Users\me\go\bin\agent-tui.exe`, "args": []string{"kit-mcp", "-root", root}},
 		"datadog":   map[string]any{"type": "http", "url": "https://mcp.datadoghq.com/v1/mcp", "headers": map[string]string{"Authorization": "Bearer t"}},
 		"backlog":   map[string]any{"type": "stdio", "command": "npx", "args": []string{"-y", "backlog-mcp-server"}},
 	}
-	if got := serversFor(vfs.NewLocal(""), in); len(got) != 3 {
+	if got := serversFor(vfs.NewLocal(""), in, ""); len(got) != 3 {
 		t.Fatalf("local: %d servers; want all 3", len(got))
 	}
-	got := serversFor(vfs.NewWSL("Ubuntu"), in)
-	if _, ok := got["backlog"]; ok {
-		t.Error("a Windows command-line server was handed to the distribution")
+	box := serversFor(vfs.NewDocker("c", "", "/app"), in, "/app")
+	if len(box) != 1 || box["datadog"] == nil {
+		t.Errorf("container: %v; want only the remote server", box)
 	}
-	if got["datadog"] == nil {
-		t.Error("the remote server was dropped")
+	got := serversFor(vfs.NewWSL("Ubuntu"), in, "/home/me/app")
+	const exe = "/mnt/c/Users/me/go/bin/agent-tui.exe"
+	for _, name := range []string{"datadog", "backlog"} {
+		def, _ := got[name].(map[string]any)
+		args, _ := def["args"].([]string)
+		if def == nil || def["command"] != exe || strings.Join(args, " ") != "mcp-proxy -root "+root+" -name "+name {
+			t.Errorf("%s = %v; want agent-tui.exe mcp-proxy for it", name, got[name])
+		}
+		if _, leaked := def["headers"]; leaked {
+			t.Errorf("%s: the token went to the distribution", name)
+		}
 	}
 	kit, _ := got["agent-tui"].(map[string]any)
-	if kit == nil || kit["command"] != "/mnt/c/Users/me/go/bin/agent-tui.exe" {
+	if kit == nil || kit["command"] != exe {
 		t.Fatalf("agent-tui's server = %v; want it run by its /mnt path", got["agent-tui"])
 	}
 	if in["agent-tui"].(map[string]any)["command"] == kit["command"] {

@@ -267,8 +267,15 @@ page is open (design and sources: `docs/lịch-tự-động.md`).
   - its cron tools, `/loop` and `ScheduleWakeup`, which would die with the
     turn's process.
 
-  A CLI in a WSL distribution now gets agent-tui's own tools, run through
-  interop, and the remote MCP servers. Before, it got no MCP servers at all.
+  A CLI in a WSL distribution gets every MCP server this machine has, through
+  interop. Each is `agent-tui.exe mcp-proxy`, which connects from Windows:
+  - a remote server gets the sign-in kept here, renewed as often as the run
+    needs, and the proxy retries when the server is slow to answer;
+  - a command-line server (`npx …`) runs its Windows command.
+  No token is copied into the distribution, and nothing needs setting up
+  there. Before, Claude Code got the URL and an hour's token. It connected
+  once, and when Datadog was slow (CONNECT_TIMEOUT), the whole run went
+  without it.
 
 **Remote MCP servers that ask for a sign-in** (Datadog's, for one) get one
 through OAuth, as the MCP authorization spec describes. *Sign in with browser*
