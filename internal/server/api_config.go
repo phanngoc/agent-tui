@@ -413,6 +413,7 @@ func (s *Server) settingsRoutes(m *http.ServeMux) {
 			fail(w, http.StatusInternalServerError, err)
 			return
 		}
+		s.checkAwake() // a new keep-awake setting holds or lets go now
 		s.changed("settings", "")
 		writeJSON(w, p)
 	})

@@ -52,6 +52,12 @@ type Prefs struct {
 	GatewayAutostart *bool `json:"gateway_autostart,omitempty"`
 	// Instructions are standing orders added to every session's system prompt.
 	Instructions string `json:"instructions,omitempty"`
+	// KeepAwake keeps the computer from sleeping (internal/awake): off,
+	// busy (while a turn runs; the default), schedules (also while a
+	// scheduled job is on) or always (while the gateway runs).
+	KeepAwake string `json:"keep_awake,omitempty"`
+	// KeepDisplay keeps the screen on too while the computer is kept awake.
+	KeepDisplay bool `json:"keep_display,omitempty"`
 }
 
 // LearnOn resolves the global switch with a project's override.

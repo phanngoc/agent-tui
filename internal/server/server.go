@@ -26,6 +26,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/phanngoc/agent-tui/internal/awake"
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/learn"
@@ -72,6 +73,8 @@ type Server struct {
 	remote remoteState
 	// bot is the Telegram bot.
 	bot *telegram.Bot
+	// awake keeps the computer from sleeping while the agent works.
+	awake *awake.Keeper
 }
 
 // pendingLogin is a sign-in to an MCP server that a page started.
@@ -107,6 +110,7 @@ func New(cfg config.Config, version, webDir string) *Server {
 		Changed: func() { s.changed("schedule", "") }}
 	s.remote.set = remote.Load()
 	s.remote.limiter = remote.Limiter{Max: 10, Every: 10 * time.Minute}
+	s.awake = awake.New()
 	s.bot = &telegram.Bot{Host: tgHost{s}, OnChange: func() { s.changed("telegram", "") }, PollCommand: pollCommand}
 	var lastURL string
 	var urlMu sync.Mutex
@@ -143,6 +147,7 @@ func (s *Server) ListenAndServe(addr string) error {
 	defer stopSched()
 	go s.watchSchedule(schedCtx)
 	go s.Sched.Run(schedCtx)
+	go s.watchAwake(schedCtx)
 	log.Printf("agent-tui gateway on http://%s", ln.Addr())
 	s.remote.local = "http://" + ln.Addr().String()
 	if st := s.remoteSettings(); st.Enabled && st.Tunnel.AutoStart {
@@ -186,6 +191,7 @@ func (s *Server) Stop() { s.stopOnce.Do(func() { close(s.stop) }) }
 func (s *Server) Shutdown() {
 	s.remote.tunnel.Stop()
 	s.bot.Stop()
+	s.awake.Close()
 	s.Runner.Shutdown()
 	s.Terms.CloseAll()
 	s.LSP.CloseAll()
@@ -273,6 +279,10 @@ func (s *Server) routes() {
 	s.termRoutes(m)
 	s.remoteRoutes(m)
 	s.telegramRoutes(m)
+	m.HandleFunc("GET /api/awake", func(w http.ResponseWriter, r *http.Request) {
+		s.checkAwake()
+		writeJSON(w, s.awake.Status())
+	})
 	s.branchRoutes(m)
 
 	m.HandleFunc("/", s.static)

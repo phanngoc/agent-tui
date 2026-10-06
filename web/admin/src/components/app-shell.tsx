@@ -20,10 +20,13 @@ import {
   CodeXmlIcon,
   RadioTowerIcon,
   EllipsisIcon,
+  CoffeeIcon,
 } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { onEvent, useGateway } from "@/lib/store";
+import { onEvent, useGateway, useVersion } from "@/lib/store";
+import { useFetch } from "@/lib/hooks";
+import type { AwakeStatus } from "@/components/keep-awake-card";
 import { Dot } from "@/components/common";
 import { Toaster } from "@/components/ui/sonner";
 import { ProjectSwitcher } from "@/components/project-switcher";
@@ -168,6 +171,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
             {!rail && (peers.length === 0 ? "no terminal attached" : `${peers.length} terminal${peers.length > 1 ? "s" : ""} attached`)}
             {rail && peers.length > 0 && <span className="tabular-nums">{peers.length}</span>}
           </div>
+          <AwakeLine compact={rail} />
           <ThemeToggle compact={rail} />
           <button
             onClick={() => (focus ? setFocus(false) : toggleNav())}
@@ -270,6 +274,23 @@ function OfflineBanner() {
     <div className="border-b bg-amber-500/10 px-3 py-2 text-xs text-amber-700 md:px-6 dark:text-amber-300">
       Cannot reach the gateway. Start it with <code className="font-mono">agent-tui serve</code> — opening <code className="font-mono">tui</code> starts one too. This page reconnects on its own.
     </div>
+  );
+}
+
+/** AwakeLine says, in the sidebar, that the computer is being kept awake. */
+function AwakeLine({ compact }: { compact?: boolean }) {
+  const v = useVersion("settings", "sessions");
+  const { data, reload } = useFetch<AwakeStatus>("/api/awake", [v]);
+  React.useEffect(() => {
+    const t = setInterval(reload, 15000);
+    return () => clearInterval(t);
+  }, [reload]);
+  if (!data?.active) return null;
+  return (
+    <Link href="/settings" title={"Keeping the computer awake: " + (data.reason ?? "")} className="flex items-center gap-2 text-amber-600 hover:text-amber-700 dark:text-amber-400">
+      <CoffeeIcon className="size-3.5" />
+      {!compact && <span className="truncate">awake · {data.reason}</span>}
+    </Link>
   );
 }
 

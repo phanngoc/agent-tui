@@ -170,8 +170,18 @@ func (hs *harness) fire(id string) string {
 		hs.now = j.State.Next
 	}
 	before := len(hs.s.Store.Runs(id, 0))
-	hs.s.Tick()
 	for i := 0; i < 400; i++ {
+		// Ticked again now and then: the run before may have been recorded
+		// and still be finishing (its job not yet out of pending), and a
+		// tick then passes the job by.
+		if i%20 == 0 {
+			// The run before may also have moved the job's next time
+			// after it was read.
+			if j, _ := hs.s.Store.Get(id); j.State.Next.After(hs.now) {
+				hs.now = j.State.Next
+			}
+			hs.s.Tick()
+		}
 		j, _ = hs.s.Store.Get(id)
 		if j.State.Running != "" {
 			return j.State.Running
