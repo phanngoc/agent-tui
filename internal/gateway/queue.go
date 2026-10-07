@@ -28,6 +28,9 @@ type Queued struct {
 	ID   string    `json:"id"`
 	Text string    `json:"text"`
 	At   time.Time `json:"at"`
+	// Files go with a turn of their own: a message with images waits for
+	// the turn to end rather than steering it.
+	Files []session.Attachment `json:"files,omitempty"`
 }
 
 // QueueData is EvQueue's data.
@@ -62,15 +65,15 @@ func (r *Runner) publishQueue(id, root string) {
 
 // enqueue holds text for a session's running turn; now stops the turn, so
 // it goes at once. It says false when no turn is running.
-func (r *Runner) enqueue(id, text string, now bool) bool {
+func (r *Runner) enqueue(id, text string, now bool, files ...session.Attachment) bool {
 	r.mu.Lock()
 	t := r.turns[id]
 	if t == nil {
 		r.mu.Unlock()
 		return false
 	}
-	if strings.TrimSpace(text) != "" {
-		r.queues[id] = append(r.queues[id], Queued{ID: randID(), Text: text, At: time.Now()})
+	if strings.TrimSpace(text) != "" || len(files) > 0 {
+		r.queues[id] = append(r.queues[id], Queued{ID: randID(), Text: text, At: time.Now(), Files: files})
 	}
 	root := t.s.Root
 	if now {
@@ -103,18 +106,45 @@ func (r *Runner) Unqueue(id, item string) (string, bool) {
 	return text, found
 }
 
-// takeQueue empties a session's queue, for the agent mid-turn or for the
-// next turn.
+// takeQueue takes the queued messages the agent can be handed mid-turn:
+// the text-only ones, up to the first with images, which waits for a turn of
+// its own along with everything after it.
 func (r *Runner) takeQueue(id string) []string {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	q := r.queues[id]
+	n := 0
+	for n < len(q) && len(q[n].Files) == 0 {
+		n++
+	}
+	texts := make([]string, n)
+	for i := range n {
+		texts[i] = q[i].Text
+	}
+	if n == len(q) {
+		delete(r.queues, id)
+	} else {
+		r.queues[id] = append([]Queued(nil), q[n:]...)
+	}
+	return texts
+}
+
+// takeAll empties a session's queue for the next turn: the texts, and the
+// images that came with them.
+func (r *Runner) takeAll(id string) ([]string, []session.Attachment) {
 	r.mu.Lock()
 	q := r.queues[id]
 	delete(r.queues, id)
 	r.mu.Unlock()
-	texts := make([]string, len(q))
-	for i, m := range q {
-		texts[i] = m.Text
+	var texts []string
+	var files []session.Attachment
+	for _, m := range q {
+		if strings.TrimSpace(m.Text) != "" {
+			texts = append(texts, m.Text)
+		}
+		files = append(files, m.Files...)
 	}
-	return texts
+	return texts, files
 }
 
 // steered records messages the agent was handed mid-turn, where it got
@@ -138,10 +168,10 @@ func (r *Runner) next(p *project, s *session.Session) {
 	if closing {
 		return
 	}
-	texts := r.takeQueue(s.ID)
-	if len(texts) == 0 {
+	texts, files := r.takeAll(s.ID)
+	if len(texts) == 0 && len(files) == 0 {
 		return
 	}
 	r.publishQueue(s.ID, s.Root)
-	_ = r.start(p, s, strings.Join(texts, "\n\n"), false)
+	_ = r.start(p, s, strings.Join(texts, "\n\n"), false, files...)
 }

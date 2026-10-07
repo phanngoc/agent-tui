@@ -176,8 +176,8 @@ func Load(id string) (*session.Session, error) {
 // terminal runs a session aimed at a distribution: target wsl:<name>, the
 // Linux folder as its directory. target and cwd say so explicitly, for a
 // location copied from an earlier session.
-func (r *Runner) NewSession(root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
-	return r.newSession("", "", root, target, cwd, engineID, model, mode, prompt)
+func (r *Runner) NewSession(root, target, cwd, engineID, model, mode, prompt string, files ...session.Attachment) (*session.Session, error) {
+	return r.newSession("", "", root, target, cwd, engineID, model, mode, prompt, files...)
 }
 
 // NewJobSession is NewSession for a run of a scheduled job, marked as one.
@@ -187,7 +187,7 @@ func (r *Runner) NewJobSession(job, title, root, engineID, model, mode, prompt s
 	return r.newSession(job, title, root, "", "", engineID, model, mode, prompt)
 }
 
-func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode, prompt string) (*session.Session, error) {
+func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode, prompt string, files ...session.Attachment) (*session.Session, error) {
 	// One spelling per folder: it is the project's identity for memory,
 	// skills and settings.
 	root = filepath.Clean(root)
@@ -219,7 +219,7 @@ func (r *Runner) newSession(job, title, root, target, cwd, engineID, model, mode
 	if !p.reg.Has(s.Engine) {
 		s.Engine = p.reg.Default().ID()
 	}
-	return s, r.start(p, s, prompt, false)
+	return s, r.start(p, s, prompt, false, files...)
 }
 
 // Handle runs a command for a session the gateway owns.
@@ -227,7 +227,7 @@ func (r *Runner) Handle(cmd Command) error {
 	switch cmd.Type {
 	case CmdPrompt:
 		// Sent while a turn runs: queued for it (queue.go).
-		if r.enqueue(cmd.Session, cmd.Text, cmd.Now) {
+		if r.enqueue(cmd.Session, cmd.Text, cmd.Now, cmd.Files...) {
 			return nil
 		}
 		s, err := Load(cmd.Session)
@@ -238,7 +238,7 @@ func (r *Runner) Handle(cmd Command) error {
 		if err != nil {
 			return err
 		}
-		return r.start(p, s, cmd.Text, cmd.Fresh)
+		return r.start(p, s, cmd.Text, cmd.Fresh, cmd.Files...)
 	case CmdCancel:
 		r.mu.Lock()
 		t := r.turns[cmd.Session]
@@ -280,7 +280,7 @@ func (r *Runner) Handle(cmd Command) error {
 	return fmt.Errorf("unknown command %q", cmd.Type)
 }
 
-func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool) error {
+func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool, files ...session.Attachment) error {
 	eng := p.reg.Get(s.Engine)
 	if eng == nil || !eng.Available() {
 		eng = p.reg.Default()
@@ -292,7 +292,7 @@ func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool
 	if fresh {
 		s.Fresh()
 	}
-	s.Append(session.Message{Role: session.RoleUser, Text: prompt, At: time.Now()})
+	s.Append(session.Message{Role: session.RoleUser, Text: prompt, At: time.Now(), Files: files})
 	p.mgr.SaveNow(s)
 
 	brief := ""
@@ -312,6 +312,7 @@ func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool
 		Mode:       agent.ParseMode(s.Mode),
 		Model:      model,
 		FS:         p.fs,
+		Files:      reach(p.fs, s.ID, files),
 	}
 	hook := kit.Hook(s.Root, s.ID, eng.ID(), prompt)
 	effort := cmp.Or(config.LoadProjectSettings(s.Root).Effort, config.LoadPrefs().Effort)

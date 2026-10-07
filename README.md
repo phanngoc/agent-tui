@@ -326,6 +326,17 @@ A message sent while the agent works is not refused:
   sending it.
 
 **The composer, as in the Claude app.**
+- **Images:** drop them on the composer, paste them (Ctrl+V), or pick them
+  with 📎. This works in a new chat and in a conversation.
+  - Each is uploaded to the gateway (`POST /api/attachments`, at most
+    20 MB, images only) and shows as a thumbnail with ×.
+  - Each goes with the prompt by path, within reach of the agent: as it is
+    on this machine, through `/mnt` in WSL, or copied into a container.
+  - The transcript shows the image.
+  - A prompt can name only uploaded files. Through the tunnel, nobody can
+    have the agent read any other file of this machine.
+  - A queued message with images waits for a turn of its own instead of
+    steering.
 - **Selection as context:** select text in a conversation, and *Add to
   chat* puts it above the composer as a quote. It goes with the next
   message as a Markdown quote, ahead of what you type.

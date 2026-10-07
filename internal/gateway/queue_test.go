@@ -166,3 +166,42 @@ func TestSendNowStopsTheTurnAndUnqueue(t *testing.T) {
 	eventually(t, "the turn never ended", func() bool { return !r.busy(s.ID) })
 	r.Shutdown()
 }
+
+// Images sent with a prompt reach the engine and the transcript; queued
+// with a message while a turn runs, they wait for a turn of their own
+// rather than steering.
+func TestImagesGoWithTheirPrompt(t *testing.T) {
+	eng := &stepper{steers: true, gate: make(chan struct{}, 4)}
+	r, h, root := stepperRunner(t, eng)
+	img := session.Attachment{Path: "/tmp/a.png", Media: "image/png"}
+	s, err := r.NewSession(root, "", "", "api", "", "", "what is this", img)
+	if err != nil {
+		t.Fatal(err)
+	}
+	eventually(t, "no turn", func() bool { return len(eng.prompts()) == 1 })
+	eng.mu.Lock()
+	got := eng.turns[0].Files
+	eng.mu.Unlock()
+	if len(got) != 1 || got[0].Path != img.Path {
+		t.Fatalf("the engine got %+v", got)
+	}
+	_, _ = h.Route(Command{Type: CmdPrompt, Session: s.ID, Text: "and this one", Files: []session.Attachment{{Path: "/tmp/b.png"}}})
+	if steered := r.takeQueue(s.ID); len(steered) != 0 {
+		t.Fatalf("a message with an image was handed over mid-turn: %q", steered)
+	}
+	eng.gate <- struct{}{}
+	eventually(t, "the image's turn never came", func() bool { return len(eng.prompts()) == 2 })
+	eng.mu.Lock()
+	second := eng.turns[1]
+	eng.mu.Unlock()
+	if second.Prompt != "and this one" || len(second.Files) != 1 || second.Files[0].Path != "/tmp/b.png" {
+		t.Fatalf("second turn %q %+v", second.Prompt, second.Files)
+	}
+	eng.gate <- struct{}{}
+	eventually(t, "no end", func() bool { return !r.busy(s.ID) })
+	r.Shutdown()
+	saved, _ := Load(s.ID)
+	if len(saved.Messages[0].Files) != 1 {
+		t.Fatalf("the transcript lost the image: %+v", saved.Messages[0])
+	}
+}

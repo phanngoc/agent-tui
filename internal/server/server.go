@@ -284,6 +284,7 @@ func (s *Server) routes() {
 		writeJSON(w, s.awake.Status())
 	})
 	s.branchRoutes(m)
+	s.attachRoutes(m)
 
 	m.HandleFunc("/", s.static)
 }
