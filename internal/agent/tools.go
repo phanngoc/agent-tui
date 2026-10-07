@@ -29,8 +29,11 @@ type Approver func(ctx context.Context, call session.ToolCall) bool
 // Executor runs tool calls against the project, refusing anything outside root.
 type Executor struct {
 	// FS is where the tools act: the host, or a container this session targets.
-	FS       vfs.FS
-	Root     string
+	FS   vfs.FS
+	Root string
+	// Dirs are folders besides Root the tools may work in, and auto mode may
+	// change without asking: the temp folders and what the user allowed.
+	Dirs     []string
 	Index    *fsx.Index
 	MaxBytes int64
 	Workers  int
@@ -203,10 +206,21 @@ func (e *Executor) resolve(p string) (string, error) {
 	if !vfs.IsAbs(abs) {
 		abs = vfs.Join(e.Root, p)
 	}
-	if !vfs.Within(e.Root, abs) {
+	if !vfs.Within(e.Root, abs) && !e.allowed(abs) {
 		return "", fmt.Errorf("path %q is outside the project root", p)
 	}
 	return abs, nil
+}
+
+// allowed says an absolute path lies in one of the folders besides the
+// project that the tools may work in.
+func (e *Executor) allowed(abs string) bool {
+	for _, d := range e.Dirs {
+		if vfs.IsAbs(d) && vfs.Within(d, abs) {
+			return true
+		}
+	}
+	return false
 }
 
 func (e *Executor) rel(abs string) string { return vfs.Rel(e.Root, abs) }
@@ -682,7 +696,7 @@ func (e *Executor) ShouldAsk(call session.ToolCall, mode Mode, trusted bool) (bo
 	case ModeAsk:
 		return true, "ask mode confirms every change"
 	case ModeAuto:
-		if AutoAllows(call, e.Root) {
+		if AutoAllows(call, e.Root, e.Dirs...) {
 			return false, ""
 		}
 		return true, "this is outside " + e.Root

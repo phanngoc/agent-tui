@@ -3,6 +3,10 @@ package engine
 import (
 	"encoding/json"
 	"strings"
+
+	"github.com/phanngoc/agent-tui/internal/agent"
+	"github.com/phanngoc/agent-tui/internal/config"
+	"github.com/phanngoc/agent-tui/internal/vfs"
 )
 
 func firstNonEmpty(vals ...string) string {
@@ -54,4 +58,20 @@ func flattenContent(raw json.RawMessage) string {
 		}
 	}
 	return string(raw)
+}
+
+// addDirs are the turn's folders besides the project for a CLI's --add-dir:
+// those that exist, since the CLIs refuse one that does not, and only for a
+// CLI on this machine, where they are spelled as this machine spells them.
+func addDirs(t agent.Turn) []string {
+	if t.FS != nil && !t.FS.IsLocal() {
+		return nil
+	}
+	var out []string
+	for _, d := range config.ExistingDirs(t.Dirs) {
+		if t.Root == "" || !vfs.Within(t.Root, d) {
+			out = append(out, d)
+		}
+	}
+	return out
 }

@@ -540,8 +540,10 @@ func (t ToolCall) WrittenPaths() []string {
 //
 // decided is false when the call names no path at all — a shell command, say —
 // because there is nothing to judge and guessing would be worse than asking.
-func (t ToolCall) PathsInside(root string) (inside, decided bool) {
-	if root == "" || len(t.Input) == 0 {
+//
+// With more than one root a path need only lie inside one of them.
+func (t ToolCall) PathsInside(roots ...string) (inside, decided bool) {
+	if len(roots) == 0 || roots[0] == "" || len(t.Input) == 0 {
 		return false, false
 	}
 	var m map[string]any
@@ -553,11 +555,29 @@ func (t ToolCall) PathsInside(root string) (inside, decided bool) {
 		return false, false
 	}
 	for _, p := range paths {
-		if !vfs.Within(root, p) {
+		if !withinAny(roots, p) {
 			return false, true
 		}
 	}
 	return true, true
+}
+
+// withinAny says p lies inside one of roots. A relative path is relative to
+// the first, the project, and only an absolute one is weighed against the
+// others.
+func withinAny(roots []string, p string) bool {
+	if vfs.Within(roots[0], p) {
+		return true
+	}
+	if !vfs.IsAbs(p) {
+		return false
+	}
+	for _, r := range roots[1:] {
+		if r != "" && vfs.Within(r, p) {
+			return true
+		}
+	}
+	return false
 }
 
 // collectPaths gathers path-shaped values, descending into the nested edit

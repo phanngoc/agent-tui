@@ -69,6 +69,11 @@ func codexArgv(c *CLI, t agent.Turn, _ *broker) []string {
 		sandbox := "workspace-write"
 		if t.Mode == agent.ModePlan {
 			sandbox = "read-only"
+		} else {
+			// Writable beside the project, as auto allows elsewhere.
+			for _, d := range addDirs(t) {
+				a = append(a, "--add-dir", d)
+			}
 		}
 		a = append(a, "--sandbox", sandbox)
 	}

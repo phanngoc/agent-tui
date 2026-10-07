@@ -237,7 +237,7 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 				}
 				reason := "the agent asked for permission"
 				if !t.Mode.Confirms() {
-					if agent.AutoAllows(call, root) {
+					if agent.AutoAllows(call, root, t.Dirs...) {
 						return true // what auto already permits
 					}
 					reason = "this is outside " + root
