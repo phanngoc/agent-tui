@@ -523,6 +523,19 @@ all use it. Claude Code's own sign-ins stay Claude Code's: refreshing a
 borrowed token would sign Claude Code out. A definition with its own
 `Authorization` header skips the sign-in.
 
+A server without OAuth can still offer a browser sign-in (the workspace's
+Shizuka gateway does). Its 401 names a login page in `WWW-Authenticate`
+(`login_uri="…"`):
+- agent-tui sends the browser there with a loopback `redirect_uri` and a
+  `state`;
+- the page sends the browser back with the token, which agent-tui keeps
+  like an OAuth one;
+- nothing renews this token, so when it expires, sign in again.
+
+When the server refuses a definition's own `Authorization` header, the
+sign-in is offered as well. Once signed in, that header is removed from the
+saved definition, because it would win over the sign-in.
+
 Skills and MCP servers use Claude Code's formats (`SKILL.md` with `name` and
 `description`; `{"mcpServers": {…}}`), and the admin imports both — and Claude
 Code's memory notes — from this machine and from every WSL distribution. A

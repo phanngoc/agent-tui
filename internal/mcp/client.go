@@ -364,7 +364,8 @@ func (t *httpTransport) ownAuth() bool {
 // post sends one message. A server refusing it for want of authorization is
 // sent the sign-in's token, renewed if it has to be, and asked once more;
 // refused again, it is an AuthRequiredError, which the admin offers to fix by
-// signing in.
+// signing in. A refused Authorization header of the definition's own is one
+// too: it has expired, and signing in replaces it.
 func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, error) {
 	token := ""
 	if !t.ownAuth() {
@@ -374,7 +375,13 @@ func (t *httpTransport) post(ctx context.Context, body []byte) (*http.Response, 
 	if err != nil {
 		return nil, err
 	}
-	if resp.StatusCode == http.StatusUnauthorized && !t.ownAuth() {
+	if resp.StatusCode == http.StatusUnauthorized && t.ownAuth() {
+		b, _ := io.ReadAll(io.LimitReader(resp.Body, 512))
+		resp.Body.Close()
+		return nil, &AuthRequiredError{Server: t.name,
+			Detail: strings.TrimSpace("the server refused the Authorization header: 401 " + strings.TrimSpace(string(b)))}
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
 		resp.Body.Close()
 		if token = accessToken(ctx, t.url, true); token != "" {
 			if resp, err = t.send(ctx, body, token); err != nil {
