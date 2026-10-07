@@ -19,6 +19,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"sort"
+	"strings"
 )
 
 // Scope says which file a server is defined in.
@@ -45,6 +46,28 @@ type Server struct {
 
 	Scope    Scope `json:"scope,omitempty"`
 	Shadowed bool  `json:"shadowed,omitempty"`
+}
+
+// WithoutAuthorization is s without an Authorization header of its own, so a
+// sign-in supplies it; ok says there was one to drop.
+func (s Server) WithoutAuthorization() (Server, bool) {
+	h := map[string]string{}
+	ok := false
+	for k, v := range s.Headers {
+		if strings.EqualFold(k, "Authorization") {
+			ok = true
+			continue
+		}
+		h[k] = v
+	}
+	if !ok {
+		return s, false
+	}
+	if len(h) == 0 {
+		h = nil
+	}
+	s.Headers = h
+	return s, true
 }
 
 // Transport resolves Type.
@@ -195,6 +218,23 @@ func (st Store) Save(s Server) error {
 		list = append(list, s)
 	}
 	return write(path, list)
+}
+
+// DropAuthorization removes the Authorization header of the saved server
+// named name in scope, once a sign-in has taken its place; ok says there was
+// one to drop.
+func (st Store) DropAuthorization(scope Scope, name string) (bool, error) {
+	for _, s := range st.List() {
+		if s.Name != name || s.Scope != scope {
+			continue
+		}
+		s, ok := s.WithoutAuthorization()
+		if !ok {
+			return false, nil
+		}
+		return true, st.Save(s)
+	}
+	return false, nil
 }
 
 // Delete removes one server from its scope.

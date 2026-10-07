@@ -285,6 +285,9 @@ func (s *Server) mcpRoutes(m *http.ServeMux) {
 			ctx, cancel := context.WithTimeout(context.Background(), 11*time.Minute)
 			defer cancel()
 			if l.Wait(ctx) == nil {
+				// An expired header of the server's own would still win over
+				// the sign-in.
+				_, _ = kit.MCPStore(in.Root).DropAuthorization(in.Server.Scope, in.Server.Name)
 				kit.Pool.Forget(in.Server)
 				s.changed("mcp", in.Root)
 			}

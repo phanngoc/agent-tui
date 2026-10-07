@@ -208,6 +208,7 @@ function ServerEditor({ server, isNew, root, status, onDone }: { server: McpServ
     ...(type === "stdio" ? { command, args: lines(args), env: fromPairs(env, "=") } : { url, headers: fromPairs(headers, ":") }),
   });
   const shown = test ?? status;
+  const ownAuth = AUTH_LINE.test(headers);
 
   return (
     <div className="mx-auto max-w-3xl space-y-4">
@@ -273,15 +274,27 @@ function ServerEditor({ server, isNew, root, status, onDone }: { server: McpServ
           </Field>
         </>
       )}
-      {type !== "stdio" && !/^\s*authorization\s*:/im.test(headers) && (
+      {type !== "stdio" && (!ownAuth || !!shown?.needs_auth) && (
         <SignIn
           server={def()}
           root={root}
           signedIn={!!(shown?.signed_in ?? server.signed_in)}
           needed={!!shown?.needs_auth}
-          onChange={async () => {
+          ownAuth={ownAuth}
+          onChange={async (signedIn) => {
+            // Signed in, the gateway drops the saved Authorization header that
+            // would win over the sign-in; the form follows.
+            let d = def();
+            if (signedIn && ownAuth) {
+              const h = headers
+                .split("\n")
+                .filter((l) => !AUTH_LINE.test(l))
+                .join("\n");
+              setHeaders(h);
+              d = { ...d, headers: fromPairs(h, ":") };
+            }
             try {
-              setTest(await api.post<McpStatus>("/api/mcp/test", def()));
+              setTest(await api.post<McpStatus>("/api/mcp/test", d));
             } catch (e) {
               setErr((e as Error).message);
             }
@@ -368,13 +381,16 @@ function ServerEditor({ server, isNew, root, status, onDone }: { server: McpServ
   );
 }
 
+const AUTH_LINE = /^\s*authorization\s*:/im;
+
 /**
- * SignIn is a remote server's OAuth sign-in: the authorization server's page
- * opens in a tab, and this waits for the browser to come back to the gateway.
- * A server with its own Authorization header does not need it, so it is not
- * shown then.
+ * SignIn is a remote server's sign-in: the authorization server's page (OAuth),
+ * or the server's own login page, opens in a tab, and this waits for the
+ * browser to come back to the gateway. A server with its own Authorization
+ * header does not need it, so it is not shown then — unless the server
+ * refuses that header, when signing in replaces it.
  */
-function SignIn({ server, root, signedIn, needed, onChange }: { server: McpServer; root: string; signedIn: boolean; needed: boolean; onChange: () => void }) {
+function SignIn({ server, root, signedIn, needed, ownAuth, onChange }: { server: McpServer; root: string; signedIn: boolean; needed: boolean; ownAuth: boolean; onChange: (signedIn: boolean) => void }) {
   const [busy, setBusy] = React.useState(false);
   const [err, setErr] = React.useState<string | null>(null);
   const signIn = async () => {
@@ -392,7 +408,7 @@ function SignIn({ server, root, signedIn, needed, onChange }: { server: McpServe
         if (!s.done) continue;
         if (s.error) throw new Error(s.error);
         toast.success(`Signed in to ${server.name}`);
-        onChange();
+        onChange(true);
         return;
       }
       throw new Error("the sign-in timed out");
@@ -407,9 +423,15 @@ function SignIn({ server, root, signedIn, needed, onChange }: { server: McpServe
     <div className={cn("space-y-2 rounded-xl border p-3", needed && !signedIn && "border-amber-500/50 bg-amber-500/5")}>
       <div className="flex flex-wrap items-center gap-2 text-sm">
         <KeyRoundIcon className="size-4 text-muted-foreground" />
-        <span className="font-medium">Sign-in (OAuth)</span>
+        <span className="font-medium">Sign-in</span>
         <span className="text-muted-foreground">
-          {signedIn ? "signed in — tokens renew on their own" : needed ? "this server wants you to sign in" : "for servers that ask for one, like Datadog's"}
+          {needed && ownAuth
+            ? "the server refused the Authorization header — sign in to replace it"
+            : signedIn
+              ? "signed in"
+              : needed
+                ? "this server wants you to sign in"
+                : "for servers that ask for one, like Datadog's"}
         </span>
         <div className="ml-auto flex gap-2">
           {signedIn && (
@@ -419,7 +441,7 @@ function SignIn({ server, root, signedIn, needed, onChange }: { server: McpServe
               onClick={async () => {
                 try {
                   await api.post("/api/mcp/logout", { root, server });
-                  onChange();
+                  onChange(false);
                 } catch (e) {
                   toast.error((e as Error).message);
                 }

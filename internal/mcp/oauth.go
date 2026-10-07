@@ -29,6 +29,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -43,7 +44,7 @@ type AuthRequiredError struct {
 }
 
 func (e *AuthRequiredError) Error() string {
-	return "needs sign-in (OAuth): " + e.Detail
+	return "needs sign-in: " + e.Detail
 }
 
 // NeedsAuth says err is a server asking to be signed in to.
@@ -415,19 +416,24 @@ func random(n int) string {
 // BeginLogin starts signing in to s: it discovers the server's authorization
 // server, registers agent-tui with it, listens on a loopback port for the
 // browser to come back, and returns the address to send the browser to.
+//
+// A server without OAuth may still sign in in the browser: its 401 names a
+// login page (login_uri) that hands a token straight back to the loopback port.
 func BeginLogin(ctx context.Context, s Server) (*Login, error) {
 	if s.Transport() == "stdio" {
 		return nil, errors.New("only remote (http) servers sign in")
 	}
 	sm, resource, scope, err := discover(ctx, s.URL)
 	if err != nil {
+		if lu := probeLoginURI(ctx, s.URL); lu != "" {
+			return beginTokenLogin(s, lu)
+		}
 		return nil, err
 	}
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	ln, redirect, err := listenLoopback()
 	if err != nil {
 		return nil, err
 	}
-	redirect := fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Addr().(*net.TCPAddr).Port)
 	clientID, err := register(ctx, sm, redirect)
 	if err != nil {
 		ln.Close()
@@ -448,12 +454,103 @@ func BeginLogin(ctx context.Context, s Server) (*Login, error) {
 	if scope != "" {
 		q.Set("scope", scope)
 	}
-	sep := "?"
-	if strings.Contains(sm.AuthorizationEndpoint, "?") {
-		sep = "&"
-	}
-	l := &Login{URL: sm.AuthorizationEndpoint + sep + q.Encode(), fin: make(chan struct{})}
+	l := &Login{URL: withQuery(sm.AuthorizationEndpoint, q), fin: make(chan struct{})}
+	awaitCallback(l, ln, s, state, func(ctx context.Context, qq url.Values) (grant, error) {
+		t, err := tokenRequest(ctx, sm.TokenEndpoint, url.Values{
+			"grant_type": {"authorization_code"}, "code": {qq.Get("code")}, "redirect_uri": {redirect},
+			"client_id": {clientID}, "code_verifier": {verifier}, "resource": {resource},
+		})
+		if err != nil {
+			return grant{}, err
+		}
+		return grant{Resource: resource, Issuer: sm.Issuer, TokenEndpoint: sm.TokenEndpoint,
+			ClientID: clientID, AccessToken: t.AccessToken, RefreshToken: t.RefreshToken, Expiry: t.expiry(),
+			Scope: t.Scope}, nil
+	})
+	return l, nil
+}
 
+// probeLoginURI asks the server, unauthenticated, for something that needs a
+// sign-in, and returns the login page its 401 names in WWW-Authenticate
+// (login_uri), resolved against the server's address. "" means none.
+func probeLoginURI(ctx context.Context, u string) string {
+	body := `{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}`
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, strings.NewReader(body))
+	if err != nil {
+		return ""
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	req.Header.Set("MCP-Protocol-Version", protocolVersion)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return ""
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnauthorized {
+		return ""
+	}
+	lu := authParam(resp.Header.Get("WWW-Authenticate"), "login_uri")
+	base, err := url.Parse(u)
+	if lu == "" || err != nil {
+		return ""
+	}
+	ref, err := url.Parse(lu)
+	if err != nil {
+		return ""
+	}
+	out := base.ResolveReference(ref)
+	if out.Scheme != "https" && out.Scheme != "http" {
+		return ""
+	}
+	return out.String()
+}
+
+// beginTokenLogin sends the browser to the server's own login page, which
+// sends it back to the loopback port with the token itself: no client to
+// register and no code to exchange, and no refresh either, so an expired
+// token is signed in for again.
+func beginTokenLogin(s Server, loginURI string) (*Login, error) {
+	ln, redirect, err := listenLoopback()
+	if err != nil {
+		return nil, err
+	}
+	state := random(24)
+	q := url.Values{"redirect_uri": {redirect}, "state": {state}, "client": {"agent-tui"}}
+	l := &Login{URL: withQuery(loginURI, q), fin: make(chan struct{})}
+	awaitCallback(l, ln, s, state, func(_ context.Context, qq url.Values) (grant, error) {
+		tok := qq.Get("token")
+		if tok == "" {
+			return grant{}, errors.New("the login page sent no token back")
+		}
+		g := grant{Resource: grantKey(s.URL), Issuer: loginURI, AccessToken: tok}
+		if n, err := strconv.ParseInt(qq.Get("expires_in"), 10, 64); err == nil && n > 0 {
+			g.Expiry = time.Now().Add(time.Duration(n) * time.Second)
+		}
+		return g, nil
+	})
+	return l, nil
+}
+
+func listenLoopback() (net.Listener, string, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return nil, "", err
+	}
+	return ln, fmt.Sprintf("http://127.0.0.1:%d/callback", ln.Addr().(*net.TCPAddr).Port), nil
+}
+
+func withQuery(u string, q url.Values) string {
+	if strings.Contains(u, "?") {
+		return u + "&" + q.Encode()
+	}
+	return u + "?" + q.Encode()
+}
+
+// awaitCallback serves the loopback port until the browser comes back with
+// state, or the sign-in times out. take turns the callback's query into the
+// grant kept for s.
+func awaitCallback(l *Login, ln net.Listener, s Server, state string, take func(context.Context, url.Values) (grant, error)) {
 	srv := &http.Server{ReadHeaderTimeout: 10 * time.Second}
 	finish := func(err error) {
 		l.once.Do(func() {
@@ -483,20 +580,16 @@ func BeginLogin(ctx context.Context, s Server) (*Login, error) {
 		}
 		cctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 		defer cancel()
-		t, err := tokenRequest(cctx, sm.TokenEndpoint, url.Values{
-			"grant_type": {"authorization_code"}, "code": {qq.Get("code")}, "redirect_uri": {redirect},
-			"client_id": {clientID}, "code_verifier": {verifier}, "resource": {resource},
-		})
+		g, err := take(cctx, qq)
 		if err != nil {
 			page(w, http.StatusBadGateway, "Not signed in", err.Error())
 			finish(err)
 			return
 		}
+		g.At = time.Now().UTC()
 		grantsMu.Lock()
 		all := loadGrants()
-		all[grantKey(s.URL)] = grant{Resource: resource, Issuer: sm.Issuer, TokenEndpoint: sm.TokenEndpoint,
-			ClientID: clientID, AccessToken: t.AccessToken, RefreshToken: t.RefreshToken, Expiry: t.expiry(),
-			Scope: t.Scope, At: time.Now().UTC()}
+		all[grantKey(s.URL)] = g
 		err = saveGrants(all)
 		grantsMu.Unlock()
 		if err != nil {
@@ -512,7 +605,6 @@ func BeginLogin(ctx context.Context, s Server) (*Login, error) {
 		time.Sleep(loginTimeout)
 		finish(errors.New("the sign-in timed out"))
 	}()
-	return l, nil
 }
 
 func page(w http.ResponseWriter, code int, title, text string) {

@@ -19,7 +19,7 @@ import (
 const mcpUsage = `usage: agent-tui mcp [command] [name]
 
   status          the servers this folder sees, and which are signed in (default)
-  login <name>    sign in to a remote server in the browser (OAuth)
+  login <name>    sign in to a remote server in the browser
   logout <name>   forget that sign-in
 `
 
@@ -76,6 +76,11 @@ func mcpCmd(args []string) error {
 			return err
 		}
 		fmt.Printf("signed in to %s\n", s.Name)
+		if dropped, err := st.DropAuthorization(s.Scope, s.Name); err != nil {
+			return err
+		} else if dropped {
+			fmt.Println("removed its Authorization header, which would have won over the sign-in")
+		}
 		return nil
 	case "logout":
 		s, err := find()
