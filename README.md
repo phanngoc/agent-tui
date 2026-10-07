@@ -38,6 +38,33 @@ menu: *agent-tui*) is a native app written in Go. It runs this same binary,
 unchanged, in a pseudo-console and draws it on the GPU, with its own font,
 input methods, icon and a dark title bar. See [`desktop/`](desktop/README.md).
 
+## Claude token rotation on Windows
+
+The local Claude Code engine automatically uses an existing
+`%USERPROFILE%/.claude/token-rotation/pool.xml` pool of DPAPI-encrypted
+PowerShell credentials. Run agent-tui and its gateway as the Windows user
+who exported that pool. No tokens belong in this repository or in session files.
+
+On the first Claude turn of each conversation, agent-tui picks the next token
+in pool order, wrapping back to the first. Further turns, retries, and resumed
+sessions keep their assignment, including after a restart. A branch is a new
+conversation. Scheduled **new session** runs and **thread** runs with fresh
+context each pick the next token; schedules continuing the **same context** keep
+that conversation's token. Creating an empty session does not consume a slot.
+
+`agent-tui-state.json`, beside `pool.xml`, stores the cursor and hashed
+conversation-to-token assignments. It contains no tokens. A cross-process mutex
+and atomic writes coordinate terminals and the gateway. This is independent of
+the PowerShell launcher's `state.json` and 20-run `config.json`; agent-tui does
+not invoke or modify that launcher.
+
+Without `pool.xml`, authentication works as before. With a pool present, an
+unreadable pool, corrupt state, or removal of a conversation's assigned token
+fails the turn rather than silently switching accounts. Reordering the pool
+preserves existing assignments. There is no automatic quota failover or token
+refresh. The pool applies to native Windows local Claude subprocesses; WSL,
+containers, non-Windows builds, and other engines retain their existing auth.
+
 ## Settings
 
 Press **F2**, click the **⚙** at the right of the header, or type `/settings`.

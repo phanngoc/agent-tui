@@ -776,7 +776,8 @@ func (m *Model) startTurn(s *session.Session, text string, files []session.Attac
 	}
 	st := s.StateFor(eng.ID())
 	turn := agent.Turn{
-		Prompt: text,
+		ConversationID: s.ConversationID(),
+		Prompt:         text,
 		// Brief is the gap between what this engine has seen and where the
 		// conversation now is. The built-in engine never reads it — it is
 		// handed the transcript itself — so only a CLI pays for one.

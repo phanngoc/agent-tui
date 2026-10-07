@@ -209,6 +209,10 @@ func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 			return next
 		}
 		m.notice = "prompt from the web: " + firstLineOf(text)
+		if c.Fresh {
+			s.Fresh()
+			s.Live = nil
+		}
 		return tea.Batch(next, m.startTurn(s, text, files))
 	case gateway.CmdCancel:
 		m.cancelSession(s)

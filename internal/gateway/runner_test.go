@@ -248,6 +248,12 @@ func TestRunnerFreshRunsShareTheJobSession(t *testing.T) {
 	if got := texts(eng.turns[2].History); strings.Join(got, "|") != "run 2|ok|why?" {
 		t.Fatalf("the reply was given %q; want the run it follows", got)
 	}
+	if eng.turns[0].ConversationID == "" || eng.turns[0].ConversationID == eng.turns[1].ConversationID {
+		t.Fatal("fresh scheduled runs must have distinct credential assignments")
+	}
+	if eng.turns[1].ConversationID != eng.turns[2].ConversationID {
+		t.Fatal("reply must keep the scheduled run's credential assignment")
+	}
 	got, err := Load(s.ID)
 	if err != nil {
 		t.Fatal(err)
