@@ -19,9 +19,15 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/sessions", func(w http.ResponseWriter, r *http.Request) {
 		root := r.URL.Query().Get("root")
 		q := strings.ToLower(strings.TrimSpace(r.URL.Query().Get("q")))
+		// archived=1 lists the archived (closed) conversations alone, and
+		// archived=0 leaves them out; without it every one is listed.
+		archived := r.URL.Query().Get("archived")
 		out := []gateway.Summary{}
 		for _, sum := range s.summaries() {
 			if root != "" && sum.Root != root {
+				continue
+			}
+			if (archived == "1" && !sum.Closed) || (archived == "0" && sum.Closed) {
 				continue
 			}
 			if q != "" && !strings.Contains(strings.ToLower(sum.Title+" "+sum.Root+" "+sum.ID), q) {
@@ -164,9 +170,12 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 	// there.
 	m.HandleFunc("PUT /api/sessions/{id}/settings", func(w http.ResponseWriter, r *http.Request) {
 		var in struct {
-			Model  string `json:"model"`
-			Mode   string `json:"mode"`
-			Engine string `json:"engine"`
+			Model    string  `json:"model"`
+			Mode     string  `json:"mode"`
+			Engine   string  `json:"engine"`
+			Title    *string `json:"title"`
+			Pinned   *bool   `json:"pinned"`
+			Archived *bool   `json:"archived"`
 		}
 		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
@@ -180,13 +189,53 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			}
 			in.Model = spec.ID
 		}
+		if in.Title != nil && len(*in.Title) > 200 {
+			fail(w, http.StatusBadRequest, errors.New("a name is at most 200 characters"))
+			return
+		}
 		owner, err := s.Hub.Route(gateway.Command{Type: gateway.CmdSettings, Session: r.PathValue("id"),
-			Model: in.Model, Mode: in.Mode, Engine: in.Engine, From: "web"})
+			Model: in.Model, Mode: in.Mode, Engine: in.Engine, Title: in.Title, Pinned: in.Pinned, Archived: in.Archived, From: "web"})
 		if err != nil {
 			fail(w, http.StatusConflict, err)
 			return
 		}
 		writeJSON(w, map[string]string{"owner": owner})
+	})
+	// Deleting moves a conversation, and its side chats, to the trash, from
+	// where restore brings it back for a week.
+	m.HandleFunc("DELETE /api/sessions/{id}", func(w http.ResponseWriter, r *http.Request) {
+		id := r.PathValue("id")
+		if _, err := gateway.Load(id); err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		for _, sum := range s.summaries() {
+			if sum.SideOf == id {
+				_, _ = s.Hub.Route(gateway.Command{Type: gateway.CmdDelete, Session: sum.ID, From: "web"})
+			}
+		}
+		owner, err := s.Hub.Route(gateway.Command{Type: gateway.CmdDelete, Session: id, From: "web"})
+		if err != nil {
+			fail(w, http.StatusConflict, err)
+			return
+		}
+		s.Hub.Publish(gateway.New(gateway.EvSessionUpdated, id, nil))
+		writeJSON(w, map[string]string{"owner": owner})
+	})
+	m.HandleFunc("POST /api/sessions/{id}/restore", func(w http.ResponseWriter, r *http.Request) {
+		if err := s.Runner.Restore(r.PathValue("id")); err != nil {
+			fail(w, http.StatusNotFound, err)
+			return
+		}
+		writeJSON(w, map[string]bool{"ok": true})
+	})
+	m.HandleFunc("POST /api/sessions/{id}/fork", func(w http.ResponseWriter, r *http.Request) {
+		f, err := s.Runner.Fork(r.PathValue("id"))
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, map[string]string{"id": f.ID})
 	})
 	m.HandleFunc("POST /api/sessions/{id}/prompt", route(gateway.CmdPrompt))
 	m.HandleFunc("POST /api/sessions/{id}/cancel", route(gateway.CmdCancel))

@@ -158,6 +158,48 @@ func (m *Manager) Undelete(d *Deleted) {
 	}
 }
 
+// Forget marks a conversation deleted for this manager without it having to
+// be in the list: a gateway runs conversations it never lists, and a save of
+// one still queued must not write it back out of the trash.
+func (m *Manager) Forget(id string) {
+	m.mu.Lock()
+	if m.gone == nil {
+		m.gone = map[string]bool{}
+	}
+	m.gone[id] = true
+	m.mu.Unlock()
+}
+
+// Revive undoes Forget, for a conversation brought back from the trash.
+func (m *Manager) Revive(id string) {
+	m.mu.Lock()
+	delete(m.gone, id)
+	m.mu.Unlock()
+}
+
+// TrashFile moves a conversation's file in the store at dir (the data
+// directory) to the trash, as Delete does for one in a manager's list.
+func TrashFile(dir, id string) error {
+	store := filepath.Join(dir, "sessions")
+	_ = os.MkdirAll(filepath.Join(store, "trash"), 0o755)
+	to := filepath.Join(store, "trash", id+".json")
+	if err := os.Rename(filepath.Join(store, id+".json"), to); err != nil {
+		return err
+	}
+	now := time.Now()
+	_ = os.Chtimes(to, now, now)
+	return nil
+}
+
+// UntrashFile brings a conversation's file back from the trash.
+func UntrashFile(dir, id string) error {
+	store := filepath.Join(dir, "sessions")
+	if _, err := os.Stat(filepath.Join(store, id+".json")); err == nil {
+		return nil
+	}
+	return os.Rename(filepath.Join(store, "trash", id+".json"), filepath.Join(store, id+".json"))
+}
+
 // PurgeTrash empties the trash of anything deleted longer ago than maxAge.
 func (m *Manager) PurgeTrash(maxAge time.Duration) {
 	entries, err := os.ReadDir(m.trashDir())

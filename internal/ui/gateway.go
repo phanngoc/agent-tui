@@ -238,6 +238,30 @@ func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 			m.publishSummary(s)
 			m.notice = "from the web: " + strings.Join(did, ", ") + " from the next turn"
 		}
+		// The web list's menu: a name, a pin, archived. Archiving one held
+		// here is closing it here, which takes it out of this list too.
+		archive := c.Archived != nil && *c.Archived
+		list := c
+		list.Archived = nil
+		if gateway.ApplyListSettings(s, list) {
+			s.Dirty = true
+			m.mgr.Save(s)
+			m.publishSummary(s)
+			m.notice = "from the web: «" + s.Label() + "» updated"
+		}
+		if archive {
+			for i, x := range m.mgr.All() {
+				if x == s {
+					m.notice = "archived from the web: «" + s.Label() + "»"
+					return tea.Batch(next, m.closeSession(i))
+				}
+			}
+		}
+	case gateway.CmdDelete:
+		// Deleted from the web: stopped if it runs, as d twice would; /undo
+		// here brings it back.
+		m.del.armed = s.ID
+		return tea.Batch(next, m.deleteSessions([]*session.Session{s}))
 	case gateway.CmdApprove:
 		for i, p := range m.approvals {
 			if p.id != c.ID || p.sess != s {

@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { addFileToChat, copyText, fullPath } from "./actions";
 import { editorService } from "./service";
 import { useEditor, type Tab } from "./store";
-import { ContextMenu, type MenuItem } from "./explorer-view";
+import { ContextMenu, type MenuItem } from "@/components/context-menu";
 
 /** closeMany closes tabs one by one, each asking first if it has unsaved changes. */
 function closeMany(keys: string[]) {

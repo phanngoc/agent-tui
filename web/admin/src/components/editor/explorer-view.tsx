@@ -10,6 +10,7 @@ import { editorService } from "./service";
 import { addFileToChat, copyText, fullPath } from "./actions";
 import { useEditor } from "./store";
 import { invalidateFiles } from "./files";
+import { ContextMenu } from "@/components/context-menu";
 
 // The explorer: the project as a tree, drawn only as far as it is on screen —
 // a folder of thousands of files scrolls as fast as one of ten — with the
@@ -394,61 +395,5 @@ export function IconBtn({ title, onClick, children, active }: { title: string; o
     >
       {children}
     </button>
-  );
-}
-
-export type MenuItem = { label: string; run: () => void; danger?: boolean; hint?: string; disabled?: boolean } | "-";
-
-/** ContextMenu is the workbench's right-click menu: in the explorer, on a tab. */
-export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
-  const ref = React.useRef<HTMLDivElement>(null);
-  React.useEffect(() => {
-    const close = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) onClose();
-    };
-    const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
-    window.addEventListener("mousedown", close);
-    window.addEventListener("keydown", esc);
-    window.addEventListener("blur", onClose);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("keydown", esc);
-      window.removeEventListener("blur", onClose);
-    };
-  }, [onClose]);
-  const rows = items.filter((it, i) => it !== "-" || (i > 0 && items[i - 1] !== "-" && i < items.length - 1));
-  const height = rows.reduce((h, it) => h + (it === "-" ? 9 : 28), 8);
-  return (
-    <div
-      ref={ref}
-      role="menu"
-      onContextMenu={(e) => e.preventDefault()}
-      className="fixed z-50 min-w-56 rounded-md border bg-popover py-1 text-[13px] text-popover-foreground shadow-lg"
-      style={{ left: Math.max(4, Math.min(x, window.innerWidth - 260)), top: Math.max(4, Math.min(y, window.innerHeight - height - 8)) }}
-    >
-      {rows.map((it, i) =>
-        it === "-" ? (
-          <div key={"sep" + i} className="my-1 border-t" />
-        ) : (
-          <button
-            key={it.label}
-            role="menuitem"
-            disabled={it.disabled}
-            onClick={(e) => {
-              e.stopPropagation();
-              onClose();
-              it.run();
-            }}
-            className={cn(
-              "flex w-full items-center gap-6 px-3 py-1 text-left enabled:hover:bg-primary enabled:hover:text-primary-foreground disabled:opacity-40",
-              it.danger && "text-destructive",
-            )}
-          >
-            <span className="flex-1">{it.label}</span>
-            {it.hint && <span className="text-[11px] opacity-60">{it.hint}</span>}
-          </button>
-        ),
-      )}
-    </div>
   );
 }
