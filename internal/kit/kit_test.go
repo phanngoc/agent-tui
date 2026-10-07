@@ -57,6 +57,12 @@ func TestExtrasAssembleAndTrace(t *testing.T) {
 		t.Fatalf("memory_search: %q", out)
 	}
 
+	// Claude Code has a Skill tool of its own; its listing must point it at ours.
+	if cx, _ := k.Extras(context.Background(), "claude", "x"); !strings.Contains(cx.System, "mcp__agent-tui__skill") ||
+		!strings.Contains(cx.System, "Never pass these names to the Skill tool") {
+		t.Fatalf("claude skill listing does not name the tool: %s", cx.System)
+	}
+
 	SaveTrace(Trace{Session: "s1", Prompt: "p"})
 	if got := Traces("s1"); len(got) != 1 || got[0].Prompt != "p" {
 		t.Fatalf("traces: %+v", got)

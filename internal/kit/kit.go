@@ -157,7 +157,7 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 	// Skills: a listing in the prompt, the bodies behind a tool.
 	skills := k.Skills.Active(k.Settings.DisabledSkills)
 	if len(skills) > 0 {
-		sys.WriteString("<available_skills>\nSkills are procedures written for tasks like these. When one is even partly relevant, load it with the skill tool before starting, and follow it.\n")
+		sys.WriteString(skillsIntro(engineID == "api" || engineID == ""))
 		for _, s := range skills {
 			fmt.Fprintf(&sys, "- %s (%s): %s\n", s.Name, s.Scope, clip(s.Description, 300))
 			tr.Skills = append(tr.Skills, s.Name)
@@ -258,6 +258,19 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 	x.System = strings.TrimSpace(sys.String())
 	tr.System, tr.Chars = x.System, len(x.System)
 	return x, tr
+}
+
+// skillsIntro opens the skill listing. A CLI engine is told the tool by its
+// full name: Claude Code has a Skill tool of its own, and told only "the skill
+// tool" it calls that one, which knows none of these and answers "Unknown
+// skill".
+func skillsIntro(native bool) string {
+	if native {
+		return "<available_skills>\nSkills are procedures written for tasks like these. When one is even partly relevant, load it with the skill tool before starting, and follow it.\n"
+	}
+	return "<available_skills>\nSkills are procedures written for tasks like these. When one is even partly relevant, load it before starting, and follow it. " +
+		"These skills are agent-tui's, not Claude Code's: load one with the tool mcp__" + KitServer + "__skill, input {\"name\": \"<skill>\"} " +
+		"(if its schema is deferred, fetch it with ToolSearch first). Never pass these names to the Skill tool, which does not know them.\n"
 }
 
 func (k *Kit) skillTool() agent.Extension {
