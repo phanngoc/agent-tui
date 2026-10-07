@@ -289,6 +289,17 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		bin = c.path
 	}
 	cmd := fsys.Command(ctx, root, bin, args...)
+	if fsys.IsLocal() {
+		cmd.Env = append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), c.env...)
+		if c.id == IDClaude {
+			var err error
+			cmd.Env, err = claudeTokenEnv(ctx, cmd.Env, t.ConversationID)
+			if err != nil {
+				send(agent.EvDone{Err: err})
+				return
+			}
+		}
+	}
 	// A nil Stdin gives the child /dev/null. Codex otherwise blocks reading a
 	// prompt from a pipe it will never receive.
 	cmd.Stdin = nil
@@ -306,9 +317,6 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	// grandchild keeps the output pipes open and Wait would block on them for
 	// as long as it lives, stranding the session. WaitDelay bounds that.
 	cmd.WaitDelay = 5 * time.Second
-	if fsys.IsLocal() {
-		cmd.Env = append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), c.env...)
-	}
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {

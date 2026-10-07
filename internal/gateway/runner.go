@@ -320,17 +320,18 @@ func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool
 	}
 	model := cmp.Or(s.Model, r.Cfg.Model, agent.DefaultModel)
 	t := agent.Turn{
-		Prompt:     prompt,
-		Brief:      brief,
-		History:    append([]session.Message(nil), s.Context()...),
-		ExternalID: s.StateFor(eng.ID()).ExternalID,
-		Fork:       s.ForkPending,
-		Root:       cmp.Or(s.CWD, p.dir),
-		Dirs:       config.AllowedDirs(cmp.Or(s.Root, p.root)),
-		Mode:       agent.ParseMode(s.Mode),
-		Model:      model,
-		FS:         p.fs,
-		Files:      reach(p.fs, s.ID, files),
+		ConversationID: s.ConversationID(),
+		Prompt:         prompt,
+		Brief:          brief,
+		History:        append([]session.Message(nil), s.Context()...),
+		ExternalID:     s.StateFor(eng.ID()).ExternalID,
+		Fork:           s.ForkPending,
+		Root:           cmp.Or(s.CWD, p.dir),
+		Dirs:           config.AllowedDirs(cmp.Or(s.Root, p.root)),
+		Mode:           agent.ParseMode(s.Mode),
+		Model:          model,
+		FS:             p.fs,
+		Files:          reach(p.fs, s.ID, files),
 	}
 	hook := kit.Hook(s.Root, s.ID, eng.ID(), prompt)
 	effort := cmp.Or(config.LoadProjectSettings(s.Root).Effort, config.LoadPrefs().Effort)

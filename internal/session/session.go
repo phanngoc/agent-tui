@@ -6,6 +6,7 @@ package session
 
 import (
 	"encoding/json"
+	"strconv"
 	"strings"
 	"time"
 
@@ -264,9 +265,15 @@ func (s *Session) SetExternalID(engine, id string) {
 	s.Dirty = true
 }
 
+// ConversationID identifies the context, not a turn or an engine subprocess.
+func (s *Session) ConversationID() string {
+	return s.ID + ":" + strconv.FormatUint(s.ConversationGeneration, 10)
+}
+
 // Fresh starts the agent's context at the next message: the next turn is
 // given nothing before it, and no engine resumes the conversation it had.
 func (s *Session) Fresh() {
+	s.ConversationGeneration++
 	s.ContextFrom = len(s.Messages)
 	s.Engines, s.ExternalID = nil, ""
 	s.Dirty = true
@@ -302,6 +309,7 @@ func (s *Session) SetSeen(engine string, n int) {
 // is a different project, and an id that resumes a conversation about other
 // files is worse than no id at all.
 func (s *Session) ForgetEngines() {
+	s.ConversationGeneration++
 	s.Engines, s.ExternalID = nil, ""
 	s.Dirty = true
 }
@@ -333,6 +341,10 @@ func (s *Session) normalise() {
 }
 
 type Session struct {
+	// ConversationGeneration changes when this session starts a fresh context,
+	// so recurring scheduled runs rotate without creating extra session rows.
+	ConversationGeneration uint64 `json:"conversation_generation,omitempty"`
+
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Root  string `json:"root"`

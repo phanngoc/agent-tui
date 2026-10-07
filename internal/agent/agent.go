@@ -131,9 +131,12 @@ const (
 // Turn is one request to an engine: the new prompt, the conversation so far,
 // and whatever state the engine returned last time.
 type Turn struct {
-	Prompt  string
-	History []session.Message
-	State   any
+	// ConversationID is stable across turns and restarts, and changes when
+	// the session starts a fresh context (including scheduled thread runs).
+	ConversationID string
+	Prompt         string
+	History        []session.Message
+	State          any
 	// Brief is a catch-up on what happened in this conversation while this
 	// engine was not the one running it: a rendering of the transcript, not a
 	// request.
