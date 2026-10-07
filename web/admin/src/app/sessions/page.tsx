@@ -24,6 +24,7 @@ import { FileOpener } from "@/lib/file-opener";
 import { useIsMobile } from "@/lib/mobile";
 import { SelectionAction, withQuotes } from "@/components/selection-action";
 import { BranchPicker } from "@/components/branch-picker";
+import { AttachButton, AttachmentStrip, DropHint, filesOf, useAttachments, type Attached } from "@/components/attachments";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { describePath } from "@/components/folder-picker";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
@@ -282,10 +283,10 @@ function Conversation({ id }: { id: string }) {
     busyRef.current = busy;
   }, [busy]);
 
-  const send = async (text: string, now = false) => {
+  const send = async (text: string, now = false, files: Attached[] = []) => {
     toBottom();
     try {
-      const r = await api.post<{ owner: string }>(`/api/sessions/${id}/prompt`, { text, now });
+      const r = await api.post<{ owner: string }>(`/api/sessions/${id}/prompt`, { text, now, files: files.length ? filesOf(files) : undefined });
       if (now) toast("Stopping the turn to send it now");
       else if (busyRef.current) toast(queue.steers ? "Queued: the agent gets it after its current step" : "Queued: it goes when this turn ends");
       else toast.success(r.owner.startsWith("tui") ? "Sent to the terminal holding this session" : "Running in the gateway");
@@ -505,7 +506,7 @@ function Composer({
   busy: boolean;
   owner?: string;
   target?: string;
-  onSend: (t: string, now?: boolean) => Promise<void>;
+  onSend: (t: string, now?: boolean, files?: Attached[]) => Promise<void>;
   quotes: string[];
   onQuotes: (q: string[]) => void;
   queue: QueueData;
@@ -521,17 +522,20 @@ function Composer({
   React.useEffect(() => {
     if (quotes.length) box.current?.focus();
   }, [quotes.length]);
+  // Images dropped, pasted or picked, sent with the message.
+  const att = useAttachments();
   // While a turn runs, Enter queues (the agent gets it after its current
   // step, or when the turn ends); send now stops the turn so the queue goes
   // at once — Claude Code's Enter and Ctrl+Enter.
   const go = async (now = false) => {
     const t = withQuotes(quotes, text);
-    if (!t && !(now && queue.items.length)) return;
+    if ((!t && !att.items.length && !(now && queue.items.length)) || att.uploading) return;
     setSending(true);
-    await onSend(t, now && busy);
+    await onSend(t, now && busy, att.items);
     setSending(false);
     setText("");
     onQuotes([]);
+    att.clear();
   };
   // Taking a queued message back to change it: ↑ in an empty box, or edit.
   const takeBack = async (item: string) => {
@@ -541,7 +545,7 @@ function Composer({
       box.current?.focus();
     }
   };
-  const canNow = busy && (!!text.trim() || quotes.length > 0 || queue.items.length > 0);
+  const canNow = busy && (!!text.trim() || quotes.length > 0 || att.items.length > 0 || queue.items.length > 0);
   return (
     <div className="border-t p-2 md:p-3">
       <div className="mx-auto max-w-3xl">
@@ -555,8 +559,11 @@ function Composer({
                 ? `No terminal holds this session: the gateway runs it inside ${target}, with the same engines, memory, skills and MCP servers.`
                 : "No terminal holds this session: the gateway runs it, with the same engines, memory, skills and MCP servers."
           }
-          className="rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2"
+          {...att.dropProps}
+          className="relative rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2"
         >
+          <DropHint show={att.dragging} />
+          <AttachmentStrip items={att.items} uploading={att.uploading} onRemove={att.remove} className="mb-1.5 px-1" />
           {queue.items.length > 0 && (
             <div className="mb-1.5 flex flex-col gap-1">
               {queue.items.map((q) => (
@@ -600,6 +607,7 @@ function Composer({
           <div className="flex items-end gap-2">
             <Textarea
               ref={box}
+              onPaste={att.onPaste}
               value={text}
             onChange={(e) => setText(e.target.value)}
             onKeyDown={(e) => {
@@ -644,7 +652,7 @@ function Composer({
             )}
             <Button
               onClick={() => void go()}
-              disabled={sending || (!text.trim() && !quotes.length)}
+              disabled={sending || att.uploading > 0 || (!text.trim() && !quotes.length && !att.items.length)}
               size="icon"
               title={busy ? (queue.steers ? "Queue: the agent gets it after its current step (Enter)" : "Queue: it goes when this turn ends (Enter)") : "Send (Enter)"}
             >
@@ -652,6 +660,7 @@ function Composer({
             </Button>
           </div>
           <div className="mt-1 flex items-center gap-2 px-1">
+            <AttachButton onPick={(f) => void att.add(f)} />
             <BranchPicker session={session} disabled={busy} version={v} project={projectOf(root)} />
             {quotes.length > 0 && (
               <span className="text-[11px] text-muted-foreground">

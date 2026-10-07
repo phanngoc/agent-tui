@@ -109,6 +109,8 @@ type Command struct {
 	// Now, on a prompt sent while a turn runs, stops that turn so what is
 	// queued goes at once (Claude Code's Ctrl+Enter).
 	Now bool `json:"now,omitempty"`
+	// Files are images sent with a prompt (gateway.CheckAttachments).
+	Files []session.Attachment `json:"files,omitempty"`
 }
 
 // SubAgentData is a sub-agent tree, from the top-level call that started it.

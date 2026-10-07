@@ -186,13 +186,16 @@ func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 	switch c.Type {
 	case gateway.CmdPrompt:
 		text := strings.TrimSpace(c.Text)
-		if text == "" {
+		if text == "" && len(c.Files) == 0 {
 			return next
 		}
+		// Images from the web, put within reach of this session's agent as
+		// a pasted one is.
+		files := m.webAttachments(s, c.Files)
 		if s.Busy {
-			s.Queued = append(s.Queued, session.Queued{Text: text})
+			s.Queued = append(s.Queued, session.Queued{Text: text, Files: files})
 			m.notice = "a prompt from the web is queued behind this turn"
-			if m.steers(s) {
+			if m.steers(s) && len(files) == 0 {
 				m.steerQ.put(s.ID, text)
 			}
 			if c.Now {
@@ -206,7 +209,7 @@ func (m *Model) onGatewayCommand(c gateway.Command) tea.Cmd {
 			return next
 		}
 		m.notice = "prompt from the web: " + firstLineOf(text)
-		return tea.Batch(next, m.startTurn(s, text, nil))
+		return tea.Batch(next, m.startTurn(s, text, files))
 	case gateway.CmdCancel:
 		m.cancelSession(s)
 		m.notice = "stopped from the web"

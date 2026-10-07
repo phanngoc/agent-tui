@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { attachmentURL } from "@/components/attachments";
 import { ChevronRightIcon, WrenchIcon, BrainCircuitIcon, UserIcon, BotIcon, TerminalSquareIcon, XCircleIcon, ShieldAlertIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Live, Message, ToolCall } from "@/lib/types";
@@ -154,7 +155,22 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
               <Body text={m.text ?? ""} raw={raw} />
             </div>
           )}
-          {m.files && m.files.length > 0 && <div className="mt-1 text-xs text-muted-foreground">attached: {m.files.map((f) => f.path).join(", ")}</div>}
+          {m.files && m.files.length > 0 && (
+            <div className="mt-1.5 flex flex-wrap gap-2">
+              {m.files.map((f) =>
+                (f.media ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(f.path) ? (
+                  <a key={f.path} href={attachmentURL(f.path)} target="_blank" rel="noreferrer" title={f.path}>
+                    {/* eslint-disable-next-line @next/next/no-img-element */}
+                    <img src={attachmentURL(f.path)} alt="" className="max-h-40 max-w-60 rounded-lg border object-contain" />
+                  </a>
+                ) : (
+                  <span key={f.path} className="text-xs text-muted-foreground">
+                    attached: {f.path}
+                  </span>
+                ),
+              )}
+            </div>
+          )}
         </div>
       </div>
     );

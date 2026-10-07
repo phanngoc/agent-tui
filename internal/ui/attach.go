@@ -149,6 +149,26 @@ func (m *Model) takeAttachments(fs, text string) []session.Attachment {
 	return out
 }
 
+// webAttachments are images sent from the web for a session held here,
+// given the path its own filesystem opens them by.
+func (m *Model) webAttachments(s *session.Session, files []session.Attachment) []session.Attachment {
+	if len(files) == 0 {
+		return nil
+	}
+	fsys := m.sessionFS(s)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out := make([]session.Attachment, len(files))
+	for i, f := range files {
+		f.FS = fsID(fsys)
+		if data, err := os.ReadFile(f.Path); err == nil {
+			f.Ref, _ = attachRef(ctx, fsys, s.ID, filepath.Base(f.Path), f.Path, data)
+		}
+		out[i] = f
+	}
+	return out
+}
+
 // attachMarker is how image n is written in the prompt.
 func attachMarker(n int) string { return "[image #" + strconv.Itoa(n) + "]" }
 

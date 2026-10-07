@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { FolderPicker, describePath, placePath } from "@/components/folder-picker";
 import { baseName } from "@/lib/format";
 import { BranchPicker } from "@/components/branch-picker";
+import { AttachButton, AttachmentStrip, DropHint, filesOf, useAttachments } from "@/components/attachments";
 
 /**
  * sendOnEnter is the chat apps' rule: Enter sends, Shift+Enter is a new line.
@@ -93,6 +94,7 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
     }
   });
   const [base, setBase] = React.useState("");
+  const att = useAttachments();
   const toggleWorktree = (on: boolean) => {
     setWorktree(on);
     try {
@@ -112,7 +114,7 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
 
   const start = async () => {
     const prompt = text.trim();
-    if (!prompt || busy) return;
+    if ((!prompt && !att.items.length) || busy || att.uploading) return;
     if (!dir) {
       setPicking(true);
       return;
@@ -127,7 +129,9 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
         mode,
         prompt,
         worktree: worktree ? { base } : undefined,
+        files: att.items.length ? filesOf(att.items) : undefined,
       });
+      att.clear();
       onCreated(r.id);
     } catch (e) {
       setErr((e as Error).message);
@@ -152,8 +156,14 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
           </p>
         </div>
 
-        <div className={cn("rounded-2xl border bg-background shadow-sm focus-within:ring-[3px] focus-within:ring-ring/30", busy && "opacity-70")}>
+        <div
+          {...att.dropProps}
+          className={cn("relative rounded-2xl border bg-background shadow-sm focus-within:ring-[3px] focus-within:ring-ring/30", busy && "opacity-70")}
+        >
+          <DropHint show={att.dragging} />
+          <AttachmentStrip items={att.items} uploading={att.uploading} onRemove={att.remove} className="px-4 pt-3" />
           <textarea
+            onPaste={att.onPaste}
             autoFocus
             value={text}
             disabled={busy}
@@ -164,6 +174,7 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
             className="block max-h-[40vh] min-h-24 w-full resize-none rounded-t-2xl bg-transparent px-4 pt-4 pb-2 text-[15px] outline-none placeholder:text-muted-foreground"
           />
           <div className="flex flex-wrap items-center gap-1.5 px-3 pb-3">
+            <AttachButton onPick={(f) => void att.add(f)} />
             <button
               onClick={() => setPicking(true)}
               title={dir || "Choose a folder"}
@@ -209,7 +220,7 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
                 Worktree
               </label>
             )}
-            <Button size="icon" className="ml-auto rounded-full" disabled={busy || !text.trim()} onClick={() => void start()} title="Start (Enter)">
+            <Button size="icon" className="ml-auto rounded-full" disabled={busy || att.uploading > 0 || (!text.trim() && !att.items.length)} onClick={() => void start()} title="Start (Enter)">
               <ArrowUpIcon />
             </Button>
           </div>

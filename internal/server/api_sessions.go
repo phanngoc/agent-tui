@@ -12,6 +12,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/kit"
 	"github.com/phanngoc/agent-tui/internal/learn"
+	"github.com/phanngoc/agent-tui/internal/session"
 )
 
 func (s *Server) sessionRoutes(m *http.ServeMux) {
@@ -89,12 +90,18 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			Worktree *struct {
 				Base string `json:"base"`
 			} `json:"worktree"`
+			Files []session.Attachment `json:"files"`
 		}
 		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		if strings.TrimSpace(in.Prompt) == "" {
+		files, err := gateway.CheckAttachments(in.Files)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if strings.TrimSpace(in.Prompt) == "" && len(files) == 0 {
 			fail(w, http.StatusBadRequest, errors.New("a new conversation starts with a prompt"))
 			return
 		}
@@ -108,7 +115,7 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			}
 			in.CWD = wt
 		}
-		sess, err := s.Runner.NewSession(in.Root, in.Target, in.CWD, in.Engine, in.Model, in.Mode, in.Prompt)
+		sess, err := s.Runner.NewSession(in.Root, in.Target, in.CWD, in.Engine, in.Model, in.Mode, in.Prompt, files...)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
@@ -119,11 +126,12 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 	route := func(typ string) http.HandlerFunc {
 		return func(w http.ResponseWriter, r *http.Request) {
 			var in struct {
-				Text    string `json:"text"`
-				ID      string `json:"id"`
-				Verdict string `json:"verdict"`
-				Index   int    `json:"index"`
-				Now     bool   `json:"now"`
+				Text    string               `json:"text"`
+				ID      string               `json:"id"`
+				Verdict string               `json:"verdict"`
+				Index   int                  `json:"index"`
+				Now     bool                 `json:"now"`
+				Files   []session.Attachment `json:"files"`
 			}
 			if r.ContentLength != 0 {
 				if err := readJSON(r, &in); err != nil {
@@ -131,10 +139,15 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 					return
 				}
 			}
+			files, err := gateway.CheckAttachments(in.Files)
+			if err != nil {
+				fail(w, http.StatusBadRequest, err)
+				return
+			}
 			cmd := gateway.Command{Type: typ, Session: r.PathValue("id"), Text: in.Text,
-				ID: in.ID, Verdict: in.Verdict, Index: in.Index, Now: in.Now, From: "web"}
+				ID: in.ID, Verdict: in.Verdict, Index: in.Index, Now: in.Now, Files: files, From: "web"}
 			// Send now with nothing typed sends what is already queued.
-			if typ == gateway.CmdPrompt && strings.TrimSpace(cmd.Text) == "" && !cmd.Now {
+			if typ == gateway.CmdPrompt && strings.TrimSpace(cmd.Text) == "" && !cmd.Now && len(files) == 0 {
 				fail(w, http.StatusBadRequest, errors.New("empty prompt"))
 				return
 			}
