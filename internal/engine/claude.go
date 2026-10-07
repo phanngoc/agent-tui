@@ -1,7 +1,9 @@
 package engine
 
 import (
+	"cmp"
 	"encoding/json"
+	"slices"
 	"strings"
 	"time"
 
@@ -161,6 +163,9 @@ type claudeDec struct {
 	// taskAgent finds that call from the engine's task id.
 	agents    map[string]*subAgentState
 	taskAgent map[string]string
+	// limits is the account's allowance as last reported, handed on with
+	// the turn's usage.
+	limits []agent.Limit
 }
 
 func (d *claudeDec) failure() string { return d.fail }
@@ -188,6 +193,9 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 		IsError bool        `json:"is_error"`
 		Result  string      `json:"result"`
 		Usage   claudeUsage `json:"usage"`
+		// RateLimit arrives with each request: how much of the account's
+		// five-hour and weekly allowance is spent.
+		RateLimit *claudeRateLimit `json:"rate_limit_info"`
 	}
 	if json.Unmarshal(raw, &ev) != nil {
 		return
@@ -271,12 +279,21 @@ func (d *claudeDec) line(raw []byte, emit func(agent.Event)) {
 		d.flush(emit)
 		d.toolResults(ev.Message, emit)
 
+	case "rate_limit_event":
+		if ev.RateLimit != nil {
+			if l := ev.RateLimit.limits(); len(l) > 0 {
+				d.limits = l
+			}
+		}
+
 	case "result":
 		d.flush(emit)
 		emit(agent.EvUsage{
-			In:        ev.Usage.InputTokens,
-			Out:       ev.Usage.OutputTokens,
-			CacheRead: ev.Usage.CacheReadInputTokens,
+			In:         ev.Usage.InputTokens,
+			Out:        ev.Usage.OutputTokens,
+			CacheRead:  ev.Usage.CacheReadInputTokens,
+			CacheWrite: ev.Usage.CacheCreationInputTokens,
+			Limits:     d.limits,
 		})
 		if ev.IsError {
 			d.fail = firstNonEmpty(ev.Result, ev.Subtype, "the CLI reported an error")
@@ -304,9 +321,42 @@ func claudeTaskState(s string) string {
 }
 
 type claudeUsage struct {
-	InputTokens          int64 `json:"input_tokens"`
-	OutputTokens         int64 `json:"output_tokens"`
-	CacheReadInputTokens int64 `json:"cache_read_input_tokens"`
+	InputTokens              int64 `json:"input_tokens"`
+	OutputTokens             int64 `json:"output_tokens"`
+	CacheReadInputTokens     int64 `json:"cache_read_input_tokens"`
+	CacheCreationInputTokens int64 `json:"cache_creation_input_tokens"`
+}
+
+// claudeRateLimit is a rate_limit_event's report. Every window is in
+// unifiedWindows; the one it is about is also given on its own, which is
+// all an older CLI sends.
+type claudeRateLimit struct {
+	Type    string  `json:"rateLimitType"`
+	Used    float64 `json:"utilization"`
+	Resets  int64   `json:"resetsAt"`
+	Windows map[string]struct {
+		Used   float64 `json:"utilization"`
+		Resets int64   `json:"resetsAt"`
+	} `json:"unifiedWindows"`
+}
+
+func (r claudeRateLimit) limits() []agent.Limit {
+	var out []agent.Limit
+	for name, w := range r.Windows {
+		out = append(out, agent.Limit{Window: name, Used: w.Used, Resets: unixTime(w.Resets)})
+	}
+	if len(out) == 0 && r.Type != "" {
+		out = append(out, agent.Limit{Window: r.Type, Used: r.Used, Resets: unixTime(r.Resets)})
+	}
+	slices.SortFunc(out, func(a, b agent.Limit) int { return cmp.Compare(a.Window, b.Window) })
+	return out
+}
+
+func unixTime(sec int64) time.Time {
+	if sec <= 0 {
+		return time.Time{}
+	}
+	return time.Unix(sec, 0)
 }
 
 // streamEvent follows the message as the model writes it.

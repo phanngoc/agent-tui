@@ -247,6 +247,25 @@ type EngineState struct {
 // StateFor is what engine remembers about this session.
 func (s *Session) StateFor(engine string) EngineState { return s.Engines[engine] }
 
+// Credential names a token of the Claude pool without carrying it: where it
+// sits in the pool, how many the pool holds, and the start of its fingerprint,
+// which outlives a reordering of the pool.
+type Credential struct {
+	Slot int    `json:"slot"`
+	Of   int    `json:"of"`
+	ID   string `json:"id"`
+}
+
+// SetCredential records the pool token a turn ran on.
+func (s *Session) SetCredential(c Credential) bool {
+	if c.ID == "" || (s.Credential != nil && *s.Credential == c) {
+		return false
+	}
+	s.Credential = &c
+	s.Dirty = true
+	return true
+}
+
 // SetExternalID records an engine's own session id.
 //
 // It is keyed by the engine that produced it rather than by the session's
@@ -418,6 +437,9 @@ type Session struct {
 	InputTokens  int64 `json:"input_tokens"`
 	OutputTokens int64 `json:"output_tokens"`
 	CacheReads   int64 `json:"cache_reads"`
+	// Credential is the token of the Claude pool this conversation runs on,
+	// named, never held. It is set by the first turn that draws one.
+	Credential *Credential `json:"credential,omitempty"`
 
 	// Runtime-only state, never persisted.
 	Busy   bool   `json:"-"`

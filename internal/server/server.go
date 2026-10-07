@@ -28,6 +28,7 @@ import (
 
 	"github.com/phanngoc/agent-tui/internal/awake"
 	"github.com/phanngoc/agent-tui/internal/config"
+	"github.com/phanngoc/agent-tui/internal/engine"
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/lsp"
@@ -279,6 +280,9 @@ func (s *Server) routes() {
 	s.termRoutes(m)
 	s.remoteRoutes(m)
 	s.telegramRoutes(m)
+	// What each token of the Claude pool has spent, and how much of its
+	// allowance is left.
+	m.HandleFunc("GET /api/token-pool", func(w http.ResponseWriter, r *http.Request) { writeJSON(w, engine.PoolUsage()) })
 	m.HandleFunc("GET /api/awake", func(w http.ResponseWriter, r *http.Request) {
 		s.checkAwake()
 		writeJSON(w, s.awake.Status())

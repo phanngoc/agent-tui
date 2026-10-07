@@ -9,6 +9,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 func fakeTokenPool(t *testing.T) string {
@@ -30,7 +31,7 @@ func TestTokenPoolRoundRobinResumeAndConcurrentProcesses(t *testing.T) {
 	root := fakeTokenPool(t)
 	pick := func(id string) string {
 		t.Helper()
-		token, err := readConversationToken(context.Background(), root, id)
+		token, _, err := readConversationToken(context.Background(), root, id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -42,13 +43,21 @@ func TestTokenPoolRoundRobinResumeAndConcurrentProcesses(t *testing.T) {
 			t.Fatalf("assignment %s did not follow round robin", id)
 		}
 	}
+	// The token is named by its place and fingerprint, never by itself.
+	_, cred, err := readConversationToken(context.Background(), root, "b")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cred.Slot != 2 || cred.Of != 3 || len(cred.ID) != 12 || strings.Contains(cred.ID, "sk-ant") {
+		t.Fatalf("credential name: %+v", cred)
+	}
 	// Each call launches a separate PowerShell process; the named mutex must
 	// prevent two terminals/scheduler runs from claiming the same cursor slot.
 	var wg sync.WaitGroup
 	results := make(chan string, 6)
 	for _, id := range []string{"e", "f", "g", "h", "i", "j"} {
 		wg.Go(func() {
-			token, err := readConversationToken(context.Background(), root, id)
+			token, _, err := readConversationToken(context.Background(), root, id)
 			if err != nil {
 				t.Error(err)
 				return
@@ -84,10 +93,15 @@ func TestTokenPoolRoundRobinResumeAndConcurrentProcesses(t *testing.T) {
 	if len(state.Assignments) != 10 {
 		t.Fatalf("lost assignments: %d", len(state.Assignments))
 	}
+	// The pool is sized from the file Export-Clixml wrote, without opening
+	// a credential.
+	if r := poolUsage(root, time.Now()); !r.Enabled || r.Size != 3 || len(r.Tokens) != 3 {
+		t.Fatalf("pool report: %+v", r)
+	}
 }
 
 func TestTokenPoolMissingCorruptAndEnvironment(t *testing.T) {
-	if token, err := readConversationToken(context.Background(), t.TempDir(), "a"); err != nil || token != "" {
+	if token, _, err := readConversationToken(context.Background(), t.TempDir(), "a"); err != nil || token != "" {
 		t.Fatal("missing pool must retain existing authentication")
 	}
 	home := t.TempDir()
@@ -102,12 +116,15 @@ func TestTokenPoolMissingCorruptAndEnvironment(t *testing.T) {
 		t.Fatal(err)
 	}
 	before := []string{"PATH=keep", "ANTHROPIC_API_KEY=old", "anthropic_auth_token=old", "CLAUDE_CODE_OAUTH_TOKEN=old"}
-	got, err := claudeTokenEnv(context.Background(), before, "conversation")
+	got, cred, err := claudeTokenEnv(context.Background(), before, "conversation")
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(got) != 2 || got[0] != "PATH=keep" || got[1] != "CLAUDE_CODE_OAUTH_TOKEN=sk-ant-oat-fake-a" {
 		t.Fatal("credential precedence incorrect")
+	}
+	if cred.Slot != 1 || cred.Of != 3 {
+		t.Fatalf("credential name: %+v", cred)
 	}
 	if before[1] != "ANTHROPIC_API_KEY=old" {
 		t.Fatal("input environment mutated")
@@ -115,7 +132,7 @@ func TestTokenPoolMissingCorruptAndEnvironment(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(root, "agent-tui-state.json"), []byte("invalid"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := readConversationToken(context.Background(), root, "b"); err == nil || strings.Contains(err.Error(), "sk-ant") {
+	if _, _, err := readConversationToken(context.Background(), root, "b"); err == nil || strings.Contains(err.Error(), "sk-ant") {
 		t.Fatal("corrupt state must fail without exposing secrets")
 	}
 }

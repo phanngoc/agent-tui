@@ -12,6 +12,7 @@ import { TraceView } from "@/components/trace-panel";
 import { GatewayCard } from "@/components/gateway-card";
 import { TelegramCard } from "@/components/telegram-card";
 import { KeepAwakeCard } from "@/components/keep-awake-card";
+import { TokenPoolCard } from "@/components/token-pool";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -50,6 +51,7 @@ export default function SettingsPage() {
         <GatewayCard />
         <KeepAwakeCard />
         <TelegramCard />
+        <TokenPoolCard />
         <Effective data={data} root={root} />
         <ContextPreview root={root} engines={data.engines} />
         <Paths data={data} />

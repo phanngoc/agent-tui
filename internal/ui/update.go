@@ -1157,6 +1157,9 @@ func (m *Model) applyAgentEvent(msg agentMsg) tea.Cmd {
 			}
 		}
 
+	case agent.EvCredential:
+		s.SetCredential(e.Credential)
+
 	case agent.EvUsage:
 		s.InputTokens += e.In
 		s.OutputTokens += e.Out

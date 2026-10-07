@@ -411,6 +411,12 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 			if s.SetSubAgent(e.ToolUse, e.Agent) {
 				p.mgr.Save(s)
 			}
+		case agent.EvCredential:
+			if s.SetCredential(e.Credential) {
+				p.mgr.Save(s)
+				r.publishSummary(s, true)
+			}
+			continue
 		case agent.EvUsage:
 			s.InputTokens += e.In
 			s.OutputTokens += e.Out

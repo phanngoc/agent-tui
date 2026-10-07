@@ -152,9 +152,11 @@ type Summary struct {
 	Owner    string    `json:"owner,omitempty"`
 	InTokens int64     `json:"input_tokens"`
 	OutToks  int64     `json:"output_tokens"`
-	Closed   bool      `json:"closed,omitempty"`
-	Pinned   bool      `json:"pinned,omitempty"`
-	SideOf   string    `json:"side_of,omitempty"`
+	// Credential is the Claude pool token the conversation runs on.
+	Credential *session.Credential `json:"credential,omitempty"`
+	Closed     bool                `json:"closed,omitempty"`
+	Pinned     bool                `json:"pinned,omitempty"`
+	SideOf     string              `json:"side_of,omitempty"`
 	// Job is the scheduled job the session is a run of.
 	Job string `json:"job,omitempty"`
 }
@@ -165,7 +167,7 @@ func SummaryOf(s *session.Session) Summary {
 		ID: s.ID, Title: s.Label(), Root: s.Root, Engine: s.Engine, Model: s.Model, Mode: s.Mode,
 		Target: s.Target, CWD: s.CWD, Messages: len(s.Messages), Created: s.Created, Updated: s.Updated,
 		Busy: s.Busy, Status: s.Status, InTokens: s.InputTokens, OutToks: s.OutputTokens,
-		Closed: s.Closed, Pinned: s.Pinned, SideOf: s.SideOf, Job: jobOf(s),
+		Credential: s.Credential, Closed: s.Closed, Pinned: s.Pinned, SideOf: s.SideOf, Job: jobOf(s),
 	}
 }
 

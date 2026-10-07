@@ -45,7 +45,9 @@ try {
                 else { [IO.File]::Move($tmp, $path) }
             } finally { if ([IO.File]::Exists($tmp)) { [IO.File]::Delete($tmp) } }
         }
-        [Console]::Out.Write($tokens[$selected])
+        # The first line names the token for the record (its place, the pool's
+        # size, the start of its fingerprint); the second is the token itself.
+        [Console]::Out.Write(('{0} {1} {2}' -f ($selected + 1), $tokens.Count, $ids[$selected].Substring(0, 12)) + "`n" + $tokens[$selected])
     } finally {
         if ($locked) { $mutex.ReleaseMutex() }
         $mutex.Dispose()
