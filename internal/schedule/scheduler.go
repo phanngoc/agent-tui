@@ -384,6 +384,10 @@ func (s *Scheduler) footer(j *Job) string {
 	b.WriteString("\n\n(This runs on a schedule, with nobody watching. ")
 	if j.Kind == KindTask {
 		b.WriteString("If there is nothing worth reporting, reply NO_REPLY and nothing else. ")
+		// The reply is what the reader gets: this conversation, Telegram.
+		// A path to a report file, or a notification sent some other way,
+		// leaves them to go and look.
+		b.WriteString("Otherwise your final reply is the report: it is what the reader sees, here and in Telegram, so put the findings in it — not only the path to a file — and do not send notifications any other way. ")
 	}
 	if p := j.Pacing; p != nil {
 		fmt.Fprintf(&b, "Before you finish, choose when to check again with the schedule tool, action next, in between %s and %s: soon while something is changing, later when it is quiet. If the work is done for good, call it with stop: true. ", p.Min, p.Max)
