@@ -110,6 +110,8 @@ type Command struct {
 	Title    *string `json:"title,omitempty"`
 	Pinned   *bool   `json:"pinned,omitempty"`
 	Archived *bool   `json:"archived,omitempty"`
+	// Chapter pins a message as a chapter, or unpins it.
+	Chapter *ChapterMark `json:"chapter,omitempty"`
 	// Fresh starts a prompt's turn with a context of its own, in a session
 	// that keeps what came before for the reader (a scheduled job's run).
 	Fresh bool `json:"fresh,omitempty"`
@@ -118,6 +120,12 @@ type Command struct {
 	Now bool `json:"now,omitempty"`
 	// Files are images sent with a prompt (gateway.CheckAttachments).
 	Files []session.Attachment `json:"files,omitempty"`
+}
+
+// ChapterMark is a message, by index, pinned as a chapter (On) or unpinned.
+type ChapterMark struct {
+	At int  `json:"at"`
+	On bool `json:"on"`
 }
 
 // SubAgentData is a sub-agent tree, from the top-level call that started it.

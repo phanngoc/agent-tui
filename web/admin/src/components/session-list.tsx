@@ -18,7 +18,7 @@ import { Input } from "@/components/ui/input";
 import { baseName } from "@/lib/format";
 
 /** setListSettings changes what the list's menu changes: the name, the pin, archived. */
-export async function setListSettings(id: string, body: { title?: string; pinned?: boolean; archived?: boolean }) {
+export async function setListSettings(id: string, body: { title?: string; pinned?: boolean; archived?: boolean; chapter?: { at: number; on: boolean } }) {
   await api.put(`/api/sessions/${id}/settings`, body);
 }
 

@@ -28,6 +28,8 @@ import { AttachButton, AttachmentStrip, DropHint, filesOf, useAttachments, type 
 import { describePath } from "@/components/folder-picker";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
 import { RenameInput, SessionList, setListSettings } from "@/components/session-list";
+import { Chapters, MessageHooksContext, type MessageHooks } from "@/components/message-actions";
+import { useChatDraft } from "@/lib/draft";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
@@ -275,12 +277,62 @@ function Conversation({ id }: { id: string }) {
     }
   };
 
+  // A chapter just pinned or unpinned shows until the session says so.
+  const [marks, setMarks] = React.useState<Record<number, boolean>>({});
+  const router = useRouter();
+  const messages = data?.session.messages;
+  const chapters = React.useMemo(() => {
+    const set = new Set(data?.session.chapters ?? []);
+    for (const [i, on] of Object.entries(marks)) {
+      if (on) set.add(Number(i));
+      else set.delete(Number(i));
+    }
+    return [...set].sort((a, b) => a - b);
+  }, [data?.session.chapters, marks]);
+  const hooks = React.useMemo<MessageHooks | null>(() => {
+    if (!messages) return null;
+    return {
+      session: id,
+      messages,
+      chapters,
+      chapter: (at, on) => {
+        setMarks((m) => ({ ...m, [at]: on }));
+        setListSettings(id, { chapter: { at, on } }).catch((e: Error) => {
+          setMarks((m) => ({ ...m, [at]: !on }));
+          toast.error(e.message);
+        });
+      },
+      fork: async (at) => {
+        // From a prompt: up to the message before it, with the prompt in
+        // the new conversation's composer to change and send again.
+        const m = messages[at];
+        const prompt = m?.role === "user" ? (m.text ?? "") : "";
+        const upTo = m?.role === "user" ? at - 1 : at;
+        try {
+          if (upTo < 0) {
+            useGateway.getState().setRoot(data!.session.root);
+            if (prompt) useChatDraft.getState().push(prompt);
+            router.push("/sessions");
+            return;
+          }
+          const r = await api.post<{ id: string }>(`/api/sessions/${id}/fork`, { at: upTo });
+          if (prompt) useChatDraft.getState().push(prompt);
+          toast.success("Forked from here", { description: prompt ? "Edit the prompt and send it." : "The agent is briefed on the conversation so far." });
+          router.push(`/sessions?id=${r.id}`);
+        } catch (e) {
+          toast.error((e as Error).message);
+        }
+      },
+    };
+  }, [id, messages, chapters, router, data]);
+
   if (error) return <ErrorNote error={error} className="m-6" />;
   if (!data) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
   const s = data.session;
 
   return (
     <FileOpener.Provider value={openFile}>
+    <MessageHooksContext.Provider value={hooks}>
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         <div className="@container flex items-start gap-2 border-b px-3 py-2 md:gap-3 md:px-5 md:py-3">
@@ -337,6 +389,13 @@ function Conversation({ id }: { id: string }) {
         </div>
 
         <div className="relative flex min-h-0 flex-1 flex-col">
+          <div className="pointer-events-none absolute top-2 right-4 z-10 md:right-6">
+            <Chapters
+              messages={s.messages}
+              chapters={chapters}
+              onJump={(i) => document.getElementById(`m${i}`)?.scrollIntoView({ behavior: "smooth", block: "start" })}
+            />
+          </div>
           <div ref={scroller} className="min-h-0 flex-1 overflow-auto px-3 py-3 [overflow-anchor:none] md:px-5 md:py-4">
             <div ref={content} className={cn("mx-auto space-y-5", ws.rightOpen ? "max-w-3xl" : "max-w-5xl")}>
               {s.messages.map((m, i) => (
@@ -344,6 +403,7 @@ function Conversation({ id }: { id: string }) {
                   key={i}
                   m={m}
                   index={i}
+                  turnEnd={m.role === "assistant" && !busy && (i === s.messages.length - 1 || s.messages[i + 1]?.role === "user")}
                   onTrace={(idx) => {
                     setTraceFor(idx);
                     setTab("context");
@@ -412,6 +472,7 @@ function Conversation({ id }: { id: string }) {
         </Tabs>
       </RightPane>
     </div>
+    </MessageHooksContext.Provider>
     </FileOpener.Provider>
   );
 }
@@ -476,7 +537,11 @@ function Composer({
   queue: QueueData;
   onUnqueue: (item: string) => Promise<string | null>;
 }) {
-  const [text, setText] = React.useState("");
+  // A prompt forked from ("Fork from here" on it) starts the text, to edit.
+  const [text, setText] = React.useState(() => useChatDraft.getState().pending);
+  React.useEffect(() => {
+    if (useChatDraft.getState().take()) box.current?.focus();
+  }, []);
   const [sending, setSending] = React.useState(false);
   // A phone's Enter key is its new line; there the button sends.
   const mobile = useIsMobile();

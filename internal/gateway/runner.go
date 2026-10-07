@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -533,6 +534,18 @@ func ApplyListSettings(s *session.Session, cmd Command) bool {
 	if cmd.Archived != nil && *cmd.Archived != s.Closed {
 		s.Closed, changed = *cmd.Archived, true
 	}
+	if c := cmd.Chapter; c != nil && c.At >= 0 && c.At < len(s.Messages) {
+		has := slices.Contains(s.Chapters, c.At)
+		switch {
+		case c.On && !has:
+			s.Chapters = append(s.Chapters, c.At)
+			slices.Sort(s.Chapters)
+			changed = true
+		case !c.On && has:
+			s.Chapters = slices.DeleteFunc(s.Chapters, func(i int) bool { return i == c.At })
+			changed = true
+		}
+	}
 	return changed
 }
 
@@ -579,20 +592,36 @@ func (r *Runner) Restore(id string) error {
 // Fork branches a session as the terminal's /fork does, from what is saved of
 // it: the new one has the same transcript and its first turn continues the
 // original's context.
-func (r *Runner) Fork(id string) (*session.Session, error) {
+//
+// at, when not negative, forks from that message: the new one keeps the
+// transcript up to and including it. The engine's own conversation goes on
+// past that point and cannot be cut, so such a fork does not resume it; its
+// first turn is briefed on the transcript instead, as a change of engine is.
+func (r *Runner) Fork(id string, at int) (*session.Session, error) {
 	src, err := Load(id)
 	if err != nil {
 		return nil, err
 	}
-	if len(src.Messages) == 0 {
+	if len(src.Messages) == 0 || at >= len(src.Messages) {
 		return nil, errors.New("nothing to fork yet")
 	}
 	// A manager of its own: forking needs no filesystem, and a WSL project
 	// that cannot be reached right now can still be forked.
 	m := session.NewManager(config.DataDir(), src.Root, src.Model)
-	defer m.Shutdown()
 	f := m.Fork(src)
 	f.Mode, f.SideOf = src.Mode, ""
+	if at >= 0 && at < len(src.Messages)-1 {
+		f.Messages = f.Messages[:at+1]
+		f.ExternalID, f.Engines, f.ForkPending = "", nil, false
+	}
+	for _, c := range src.Chapters {
+		if c < len(f.Messages) {
+			f.Chapters = append(f.Chapters, c)
+		}
+	}
+	// Fork queued a save of its own copy; flushed first, so this one is the
+	// last word and not overwritten by it.
+	m.Shutdown()
 	m.SaveNow(f)
 	r.publishSummary(f, false)
 	return f, nil

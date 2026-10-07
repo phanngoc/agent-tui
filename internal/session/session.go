@@ -393,9 +393,12 @@ type Session struct {
 	// next start does not restore it, and /recall still finds it.
 	Closed bool `json:"closed,omitempty"`
 	// Pinned keeps a conversation at the top of the web's list.
-	Pinned  bool      `json:"pinned,omitempty"`
-	Created time.Time `json:"created"`
-	Updated time.Time `json:"updated"`
+	Pinned bool `json:"pinned,omitempty"`
+	// Chapters are the messages pinned as chapters, by index, in order: the
+	// places in a long conversation worth jumping back to.
+	Chapters []int     `json:"chapters,omitempty"`
+	Created  time.Time `json:"created"`
+	Updated  time.Time `json:"updated"`
 
 	Messages []Message `json:"messages"`
 
