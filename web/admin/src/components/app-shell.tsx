@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   LayoutDashboardIcon,
   MessagesSquareIcon,
@@ -22,9 +22,8 @@ import {
   EllipsisIcon,
   CoffeeIcon,
 } from "lucide-react";
-import { toast } from "sonner";
 import { cn } from "@/lib/utils";
-import { onEvent, useGateway, useVersion } from "@/lib/store";
+import { useGateway, useVersion } from "@/lib/store";
 import { useFetch } from "@/lib/hooks";
 import type { AwakeStatus } from "@/components/keep-awake-card";
 import { Dot } from "@/components/common";
@@ -65,26 +64,8 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const focus = useLayout((s) => s.focus);
   const setFocus = useLayout((s) => s.setFocus);
   React.useEffect(() => load(), [load]);
-  const router = useRouter();
-  // A scheduled run with something to say says it, on whatever page is open;
-  // a quiet run (HEARTBEAT_OK, NO_REPLY) and a skipped one do not.
-  React.useEffect(
-    () =>
-      onEvent((e) => {
-        if (e.type !== "schedule.run") return;
-        const run = e.data?.run as { status: string; text?: string; error?: string; session?: string } | undefined;
-        if (!run || (run.status !== "ok" && run.status !== "error")) return;
-        const body = (run.error || run.text || "").slice(0, 220);
-        const opts = {
-          description: body,
-          duration: 12000,
-          action: run.session ? { label: "Open", onClick: () => router.push(`/sessions?id=${run.session}`) } : undefined,
-        };
-        if (run.status === "error") toast.error(`${e.data?.name} failed`, opts);
-        else toast(`${e.data?.name}`, opts);
-      }),
-    [router],
-  );
+  // A scheduled run's report is in its session, which the list marks as
+  // updated; it no longer pops up over whatever page is open.
 
   // Ctrl/⌘+B folds the navigation, as in an editor; Alt+\ is focus mode.
   React.useEffect(() => {
