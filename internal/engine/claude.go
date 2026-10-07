@@ -18,8 +18,12 @@ func newClaude(root string) *CLI {
 		id: IDClaude, label: "Claude Code", bin: "claude",
 		root: root, fs: vfs.NewLocal(root), approvals: true,
 		streamIn: true,
-		argv:     claudeArgv,
-		newDec:   func() decoder { return &claudeDec{} },
+		// A sub-agent's words between its calls, which say what it is doing
+		// better than its last tool does. An environment variable rather than
+		// --forward-subagent-text, which a CLI too old to know it refuses.
+		env:    []string{"CLAUDE_CODE_FORWARD_SUBAGENT_TEXT=1"},
+		argv:   claudeArgv,
+		newDec: func() decoder { return &claudeDec{} },
 	}
 }
 

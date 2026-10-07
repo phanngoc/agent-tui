@@ -10,25 +10,89 @@ import (
 	"github.com/phanngoc/agent-tui/internal/session"
 )
 
-// Sub-agents in the transcript, the way Claude Code shows them: the agent's
-// type and what it was asked to do, then what it is doing now with what it
-// has used so far, and its last few calls; once it is done, one line of what
-// it found. Agents it started in turn sit under it, indented.
+// Sub-agents in the transcript, the way Claude Code shows them.
 //
-//	▎  ● Explore  Find the Go module name
-//	▎    ⎿ Reading go.mod · 4 tool uses · 21.2k tokens · 9s
-//	▎      ✓ Glob **/go.mod
-//	▎      ⋯ Read go.mod
+// Folded, which is how they start, an agent is two lines however much it has
+// done: its type, its task and what it has used, then what it is doing now —
+// and, while it works, the last thing it said, which is the nearest the CLI
+// comes to streaming one. Agents started together are drawn as one group,
+// a row each, so six of them take thirteen lines and not sixty:
+//
+//	▎  ● Running 2 agents · 62.4k tokens  ·  alt+o expands
+//	▎    ├─ ● Explore  Find the Go module name · 4 tool uses · 21.2k tokens · 9s
+//	▎    │    ⎿ Reading go.mod
+//	▎    └─ ✓ general-purpose  Count the .go files · 9 tool uses · 41.2k tokens · 31s
+//	▎         ⎿ There are 21 Go files in internal/engine.
+//
+// alt+o, the key that brings back folded calls, opens them: every call each
+// agent made, its words, and more of its report. Agents an agent started sit
+// under it, indented.
 
-// agentCallsShown is how many of a running agent's latest calls are listed.
-const agentCallsShown = 3
+// agentReportRows is how much of a finished agent's report an opened one shows.
+const agentReportRows = 6
 
+// renderAgent draws one Agent call that is not part of a group.
 func (m *Model) renderAgent(b *strings.Builder, t session.ToolCall, width int) {
 	bar := m.st.AgentBar.Render("▎")
-	m.agentBlock(b, bar, "  ", t.Agent, width, 0)
+	if m.showAllCalls {
+		m.agentBlock(b, bar, "  ", t.Agent, width, 0)
+		return
+	}
+	m.agentCompact(b, bar, "  ", "    ", t.Agent, width, 0, true)
 }
 
-func (m *Model) agentBlock(b *strings.Builder, bar, indent string, a *session.SubAgent, width, depth int) {
+// renderAgentGroup draws Agent calls made side by side as one block.
+func (m *Model) renderAgentGroup(b *strings.Builder, calls []session.ToolCall, width int) {
+	bar := m.st.AgentBar.Render("▎")
+	var running, failed int
+	var tokens int64
+	for _, c := range calls {
+		if c.Agent.Running() {
+			running++
+		} else if c.Agent.State == "failed" {
+			failed++
+		}
+		tokens += c.Agent.Tokens
+	}
+	icon, style := "●", m.st.Accent
+	head := fmt.Sprintf("Running %d agents", len(calls))
+	switch {
+	case running > 0 && running < len(calls):
+		head = fmt.Sprintf("Running %d of %d agents", running, len(calls))
+	case running == 0:
+		icon, style = "✓", m.st.Good
+		head = fmt.Sprintf("%d agents finished", len(calls))
+	}
+	if failed > 0 {
+		head += fmt.Sprintf(" · %d failed", failed)
+	}
+	if tokens > 0 {
+		head += " · " + compactTokens(tokens) + " tokens"
+	}
+	hint := "alt+o expands"
+	if m.showAllCalls {
+		hint = "alt+o folds"
+	}
+	b.WriteString(clipLine(bar+"  "+style.Render(icon)+" "+m.st.Body.Render(head)+
+		m.st.Faint.Render("  ·  "+hint), width))
+	b.WriteByte('\n')
+
+	for i, c := range calls {
+		if m.showAllCalls {
+			m.agentBlock(b, bar, "    ", c.Agent, width, 0)
+			continue
+		}
+		lead, cont := "    ├─ ", "    │    "
+		if i == len(calls)-1 {
+			lead, cont = "    └─ ", "         "
+		}
+		m.agentCompact(b, bar, m.st.Faint.Render(lead), m.st.Faint.Render(cont), c.Agent, width, 0, false)
+	}
+}
+
+// agentHead is an agent's first line: how it stands, its type, its task, and
+// what it has used.
+func (m *Model) agentHead(lead string, a *session.SubAgent, width int) string {
 	icon, style := "●", m.st.Accent
 	switch a.State {
 	case "done":
@@ -38,62 +102,120 @@ func (m *Model) agentBlock(b *strings.Builder, bar, indent string, a *session.Su
 	case "stopped":
 		icon, style = "■", m.st.Dim
 	}
-	stats := agentStats(a)
-	head := bar + indent + style.Render(icon) + " " + m.st.ToolTag.Render(firstNonBlank(a.Type, "agent"))
+	head := lead + style.Render(icon) + " " + m.st.ToolTag.Render(firstNonBlank(a.Type, "agent"))
 	tail := ""
-	if !a.Running() && stats != "" {
-		tail = "  " + m.st.Faint.Render(stats)
+	if stats := agentStats(a); stats != "" {
+		tail = m.st.Faint.Render(" · " + stats)
 	}
+	// The stats are kept whole and the task gives way: how far along it is
+	// matters more, line by line, than the rest of a task already on screen.
 	room := width - lipgloss.Width(head) - lipgloss.Width(tail) - 2
-	b.WriteString(clipLine(head+"  "+m.st.Dim.Render(truncate(a.Description, max(8, room)))+tail, width))
+	return clipLine(head+"  "+m.st.Dim.Render(truncate(agentTask(a), max(8, room)))+tail, width)
+}
+
+// agentTask is what an agent was asked to do, in a line.
+func agentTask(a *session.SubAgent) string {
+	return firstNonBlank(a.Description, firstLine(a.Prompt), "sub-agent")
+}
+
+// agentNow is an agent's second line: what it is doing, or how it ended.
+func agentNow(a *session.SubAgent) string {
+	if a.Running() {
+		return firstNonBlank(a.Activity, firstLine(a.Summary), "starting…")
+	}
+	if r := firstLine(a.Summary); r != "" {
+		return r
+	}
+	return a.State
+}
+
+// agentCompact draws an agent folded: its head, what it is doing now, with
+// words the last thing it said, and the agents under it still at work. lead
+// goes before the head and cont before each line under it.
+func (m *Model) agentCompact(b *strings.Builder, bar, lead, cont string, a *session.SubAgent, width, depth int, words bool) {
+	b.WriteString(m.agentHead(bar+lead, a, width))
+	b.WriteByte('\n')
+	now := agentNow(a)
+	style := m.st.Dim
+	if a.Running() {
+		style = m.st.Body
+	} else if a.State == "failed" {
+		style = m.st.Bad
+	}
+	b.WriteString(clipLine(bar+cont+m.st.Faint.Render("⎿ ")+style.Render(truncate(now, max(8, width-lipgloss.Width(bar+cont)-3))), width))
+	b.WriteByte('\n')
+	if words && a.Running() {
+		if said := firstLine(a.Summary); said != "" && said != now {
+			b.WriteString(clipLine(bar+cont+"  "+m.st.Faint.Italic(true).Render(truncate(said, max(8, width-lipgloss.Width(bar+cont)-3))), width))
+			b.WriteByte('\n')
+		}
+	}
+	if depth >= 4 {
+		return
+	}
+	for _, c := range a.Calls {
+		if c.Agent != nil && c.Agent.Running() {
+			m.agentCompact(b, bar, cont+m.st.Faint.Render("↳ "), cont+"  ", c.Agent, width, depth+1, false)
+		}
+	}
+}
+
+// agentBlock draws an agent opened: every call it made, with the agents
+// those started nested under them, and what it said or reported.
+func (m *Model) agentBlock(b *strings.Builder, bar, indent string, a *session.SubAgent, width, depth int) {
+	b.WriteString(m.agentHead(bar+indent, a, width))
 	b.WriteByte('\n')
 
 	elbow := bar + indent + "  " + m.st.Faint.Render("⎿ ")
 	sub := bar + indent + "    "
+	room := max(8, width-lipgloss.Width(sub))
 	if a.Running() {
-		what := firstNonBlank(a.Activity, "starting…")
-		if a.State == "starting" && a.Activity == "" {
-			what = "starting…"
-		}
-		line := m.st.Body.Render(what)
-		if stats != "" {
-			line += m.st.Faint.Render(" · " + stats)
-		}
-		b.WriteString(clipLine(elbow+line, width))
+		b.WriteString(clipLine(elbow+m.st.Body.Render(agentNow(a)), width))
 		b.WriteByte('\n')
-		calls := a.Calls
-		if len(calls) > agentCallsShown {
-			calls = calls[len(calls)-agentCallsShown:]
+	}
+	for _, c := range a.Calls {
+		if c.Agent != nil && depth < 4 {
+			m.agentBlock(b, bar, indent+"    ", c.Agent, width, depth+1)
+			continue
 		}
-		for _, c := range calls {
-			if c.Agent != nil && depth < 4 {
-				m.agentBlock(b, bar, indent+"    ", c.Agent, width, depth+1)
-				continue
-			}
-			mark, ms := "⋯", m.st.Dim
-			if c.Done && c.IsError {
-				mark, ms = "!", m.st.Bad
-			} else if c.Done {
-				mark, ms = "✓", m.st.Good
-			}
-			line := sub + ms.Render(mark) + " " + m.st.Dim.Render(c.Name)
-			if s := c.Summary(); s != "" {
-				line += " " + m.st.Faint.Render(s)
-			}
-			b.WriteString(clipLine(line, width))
+		mark, ms := "⋯", m.st.Dim
+		if c.Done && c.IsError {
+			mark, ms = "!", m.st.Bad
+		} else if c.Done {
+			mark, ms = "✓", m.st.Good
+		}
+		line := sub + ms.Render(mark) + " " + m.st.Dim.Render(c.Name)
+		if s := c.Summary(); s != "" {
+			line += " " + m.st.Faint.Render(s)
+		}
+		b.WriteString(clipLine(line, width))
+		b.WriteByte('\n')
+	}
+	if a.Running() {
+		if said := firstLine(a.Summary); said != "" {
+			b.WriteString(clipLine(sub+m.st.Faint.Italic(true).Render(truncate(said, room)), width))
 			b.WriteByte('\n')
 		}
 		return
 	}
-	// Finished: its report, in a line; agents under it, each in its own.
-	for _, c := range a.Calls {
-		if c.Agent != nil && depth < 4 {
-			m.agentBlock(b, bar, indent+"    ", c.Agent, width, depth+1)
+	// Finished: the head of its report.
+	n := 0
+	for _, l := range strings.Split(a.Summary, "\n") {
+		l = strings.TrimSpace(strings.Trim(strings.TrimSpace(l), "*#`"))
+		if l == "" {
+			continue
 		}
-	}
-	if r := firstLine(a.Summary); r != "" {
-		b.WriteString(clipLine(elbow+m.st.Dim.Render(r), width))
+		if n == agentReportRows {
+			b.WriteString(sub + m.st.Faint.Render("…") + "\n")
+			break
+		}
+		pre := sub
+		if n == 0 {
+			pre = elbow
+		}
+		b.WriteString(clipLine(pre+m.st.Dim.Render(truncate(l, room)), width))
 		b.WriteByte('\n')
+		n++
 	}
 }
 

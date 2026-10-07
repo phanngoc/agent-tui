@@ -83,6 +83,19 @@ func planCalls(msgs []session.Message, keep int, all bool) []callPlan {
 				}
 			}
 		}
+		// A sub-agent still at work is drawn even where its call was folded
+		// away, so it is not one of those the line counts.
+		for k := i; k < j; k++ {
+			for _, t := range msgs[k].Tools[:out[k].skip] {
+				if t.Agent.Running() {
+					for n := i; n < j; n++ {
+						if out[n].note > 0 {
+							out[n].note--
+						}
+					}
+				}
+			}
+		}
 		i = j
 	}
 	return out

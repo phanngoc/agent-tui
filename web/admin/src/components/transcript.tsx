@@ -4,18 +4,37 @@ import * as React from "react";
 import { attachmentURL } from "@/components/attachments";
 import { ChevronRightIcon, WrenchIcon, BrainCircuitIcon, UserIcon, BotIcon, TerminalSquareIcon, XCircleIcon, ShieldAlertIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
-import type { Live, Message, ToolCall } from "@/lib/types";
+import type { Live, Message, SubAgent, ToolCall } from "@/lib/types";
 import { Pre } from "@/components/common";
 import { Markdown } from "@/components/markdown";
 import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
 import { Button } from "@/components/ui/button";
-import { SubAgentCard } from "@/components/subagent";
+import { AgentGroup, SubAgentCard } from "@/components/subagent";
 import { useFileOpener } from "@/lib/file-opener";
 import { ChapterMark, MessageActions } from "@/components/message-actions";
 
 export function ToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   if (call.agent) return <SubAgentCard a={call.agent} />;
   return <PlainToolRow call={call} output={output} running={running} />;
+}
+
+type AgentCall = ToolCall & { agent: SubAgent };
+
+/** groupAgents gathers Agent calls made side by side, so they draw as one block. */
+function groupAgents(tools: ToolCall[]): (ToolCall | AgentCall[])[] {
+  const out: (ToolCall | AgentCall[])[] = [];
+  for (let i = 0; i < tools.length; ) {
+    let j = i;
+    while (j < tools.length && tools[j].agent) j++;
+    if (j - i > 1) {
+      out.push(tools.slice(i, j) as AgentCall[]);
+      i = j;
+    } else {
+      out.push(tools[i]);
+      i++;
+    }
+  }
+  return out;
 }
 
 /** filePathOf is the file a tool call worked on, when it names one. */
@@ -199,9 +218,9 @@ export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index:
         {m.text && <Body text={m.text} raw={raw} />}
         {m.tools && m.tools.length > 0 && (
           <div className="space-y-1">
-            {m.tools.map((t) => (
-              <ToolRow key={t.id} call={t} />
-            ))}
+            {groupAgents(m.tools).map((g) =>
+              Array.isArray(g) ? <AgentGroup key={g[0].id} calls={g} /> : <ToolRow key={g.id} call={g} />,
+            )}
           </div>
         )}
         {m.err && <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{m.err}</div>}

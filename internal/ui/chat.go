@@ -263,10 +263,26 @@ func (m *Model) renderMessage(b *strings.Builder, msg *session.Message, width in
 		b.WriteString(m.foldedLine(plan.note))
 		b.WriteByte('\n')
 	}
+	// A sub-agent still at work is never folded away: it is what the turn is
+	// waiting on.
+	shown := make([]session.ToolCall, 0, len(msg.Tools))
 	for i, t := range msg.Tools {
-		if i < plan.skip {
+		if i >= plan.skip || t.Agent.Running() {
+			shown = append(shown, t)
+		}
+	}
+	for i := 0; i < len(shown); i++ {
+		// Agents started side by side are drawn as one group.
+		j := i
+		for j < len(shown) && shown[j].Agent != nil {
+			j++
+		}
+		if j-i > 1 {
+			m.renderAgentGroup(b, shown[i:j], width)
+			i = j - 1
 			continue
 		}
+		t := shown[i]
 		m.renderTool(b, t, width)
 		// An edit says what it changed. "edited (1 replacement)" is the same
 		// report whether the right line was changed or the wrong one.
@@ -598,7 +614,9 @@ func (m *Model) ticking() bool {
 // With it, a session that is doing something redraws once a second and one
 // that is not never redraws at all.
 func clockKey(s *session.Session) string {
-	if s.RunAt.IsZero() && s.Running == 0 {
+	// A sub-agent in the background outlives the turn that started it, and
+	// its clock is the one thing on screen saying it is still at it.
+	if s.RunAt.IsZero() && s.Running == 0 && runningAgents(s) == 0 {
 		return ""
 	}
 	return strconv.FormatInt(time.Now().Unix(), 10)

@@ -9,7 +9,7 @@ import type { Live, SubAgent, Summary, ToolCall } from "@/lib/types";
 import { baseName, toolSummary } from "@/lib/format";
 import { Empty, PageHeader } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
-import { AgentStateIcon, AgentType, agentStats, countAgents, isRunning, useNow } from "@/components/subagent";
+import { AgentStateIcon, AgentType, agentNow, agentStats, agentTask, countAgents, firstLine, isRunning, useNow } from "@/components/subagent";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 
@@ -181,16 +181,15 @@ function Node({ a, now }: { a: SubAgent; now: number }) {
         <button className="flex w-full min-w-0 items-center gap-2 text-left text-sm" onClick={() => setOpen(!open)}>
           <AgentStateIcon a={a} />
           <AgentType type={a.type} />
-          <span className="min-w-0 flex-1 truncate font-medium">{a.description || "sub-agent"}</span>
+          <span className="min-w-0 flex-1 truncate font-medium">{agentTask(a)}</span>
           <span className="shrink-0 text-xs tabular-nums text-muted-foreground">{agentStats(a, now)}</span>
         </button>
         <div className="mt-1 flex min-w-0 items-center gap-2 pl-6 text-xs">
-          {running ? (
-            <span className="truncate text-sky-700 dark:text-sky-300">⎿ {a.activity || (a.state === "starting" ? "starting…" : "working…")}</span>
-          ) : (
-            <span className="truncate text-muted-foreground">⎿ {a.summary?.split("\n").find((l) => l.trim())?.replace(/[*#`]/g, "") || a.state}</span>
-          )}
+          <span className={cn("truncate", running ? "text-sky-700 dark:text-sky-300" : "text-muted-foreground")}>⎿ {agentNow(a)}</span>
         </div>
+        {running && firstLine(a.summary) && firstLine(a.summary) !== agentNow(a) && (
+          <div className="truncate pl-10 text-xs text-muted-foreground italic">{firstLine(a.summary)}</div>
+        )}
         {/* The trail of its calls, newest last: a glance says how it is going. */}
         {plain.length > 0 && (
           <div className="mt-1.5 flex flex-wrap gap-1 pl-6">

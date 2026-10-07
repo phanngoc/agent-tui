@@ -64,7 +64,8 @@ type SubAgent struct {
 	Background bool          `json:"background,omitempty"`
 	Started    time.Time     `json:"started,omitempty"`
 	Ended      time.Time     `json:"ended,omitempty"`
-	// Summary is what it reported back.
+	// Summary is the last thing it said: while it works, what it is about to
+	// do; once done, what it reported back.
 	Summary string `json:"summary,omitempty"`
 	// Calls are its own tool calls, results cut short; an Agent call among
 	// them carries the agent it started.
