@@ -289,14 +289,20 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		bin = c.path
 	}
 	cmd := fsys.Command(ctx, root, bin, args...)
+	// cred is the pool token the turn runs on, when it draws one; what the
+	// turn spends is put down to it.
+	var cred session.Credential
 	if fsys.IsLocal() {
 		cmd.Env = append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), c.env...)
 		if c.id == IDClaude {
 			var err error
-			cmd.Env, err = claudeTokenEnv(ctx, cmd.Env, t.ConversationID)
+			cmd.Env, cred, err = claudeTokenEnv(ctx, cmd.Env, t.ConversationID)
 			if err != nil {
 				send(agent.EvDone{Err: err})
 				return
+			}
+			if cred.ID != "" {
+				send(agent.EvCredential{Credential: cred})
 			}
 		}
 	}
@@ -373,6 +379,9 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		dec.line(raw, func(e agent.Event) {
 			if in != nil {
 				in.track(e)
+			}
+			if u, ok := e.(agent.EvUsage); ok && cred.ID != "" {
+				recordUsage(poolDir(), cred, u, time.Now())
 			}
 			if !send(e) {
 				stopped = true

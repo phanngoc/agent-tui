@@ -13,6 +13,7 @@ import { onEvent, useGateway, useVersion } from "@/lib/store";
 import type { Message, MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
 import { Ago, CopyButton, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
+import { CredentialBadge } from "@/components/token-pool";
 import { LiveTail, MessageView } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
 import { PaneToggle, RightPane, Workspace, useWorkspace } from "@/components/workspace";
@@ -358,6 +359,7 @@ function Conversation({ id }: { id: string }) {
                 </Badge>
               )}
               <OwnerBadge owner={owner} />
+              <CredentialBadge c={summary?.credential ?? s.credential} busy={busy} />
               <span className="hidden md:inline">
                 {tokens(s.input_tokens)} in · {tokens(s.output_tokens)} out
               </span>
@@ -783,6 +785,7 @@ function DetailsPanel({ s }: { s: Session }) {
     ["created", <Ago key="cr" at={s.created} />],
     ["updated", <Ago key="up" at={s.updated} />],
     ["tokens", `${tokens(s.input_tokens)} in · ${tokens(s.output_tokens)} out · ${tokens(s.cache_reads)} cache reads`],
+    ...(s.credential ? ([["credential", `pool token ${s.credential.slot} of ${s.credential.of} · ${s.credential.id}`]] as [string, React.ReactNode][]) : []),
   ];
   return (
     <div className="space-y-4 text-sm">

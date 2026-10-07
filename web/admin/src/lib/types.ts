@@ -73,7 +73,15 @@ export interface Session {
   output_tokens: number;
   job?: string; // the scheduled job this session is a run of
   cache_reads: number;
+  credential?: Credential;
   engines?: Record<string, { external_id?: string; seen?: number }>;
+}
+
+/** Credential names the Claude pool token a conversation runs on, never the token itself. */
+export interface Credential {
+  slot: number;
+  of: number;
+  id: string; // the start of its fingerprint
 }
 
 export interface Summary {
@@ -94,6 +102,7 @@ export interface Summary {
   job?: string; // the scheduled job this session is a run of
   input_tokens: number;
   output_tokens: number;
+  credential?: Credential;
   closed?: boolean;
   pinned?: boolean;
   side_of?: string;

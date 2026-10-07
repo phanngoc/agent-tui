@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/binary"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -13,27 +14,30 @@ import (
 	"syscall"
 	"time"
 	"unicode/utf16"
+
+	"github.com/phanngoc/agent-tui/internal/session"
 )
 
 //go:embed tokenpool.ps1
 var tokenPoolScript string
 
-func conversationToken(ctx context.Context, conversation string) (string, error) {
+func conversationToken(ctx context.Context, conversation string) (string, session.Credential, error) {
 	if conversation == "" {
-		return "", nil
+		return "", session.Credential{}, nil
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", errors.New("Claude token pool: cannot locate user home")
+	root := poolDir()
+	if root == "" {
+		return "", session.Credential{}, errors.New("Claude token pool: cannot locate user home")
 	}
-	return readConversationToken(ctx, filepath.Join(home, ".claude", "token-rotation"), conversation)
+	return readConversationToken(ctx, root, conversation)
 }
 
-func readConversationToken(ctx context.Context, root, conversation string) (string, error) {
+func readConversationToken(ctx context.Context, root, conversation string) (string, session.Credential, error) {
+	var none session.Credential
 	if _, err := os.Stat(filepath.Join(root, "pool.xml")); errors.Is(err, os.ErrNotExist) {
-		return "", nil
+		return "", none, nil
 	} else if err != nil {
-		return "", errors.New("Claude token pool: cannot read pool.xml")
+		return "", none, errors.New("Claude token pool: cannot read pool.xml")
 	}
 	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
@@ -51,11 +55,16 @@ func readConversationToken(ctx context.Context, root, conversation string) (stri
 	// quoted in an exception. Stdout is a private pipe, not a log.
 	out, err := cmd.Output()
 	if err != nil {
-		return "", errors.New("Claude token pool: could not decrypt or assign a token; check pool.xml and agent-tui-state.json")
+		return "", none, errors.New("Claude token pool: could not decrypt or assign a token; check pool.xml and agent-tui-state.json")
 	}
-	token := strings.TrimSpace(string(out))
+	head, token, _ := strings.Cut(string(out), "\n")
+	token = strings.TrimSpace(token)
 	if !strings.HasPrefix(token, "sk-ant-oat") || strings.ContainsAny(token, "\r\n\x00") {
-		return "", errors.New("Claude token pool: invalid OAuth credential")
+		return "", none, errors.New("Claude token pool: invalid OAuth credential")
 	}
-	return token, nil
+	var c session.Credential
+	if n, _ := fmt.Sscanf(strings.TrimSpace(head), "%d %d %s", &c.Slot, &c.Of, &c.ID); n != 3 {
+		return "", none, errors.New("Claude token pool: the pool script named no token")
+	}
+	return token, c, nil
 }

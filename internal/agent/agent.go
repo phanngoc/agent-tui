@@ -68,8 +68,14 @@ type (
 	EvToolStart struct{ Call session.ToolCall }
 	// EvToolDone carries the tool's outcome.
 	EvToolDone struct{ Call session.ToolCall }
-	// EvUsage reports token accounting for one request.
-	EvUsage struct{ In, Out, CacheRead int64 }
+	// EvUsage reports token accounting for one request. Limits, when the
+	// engine reports them, are how much of the account's allowance is spent.
+	EvUsage struct {
+		In, Out, CacheRead, CacheWrite int64
+		Limits                         []Limit
+	}
+	// EvCredential names the pool token the turn runs on.
+	EvCredential struct{ Credential session.Credential }
 	// EvSession carries an external agent's own session identifier as soon as
 	// it is known, so the conversation can be resumed later.
 	EvSession struct{ ExternalID string }
@@ -111,6 +117,14 @@ type (
 		State any
 	}
 )
+
+// Limit is one window of an account's allowance: the share of it used, and
+// when it starts afresh.
+type Limit struct {
+	Window string    `json:"window"`
+	Used   float64   `json:"used"`
+	Resets time.Time `json:"resets"`
+}
 
 // Verdict is the answer to an approval prompt.
 type Verdict int
