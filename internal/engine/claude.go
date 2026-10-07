@@ -64,7 +64,7 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		servers[k] = v
 	}
 	if br != nil && t.Mode != agent.ModePlan {
-		servers[brokerServerName] = br.server()
+		servers[brokerServerName] = brokerFor(t.FS, br.server())
 	}
 	if len(servers) > 0 {
 		cfg, _ := json.Marshal(map[string]any{"mcpServers": servers})
