@@ -149,6 +149,23 @@ shut) and come back at the width they had; each page remembers its layout,
 and a narrow window starts with them folded. Focus mode (Alt+\, Esc to leave)
 folds everything for reading.
 
+**A conversation's menu, as in the Claude app.** Right-click a conversation in
+the list, or use its ⋯ (always visible on a phone), for:
+- **Open in:** a new tab, or the editor.
+- **Pin (P):** the conversation stays at the top, under *Pinned*.
+- **Mark as unread (U):** unread conversations show an amber dot. They are
+  this browser's: a turn that ended while you were elsewhere is one.
+- **Rename (R):** inline, or click the title in the conversation's header.
+- **Fork (F):** a copy whose next turn branches the agent's context.
+- **Copy Link.**
+- **Archive (A):** the conversation leaves the list for *Archived*. It is the
+  terminal's close.
+- **Delete (D):** the conversation goes to the trash for a week. *Undo* brings
+  it back.
+
+Arrow keys, Enter and the letters work while the menu is open. A conversation
+held by a terminal is changed there, as if done in it.
+
 **Nothing is a black box.** For every turn the admin shows what the agent was
 given beyond the transcript: which memories were recalled and with what score,
 the skills it was offered, the MCP servers and tools, the standing rules, and

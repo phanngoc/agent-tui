@@ -3,7 +3,7 @@
 import * as React from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { FastForwardIcon, PlusIcon, SearchIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon, CodeXmlIcon } from "lucide-react";
+import { FastForwardIcon, SquareIcon, SendIcon, GraduationCapIcon, RefreshCwIcon, MousePointerClickIcon, ArrowDownIcon, SquareTerminalIcon, CodeXmlIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -11,7 +11,7 @@ import { useFetch } from "@/lib/hooks";
 import { useFollow } from "@/lib/follow";
 import { onEvent, useGateway, useVersion } from "@/lib/store";
 import type { Message, MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
-import { Ago, CopyButton, Dot, Empty, ErrorNote, Mono, Pre } from "@/components/common";
+import { Ago, CopyButton, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
 import { LiveTail, MessageView } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
@@ -25,11 +25,10 @@ import { useIsMobile } from "@/lib/mobile";
 import { SelectionAction, withQuotes } from "@/components/selection-action";
 import { BranchPicker } from "@/components/branch-picker";
 import { AttachButton, AttachmentStrip, DropHint, filesOf, useAttachments, type Attached } from "@/components/attachments";
-import { ProjectSwitcher } from "@/components/project-switcher";
 import { describePath } from "@/components/folder-picker";
 import { NewChat, sendOnEnter } from "@/components/new-chat";
+import { RenameInput, SessionList, setListSettings } from "@/components/session-list";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -91,71 +90,36 @@ function Sessions() {
   );
 }
 
-function SessionList({ selected, onSelect, onNew }: { selected: string; onSelect: (id: string) => void; onNew: () => void }) {
-  const root = useGateway((s) => s.root);
-  const live = useGateway((s) => s.live);
-  const [all, setAll] = React.useState(false);
-  const [q, setQ] = React.useState("");
-  const v = useVersion("sessions");
-  const { data, error } = useFetch<Summary[]>("/api/sessions" + qs({ root: all ? "" : root, q }), [v]);
-
+/** Title is the conversation's name in its header: click it to rename. */
+function Title({ id, title }: { id: string; title: string }) {
+  const [editing, setEditing] = React.useState(false);
+  // A name just given shows until the gateway's own word on it arrives.
+  const [given, setGiven] = React.useState<{ value: string; over: string } | null>(null);
+  const shown = given && given.over === title ? given.value : title;
+  if (editing)
+    return (
+      <div className="flex">
+        <RenameInput
+          initial={shown}
+          className="font-semibold"
+          onDone={(t) => {
+            setEditing(false);
+            if (t === null) return;
+            t = t.trim().replace(/\s+/g, " ");
+            if (t === shown) return;
+            setGiven({ value: t || "new session", over: title });
+            setListSettings(id, { title: t }).catch((e: Error) => {
+              setGiven(null);
+              toast.error(e.message);
+            });
+          }}
+        />
+      </div>
+    );
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="space-y-2 border-b p-3">
-        <div className="flex items-center gap-2">
-          <div className="relative flex-1">
-            <SearchIcon className="absolute top-2 left-2 size-4 text-muted-foreground" />
-            <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search sessions" className="pl-8" />
-          </div>
-          <Button size="icon" onClick={onNew} title="New conversation">
-            <PlusIcon />
-          </Button>
-        </div>
-        <div className="flex items-center gap-1 text-xs">
-          {/* The project in view, picked here: there is no bar across the top any more. */}
-          <ProjectSwitcher variant="pill" className={cn(root && !all ? "bg-muted" : "font-normal text-muted-foreground")} onPicked={() => setAll(false)} />
-          {root && (
-            <button className={cn("shrink-0 rounded px-2 py-0.5", all ? "bg-muted font-medium" : "text-muted-foreground")} onClick={() => setAll(!all)}>
-              All projects
-            </button>
-          )}
-          <span className="ml-auto text-muted-foreground">{data?.length ?? 0}</span>
-        </div>
-      </div>
-      <ErrorNote error={error} className="m-3" />
-      <div className="min-h-0 flex-1 overflow-auto">
-        {(data ?? []).map((s) => {
-          const l = live[s.id];
-          const busy = l?.busy ?? s.busy;
-          const waiting = l && Object.keys(l.approvals).length + Object.keys(l.choices).length > 0;
-          return (
-            <button
-              key={s.id}
-              onClick={() => onSelect(s.id)}
-              className={cn("flex w-full flex-col gap-1 border-b px-3 py-2.5 text-left hover:bg-muted/50", selected === s.id && "bg-muted")}
-            >
-              <div className="flex items-center gap-2">
-                <Dot on={busy} pulse />
-                <span className="min-w-0 flex-1 truncate text-sm font-medium">{s.title || "(untitled)"}</span>
-                {waiting && <span className="rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">needs you</span>}
-              </div>
-              <div className="flex items-center gap-2 pl-4 text-xs text-muted-foreground">
-                <span className="truncate">{baseName(s.root)}</span>
-                <span>·</span>
-                {s.job && <span className="rounded bg-amber-500/15 px-1 text-amber-700 dark:text-amber-300">scheduled</span>}
-                <span>{s.engine || "api"}</span>
-                <span>·</span>
-                <span>{s.messages} msg</span>
-                <span className="ml-auto">
-                  <Ago at={s.updated} />
-                </span>
-              </div>
-              {s.owner?.startsWith("tui") && <div className="pl-4 text-[11px] text-primary">open in a terminal</div>}
-            </button>
-          );
-        })}
-      </div>
-    </div>
+    <button onClick={() => setEditing(true)} title="Rename" className="block max-w-full truncate rounded text-left font-semibold hover:bg-muted/60">
+      {shown || "(untitled)"}
+    </button>
   );
 }
 
@@ -322,7 +286,7 @@ function Conversation({ id }: { id: string }) {
         <div className="@container flex items-start gap-2 border-b px-3 py-2 md:gap-3 md:px-5 md:py-3">
           <PaneToggle side="left" className="-ml-2" />
           <div className="min-w-0 flex-1">
-            <div className="truncate font-semibold">{s.title || "(untitled)"}</div>
+            <Title id={id} title={summary?.title ?? s.title} />
             {/* On a phone, one row that scrolls sideways rather than five that wrap. */}
             <div className="mt-0.5 flex flex-nowrap items-center gap-x-2 gap-y-1 overflow-x-auto text-xs whitespace-nowrap text-muted-foreground [scrollbar-width:none] md:flex-wrap md:overflow-visible md:whitespace-normal">
               <span className="hidden max-w-full truncate font-mono md:inline @max-lg:max-w-48" title={s.root}>

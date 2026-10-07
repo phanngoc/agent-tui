@@ -93,6 +93,7 @@ export interface Summary {
   input_tokens: number;
   output_tokens: number;
   closed?: boolean;
+  pinned?: boolean;
   side_of?: string;
 }
 

@@ -82,6 +82,8 @@ const (
 	// CmdSettings changes what a session runs on — model, mode, engine —
 	// from its next turn.
 	CmdSettings = "settings"
+	// CmdDelete moves a session to the trash, stopping its turn if one runs.
+	CmdDelete = "delete"
 	// CmdOpen tells a terminal working in a project that a conversation in
 	// it was started or continued elsewhere, so it can list it too.
 	CmdOpen = "open"
@@ -103,6 +105,11 @@ type Command struct {
 	Model  string `json:"model,omitempty"`
 	Mode   string `json:"mode,omitempty"`
 	Engine string `json:"engine,omitempty"`
+	// Title, Pinned and Archived are a settings command's too, from the web
+	// list's menu; nil leaves one as it is, and an empty title clears it.
+	Title    *string `json:"title,omitempty"`
+	Pinned   *bool   `json:"pinned,omitempty"`
+	Archived *bool   `json:"archived,omitempty"`
 	// Fresh starts a prompt's turn with a context of its own, in a session
 	// that keeps what came before for the reader (a scheduled job's run).
 	Fresh bool `json:"fresh,omitempty"`
@@ -138,6 +145,7 @@ type Summary struct {
 	InTokens int64     `json:"input_tokens"`
 	OutToks  int64     `json:"output_tokens"`
 	Closed   bool      `json:"closed,omitempty"`
+	Pinned   bool      `json:"pinned,omitempty"`
 	SideOf   string    `json:"side_of,omitempty"`
 	// Job is the scheduled job the session is a run of.
 	Job string `json:"job,omitempty"`
@@ -149,7 +157,7 @@ func SummaryOf(s *session.Session) Summary {
 		ID: s.ID, Title: s.Label(), Root: s.Root, Engine: s.Engine, Model: s.Model, Mode: s.Mode,
 		Target: s.Target, CWD: s.CWD, Messages: len(s.Messages), Created: s.Created, Updated: s.Updated,
 		Busy: s.Busy, Status: s.Status, InTokens: s.InputTokens, OutToks: s.OutputTokens,
-		Closed: s.Closed, SideOf: s.SideOf, Job: jobOf(s),
+		Closed: s.Closed, Pinned: s.Pinned, SideOf: s.SideOf, Job: jobOf(s),
 	}
 }
 

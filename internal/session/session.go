@@ -391,7 +391,9 @@ type Session struct {
 	Mode string `json:"mode,omitempty"`
 	// Closed takes a conversation out of the list without deleting it: the
 	// next start does not restore it, and /recall still finds it.
-	Closed  bool      `json:"closed,omitempty"`
+	Closed bool `json:"closed,omitempty"`
+	// Pinned keeps a conversation at the top of the web's list.
+	Pinned  bool      `json:"pinned,omitempty"`
 	Created time.Time `json:"created"`
 	Updated time.Time `json:"updated"`
 

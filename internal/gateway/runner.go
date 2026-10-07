@@ -75,15 +75,28 @@ func NewRunner(h *Hub, cfg config.Config) *Runner {
 // or a folder inside a WSL distribution or container — the same vfs the
 // terminal opens for such a session. Each place has its own registry, since
 // a CLI engine is pointed at its filesystem.
-func (r *Runner) project(root, target, cwd string) (*project, error) {
-	key := root
-	elsewhere := isHost(target) && cwd != "" && filepath.Clean(cwd) != filepath.Clean(root)
+func projectKey(root, target, cwd string) (key string, elsewhere bool) {
+	key = root
+	elsewhere = isHost(target) && cwd != "" && filepath.Clean(cwd) != filepath.Clean(root)
 	switch {
 	case !isHost(target):
 		key += "|" + target + "|" + cwd
 	case elsewhere:
 		key += "|cwd|" + cwd
 	}
+	return key, elsewhere
+}
+
+// cached is the project already open for a session's place, or nil.
+func (r *Runner) cached(root, target, cwd string) *project {
+	key, _ := projectKey(root, target, cwd)
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	return r.roots[key]
+}
+
+func (r *Runner) project(root, target, cwd string) (*project, error) {
+	key, elsewhere := projectKey(root, target, cwd)
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	if p, ok := r.roots[key]; ok {
@@ -276,6 +289,8 @@ func (r *Runner) Handle(cmd Command) error {
 		return nil
 	case CmdSettings:
 		return r.settings(cmd)
+	case CmdDelete:
+		return r.remove(cmd.Session)
 	}
 	return fmt.Errorf("unknown command %q", cmd.Type)
 }
@@ -451,11 +466,16 @@ func (r *Runner) settings(cmd Command) error {
 			return err
 		}
 	}
-	p, err := r.project(s.Root, s.Target, s.CWD)
-	if err != nil {
-		return err
+	// Only a change of engine needs the project opened. A name or a pin does
+	// not, and should not fail because a WSL distribution is not up.
+	p := r.cached(s.Root, s.Target, s.CWD)
+	if cmd.Engine != "" {
+		var err error
+		if p, err = r.project(s.Root, s.Target, s.CWD); err != nil {
+			return err
+		}
 	}
-	if t == nil {
+	if t == nil && p != nil {
 		// The project's manager may hold the session from an earlier turn,
 		// and would write that copy back over this change.
 		if held := p.mgr.Get(cmd.Session); held != nil {
@@ -482,11 +502,100 @@ func (r *Runner) settings(cmd Command) error {
 	if cmd.Mode != "" {
 		s.Mode = agent.ParseMode(cmd.Mode).String()
 	}
+	ApplyListSettings(s, cmd)
+	if p == nil {
+		m := session.NewManager(config.DataDir(), s.Root, s.Model)
+		m.SaveNow(s)
+		m.Shutdown()
+		r.publishSummary(s, false)
+		return nil
+	}
 	// Queued behind the turn's own saves, so it is the last write and not
 	// overwritten by one of them.
 	p.mgr.Save(s)
 	r.publishSummary(s, t != nil)
 	return nil
+}
+
+// ApplyListSettings applies what the web list's menu changes — the name, the
+// pin, archived — and reports whether anything changed. A terminal holding the
+// session applies it the same way.
+func ApplyListSettings(s *session.Session, cmd Command) bool {
+	changed := false
+	if cmd.Title != nil {
+		if t := strings.Join(strings.Fields(*cmd.Title), " "); t != s.Title {
+			s.Title, changed = t, true
+		}
+	}
+	if cmd.Pinned != nil && *cmd.Pinned != s.Pinned {
+		s.Pinned, changed = *cmd.Pinned, true
+	}
+	if cmd.Archived != nil && *cmd.Archived != s.Closed {
+		s.Closed, changed = *cmd.Archived, true
+	}
+	return changed
+}
+
+// remove moves a session run here to the trash. Every manager that might
+// still save it is told first, then its turn is stopped, so nothing writes
+// it back.
+func (r *Runner) remove(id string) error {
+	r.mu.Lock()
+	t := r.turns[id]
+	delete(r.queues, id)
+	roots := make([]*project, 0, len(r.roots))
+	for _, p := range r.roots {
+		roots = append(roots, p)
+	}
+	r.mu.Unlock()
+	for _, p := range roots {
+		p.mgr.Forget(id)
+	}
+	if t != nil {
+		t.cancel()
+	}
+	if err := session.TrashFile(config.DataDir(), id); err != nil {
+		return session.ErrNoSession
+	}
+	return nil
+}
+
+// Restore brings a deleted session back from the trash.
+func (r *Runner) Restore(id string) error {
+	r.mu.Lock()
+	for _, p := range r.roots {
+		p.mgr.Revive(id)
+	}
+	r.mu.Unlock()
+	if err := session.UntrashFile(config.DataDir(), id); err != nil {
+		return session.ErrNoSession
+	}
+	if s, err := Load(id); err == nil {
+		r.publishSummary(s, false)
+	}
+	return nil
+}
+
+// Fork branches a session as the terminal's /fork does, from what is saved of
+// it: the new one has the same transcript and its first turn continues the
+// original's context.
+func (r *Runner) Fork(id string) (*session.Session, error) {
+	src, err := Load(id)
+	if err != nil {
+		return nil, err
+	}
+	if len(src.Messages) == 0 {
+		return nil, errors.New("nothing to fork yet")
+	}
+	// A manager of its own: forking needs no filesystem, and a WSL project
+	// that cannot be reached right now can still be forked.
+	m := session.NewManager(config.DataDir(), src.Root, src.Model)
+	defer m.Shutdown()
+	f := m.Fork(src)
+	f.Mode, f.SideOf = src.Mode, ""
+	m.SaveNow(f)
+	r.publishSummary(f, false)
+	return f, nil
 }
 
 // Running lists the sessions whose turns run here now: what stopping the
