@@ -1,10 +1,18 @@
 "use client";
 
 import * as React from "react";
-import { XIcon, CircleIcon, GitBranchIcon, AlertTriangleIcon, ChevronRightIcon, FileIcon, LockIcon } from "lucide-react";
+import { XIcon, CircleIcon, GitBranchIcon, AlertTriangleIcon, ChevronRightIcon, FileIcon, LockIcon, PinIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { cn } from "@/lib/utils";
+import { addFileToChat, copyText, fullPath } from "./actions";
 import { editorService } from "./service";
-import { useEditor } from "./store";
+import { useEditor, type Tab } from "./store";
+import { ContextMenu, type MenuItem } from "./explorer-view";
+
+/** closeMany closes tabs one by one, each asking first if it has unsaved changes. */
+function closeMany(keys: string[]) {
+  for (const k of keys) editorService.close(k);
+}
 
 // The editor's chrome: tabs, breadcrumbs, the status bar, and the dialog for
 // a save that would overwrite someone else's change.
@@ -15,6 +23,36 @@ export function Tabs() {
   const setActive = useEditor((s) => s.setActive);
   const patchTab = useEditor((s) => s.patchTab);
   const bar = React.useRef<HTMLDivElement>(null);
+  const [menu, setMenu] = React.useState<{ x: number; y: number; tab: Tab } | null>(null);
+  const router = useRouter();
+
+  // The right-click menu of a tab, as VS Code has it.
+  const itemsFor = (t: Tab): MenuItem[] => {
+    const st = useEditor.getState();
+    const i = st.tabs.findIndex((x) => x.key === t.key);
+    const others = st.tabs.filter((x) => x.key !== t.key && !x.pinned).map((x) => x.key);
+    const right = st.tabs.slice(i + 1).filter((x) => !x.pinned).map((x) => x.key);
+    const saved = st.tabs.filter((x) => !x.dirty && !x.pinned).map((x) => x.key);
+    const all = st.tabs.filter((x) => !x.pinned).map((x) => x.key);
+    const root = st.root;
+    return [
+      { label: "Close", hint: "Alt+W", run: () => editorService.close(t.key) },
+      { label: "Close Others", run: () => closeMany(others), disabled: !others.length },
+      { label: "Close to the Right", run: () => closeMany(right), disabled: !right.length },
+      { label: "Close Saved", run: () => closeMany(saved), disabled: !saved.length },
+      { label: "Close All", run: () => closeMany(all), disabled: !all.length },
+      "-",
+      { label: "Copy Path", run: () => void copyText(fullPath(root, t.path), "Path") },
+      { label: "Copy Relative Path", run: () => void copyText(t.path, "Relative path") },
+      "-",
+      { label: "Add File to Chat", run: () => addFileToChat(root, t.path, router.push) },
+      { label: "Reveal in Explorer View", run: () => st.revealFile(t.path) },
+      t.kind === "file" ? { label: "Open Changes", run: () => void editorService.openDiff(t.path) } : { label: "Open File", run: () => void editorService.open(t.path) },
+      "-",
+      { label: "Keep Open", hint: "double-click", run: () => patchTab(t.key, { preview: false }), disabled: !t.preview },
+      t.pinned ? { label: "Unpin", run: () => st.setPinned(t.key, false) } : { label: "Pin", run: () => st.setPinned(t.key, true) },
+    ];
+  };
   React.useEffect(() => {
     bar.current?.querySelector(`[data-key="${CSS.escape(active ?? "")}"]`)?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [active]);
@@ -46,13 +84,17 @@ export function Tabs() {
               editorService.editor?.focus();
             }}
             onDoubleClick={() => patchTab(t.key, { preview: false })}
+            onContextMenu={(e) => {
+              e.preventDefault();
+              setMenu({ x: e.clientX, y: e.clientY, tab: t });
+            }}
             title={t.path + (t.stale ? " — changed on disk" : "")}
             className={cn(
               "group flex shrink-0 cursor-pointer items-center gap-1.5 border-r px-3 text-[13px] select-none",
               on ? "bg-background text-foreground shadow-[inset_0_2px_0_var(--color-primary)]" : "text-muted-foreground hover:bg-background/60",
             )}
           >
-            <FileIcon className="size-3.5 shrink-0" />
+            {t.pinned ? <PinIcon className="size-3 shrink-0 rotate-45 text-primary" /> : <FileIcon className="size-3.5 shrink-0" />}
             <span className={cn("max-w-48 truncate", t.preview && "italic")}>
               {name}
               {t.kind === "diff" && <span className="ml-1 text-[11px] opacity-70">(Working Tree)</span>}
@@ -62,10 +104,11 @@ export function Tabs() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                editorService.close(t.key);
+                if (t.pinned) useEditor.getState().setPinned(t.key, false);
+                else editorService.close(t.key);
               }}
-              className="grid size-4 place-items-center rounded hover:bg-muted"
-              title="Close (Alt+W)"
+              className={cn("grid size-4 place-items-center rounded hover:bg-muted", t.pinned && "hidden group-hover:grid")}
+              title={t.pinned ? "Unpin" : "Close (Alt+W)"}
             >
               {t.dirty ? (
                 <>
@@ -79,6 +122,7 @@ export function Tabs() {
           </div>
         );
       })}
+      {menu && <ContextMenu x={menu.x} y={menu.y} items={itemsFor(menu.tab)} onClose={() => setMenu(null)} />}
     </div>
   );
 }

@@ -188,7 +188,12 @@ distribution.
   - **Status:** the status bar shows the server's state. Without node,
     IntelliSense falls back to per-file only.
 - **Explorer:** a virtualised tree, with new file, new folder, rename and
-  delete (context menu, F2, Del).
+  delete (context menu, F2, Del). Right-click also copies a file's path or
+  relative path, or adds it to a new chat.
+- **Tabs:** right-click a tab for VS Code's menu: Close, Close Others, Close
+  to the Right, Close Saved, Close All, Copy Path, Add File to Chat, Reveal in
+  Explorer View, Open Changes, Keep Open, and Pin. A pinned tab stays at the
+  front and is spared by the bulk closes.
 - **Quick Open (Ctrl+P):** fuzzy, in the page over the cached file list, 2–5
   ms a keystroke on 60,000 files. ">" gives commands (Ctrl+Shift+P), ":" a
   line (Ctrl+G).
