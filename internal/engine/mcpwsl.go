@@ -81,6 +81,28 @@ func serversFor(fs vfs.FS, servers map[string]any, root string) map[string]any {
 	return out
 }
 
+func isWSL(fs vfs.FS) bool { _, ok := fs.(*vfs.WSL); return ok }
+
+// brokerFor is the approval broker's MCP server as a CLI in fs starts it: in
+// a WSL distribution, this Windows binary by its /mnt path. Without it a
+// distribution's Claude Code had no one to ask, and auto ran it unconfined.
+func brokerFor(fs vfs.FS, def map[string]any) map[string]any {
+	if !isWSL(fs) {
+		return def
+	}
+	cmd, _ := def["command"].(string)
+	p, ok := mntPath(cmd)
+	if !ok {
+		return def
+	}
+	cp := map[string]any{}
+	for k, v := range def {
+		cp[k] = v
+	}
+	cp["command"] = p
+	return cp
+}
+
 // mntPath is where a distribution sees a Windows file: C:\x\y.exe is
 // /mnt/c/x/y.exe under WSL's default automount. Only drive paths have one.
 func mntPath(p string) (string, bool) {

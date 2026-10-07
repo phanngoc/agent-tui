@@ -70,7 +70,9 @@ func (c *CLI) Available() bool {
 // Only Claude Code can, and only on this machine: the broker talks over a unix
 // socket that a process inside a container cannot reach.
 func (c *CLI) CanAsk() bool {
-	if c.fs != nil && !c.fs.IsLocal() {
+	// The broker is reached from this machine and from a WSL distribution
+	// (through interop); a container has no way back.
+	if c.fs != nil && !c.fs.IsLocal() && !isWSL(c.fs) {
 		return false
 	}
 	return c.approvals
@@ -219,7 +221,10 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	// allows that much and puts the rest to the user.
 	var br *broker
 	wantBroker := t.Mode.Confirms() || t.Mode == agent.ModeAuto
-	if c.CanAsk() && wantBroker && (t.FS == nil || t.FS.IsLocal()) {
+	// A CLI in a WSL distribution reaches the broker too: its MCP server is
+	// this Windows binary, run through interop by its /mnt path, and the
+	// socket it talks to is on this side (brokerFor).
+	if c.CanAsk() && wantBroker && (t.FS == nil || t.FS.IsLocal() || isWSL(t.FS)) {
 		if self, err := executable(); err == nil {
 			b, berr := startBroker(func(call session.ToolCall) bool {
 				if ctxDone(ctx) {
@@ -257,14 +262,14 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		}
 	}
 	if t.Mode.Confirms() && br == nil {
-		send(agent.EvStatus{Text: "cannot ask here; running confined instead"})
+		send(agent.EvStatus{Text: "no way to ask from inside a container: ask mode runs confined instead"})
 	}
 	// Auto without a broker widens what the CLI may do, because the alternative
 	// is a turn that stalls on a prompt nothing can display. Say so: a mode
 	// that quietly means something else than the status bar claims is worse
 	// than one that announces the difference.
 	if t.Mode == agent.ModeAuto && br == nil && c.approvals {
-		send(agent.EvStatus{Text: "cannot ask here; auto runs unconfined"})
+		send(agent.EvStatus{Text: "no way to ask from inside a container: auto runs without asking"})
 	}
 
 	args := c.argv(c, t, br)
