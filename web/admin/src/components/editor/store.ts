@@ -18,6 +18,8 @@ export type Tab = {
   /** the file changed on disk while it had unsaved edits. */
   stale?: boolean;
   readOnly?: boolean;
+  /** pinned tabs stay at the front and outlive Close Others and Close All. */
+  pinned?: boolean;
 };
 
 export type View = "explorer" | "search" | "scm";
@@ -40,6 +42,10 @@ interface EditorState {
   branch: string;
   lsp: { state: "off" | "starting" | "loading" | "ready" | "error"; message?: string };
   setLsp: (s: EditorState["lsp"]) => void;
+  /** revealReq asks the explorer to show a file (Reveal in Explorer View). */
+  revealReq: { path: string; seq: number } | null;
+  revealFile: (path: string) => void;
+  setPinned: (key: string, pinned: boolean) => void;
   setRoot: (r: string) => void;
   upsertTab: (t: Tab, opts?: { activate?: boolean }) => void;
   closeTab: (key: string) => void;
@@ -71,6 +77,20 @@ export const useEditor = create<EditorState>((set) => ({
   branch: "",
   lsp: { state: "off" },
   setLsp: (lsp) => set({ lsp }),
+  revealReq: null,
+  revealFile: (path) => set((s) => ({ view: "explorer", sidebar: true, revealReq: { path, seq: (s.revealReq?.seq ?? 0) + 1 } })),
+  setPinned: (key, pinned) =>
+    set((s) => {
+      const t = s.tabs.find((x) => x.key === key);
+      if (!t) return s;
+      const rest = s.tabs.filter((x) => x.key !== key);
+      const tab = { ...t, pinned, preview: false };
+      // Pinned tabs lead, in the order they were pinned; unpinning puts a
+      // tab first among the others.
+      const lead = rest.filter((x) => x.pinned);
+      const tail = rest.filter((x) => !x.pinned);
+      return { tabs: pinned ? [...lead, tab, ...tail] : [...lead, tab, ...tail] };
+    }),
   setRoot: (root) => set({ root, tabs: [], active: null }),
   upsertTab: (t, opts) =>
     set((s) => {

@@ -5,7 +5,9 @@ import { ChevronRightIcon, FileIcon, FilePlusIcon, FolderIcon, FolderOpenIcon, F
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { useRouter } from "next/navigation";
 import { editorService } from "./service";
+import { addFileToChat, copyText, fullPath } from "./actions";
 import { useEditor } from "./store";
 import { invalidateFiles } from "./files";
 
@@ -30,6 +32,7 @@ function parentOf(p: string) {
 
 export function ExplorerView() {
   const root = useEditor((s) => s.root);
+  const router = useRouter();
   const active = useEditor((s) => s.active);
   const [children, setChildren] = React.useState<Map<string, Entry[]>>(new Map());
   const [expanded, setExpanded] = React.useState<Set<string>>(new Set());
@@ -90,6 +93,7 @@ export function ExplorerView() {
     };
     return useEditor.subscribe((st, prev) => {
       if (st.active !== prev.active) reveal(st.active);
+      if (st.revealReq && st.revealReq !== prev.revealReq) reveal(st.revealReq.path);
     });
   }, []);
 
@@ -344,18 +348,33 @@ export function ExplorerView() {
         <ContextMenu
           x={menu.x}
           y={menu.y}
-          items={[
-            { label: "New File…", run: () => newIn(menu.e, "file") },
-            { label: "New Folder…", run: () => newIn(menu.e, "dir") },
-            ...(menu.e
+          items={
+            menu.e
               ? [
-                  ...(!menu.e.dir ? [{ label: "Open", run: () => void editorService.open(menu.e!.path) }, { label: "Open Changes (git)", run: () => void editorService.openDiff(menu.e!.path) }] : []),
-                  { label: "Rename…  F2", run: () => setEditing({ parent: parentOf(menu.e!.path), mode: "rename", path: menu.e!.path, name: menu.e!.name }) },
-                  { label: "Delete  Del", run: () => void remove(menu.e!), danger: true },
-                  { label: "Copy Relative Path", run: () => void navigator.clipboard.writeText(menu.e!.path) },
+                  ...(!menu.e.dir
+                    ? [
+                        { label: "Open", run: () => void editorService.open(menu.e!.path) },
+                        { label: "Open Changes", run: () => void editorService.openDiff(menu.e!.path) },
+                        "-" as const,
+                      ]
+                    : []),
+                  { label: "New File…", run: () => newIn(menu.e, "file") },
+                  { label: "New Folder…", run: () => newIn(menu.e, "dir") },
+                  "-" as const,
+                  { label: "Copy Path", run: () => void copyText(fullPath(root, menu.e!.path), "Path") },
+                  { label: "Copy Relative Path", run: () => void copyText(menu.e!.path, "Relative path") },
+                  ...(!menu.e.dir ? ["-" as const, { label: "Add File to Chat", run: () => addFileToChat(root, menu.e!.path, router.push) }] : []),
+                  "-" as const,
+                  { label: "Rename…", hint: "F2", run: () => setEditing({ parent: parentOf(menu.e!.path), mode: "rename", path: menu.e!.path, name: menu.e!.name }) },
+                  { label: "Delete", hint: "Del", run: () => void remove(menu.e!), danger: true },
                 ]
-              : [{ label: "Refresh", run: () => void refresh() }]),
-          ]}
+              : [
+                  { label: "New File…", run: () => newIn(menu.e, "file") },
+                  { label: "New Folder…", run: () => newIn(menu.e, "dir") },
+                  "-" as const,
+                  { label: "Refresh", run: () => void refresh() },
+                ]
+          }
           onClose={() => setMenu(null)}
         />
       )}
@@ -378,7 +397,10 @@ export function IconBtn({ title, onClick, children, active }: { title: string; o
   );
 }
 
-export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: { label: string; run: () => void; danger?: boolean }[]; onClose: () => void }) {
+export type MenuItem = { label: string; run: () => void; danger?: boolean; hint?: string; disabled?: boolean } | "-";
+
+/** ContextMenu is the workbench's right-click menu: in the explorer, on a tab. */
+export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; items: MenuItem[]; onClose: () => void }) {
   const ref = React.useRef<HTMLDivElement>(null);
   React.useEffect(() => {
     const close = (e: MouseEvent) => {
@@ -387,30 +409,46 @@ export function ContextMenu({ x, y, items, onClose }: { x: number; y: number; it
     const esc = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     window.addEventListener("mousedown", close);
     window.addEventListener("keydown", esc);
+    window.addEventListener("blur", onClose);
     return () => {
       window.removeEventListener("mousedown", close);
       window.removeEventListener("keydown", esc);
+      window.removeEventListener("blur", onClose);
     };
   }, [onClose]);
+  const rows = items.filter((it, i) => it !== "-" || (i > 0 && items[i - 1] !== "-" && i < items.length - 1));
+  const height = rows.reduce((h, it) => h + (it === "-" ? 9 : 28), 8);
   return (
     <div
       ref={ref}
-      className="fixed z-50 min-w-48 rounded-md border bg-popover py-1 text-[13px] text-popover-foreground shadow-lg"
-      style={{ left: Math.min(x, window.innerWidth - 220), top: Math.min(y, window.innerHeight - items.length * 28 - 16) }}
+      role="menu"
+      onContextMenu={(e) => e.preventDefault()}
+      className="fixed z-50 min-w-56 rounded-md border bg-popover py-1 text-[13px] text-popover-foreground shadow-lg"
+      style={{ left: Math.max(4, Math.min(x, window.innerWidth - 260)), top: Math.max(4, Math.min(y, window.innerHeight - height - 8)) }}
     >
-      {items.map((it) => (
-        <button
-          key={it.label}
-          onClick={(e) => {
-            e.stopPropagation();
-            onClose();
-            it.run();
-          }}
-          className={cn("block w-full px-3 py-1 text-left hover:bg-primary hover:text-primary-foreground", it.danger && "text-destructive")}
-        >
-          {it.label}
-        </button>
-      ))}
+      {rows.map((it, i) =>
+        it === "-" ? (
+          <div key={"sep" + i} className="my-1 border-t" />
+        ) : (
+          <button
+            key={it.label}
+            role="menuitem"
+            disabled={it.disabled}
+            onClick={(e) => {
+              e.stopPropagation();
+              onClose();
+              it.run();
+            }}
+            className={cn(
+              "flex w-full items-center gap-6 px-3 py-1 text-left enabled:hover:bg-primary enabled:hover:text-primary-foreground disabled:opacity-40",
+              it.danger && "text-destructive",
+            )}
+          >
+            <span className="flex-1">{it.label}</span>
+            {it.hint && <span className="text-[11px] opacity-60">{it.hint}</span>}
+          </button>
+        ),
+      )}
     </div>
   );
 }

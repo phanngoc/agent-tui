@@ -12,6 +12,7 @@ import { Badge } from "@/components/ui/badge";
 import { FolderPicker, describePath, placePath } from "@/components/folder-picker";
 import { baseName } from "@/lib/format";
 import { BranchPicker } from "@/components/branch-picker";
+import { useChatDraft } from "@/lib/draft";
 import { AttachButton, AttachmentStrip, DropHint, filesOf, useAttachments } from "@/components/attachments";
 
 /**
@@ -79,7 +80,14 @@ function Draft({ last, fallbackRoot, onCreated }: { last?: Summary; fallbackRoot
   // to change what new conversations run on. Where and how carry over.
   const [model, setModel] = React.useState("");
   const [mode, setMode] = React.useState(last?.mode ?? "");
-  const [text, setText] = React.useState("");
+  // A file sent here with "Add File to Chat" from the editor starts the text.
+  const [text, setText] = React.useState(() => {
+    const p = useChatDraft.getState().pending;
+    return p ? p + " " : "";
+  });
+  React.useEffect(() => {
+    useChatDraft.getState().take();
+  }, []);
   const [picking, setPicking] = React.useState(!last && !fallbackRoot);
   const [err, setErr] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
