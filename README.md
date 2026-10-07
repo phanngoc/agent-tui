@@ -166,6 +166,19 @@ the list, or use its ⋯ (always visible on a phone), for:
 Arrow keys, Enter and the letters work while the menu is open. A conversation
 held by a terminal is changed there, as if done in it.
 
+**Each message has the Claude app's row of actions.** The row shows under
+every answer, and on hover elsewhere:
+- **Copy:** the message's markdown.
+- **Fork from here:** a new conversation up to this message. The agent is
+  briefed on the transcript, since its own conversation cannot be cut. From
+  one of your prompts, the fork stops before the prompt and puts it in the
+  composer to edit and send again.
+- **Pin as chapter:** the message gets a chapter mark, named by its first
+  heading or line. *Chapters* at the top of the conversation lists them to
+  jump to.
+- **Read aloud:** the browser's voices read the message, in Vietnamese,
+  Japanese or English by its text.
+
 **Nothing is a black box.** For every turn the admin shows what the agent was
 given beyond the transcript: which memories were recalled and with what score,
 the skills it was offered, the MCP servers and tools, the standing rules, and

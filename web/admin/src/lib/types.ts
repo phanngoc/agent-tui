@@ -67,6 +67,8 @@ export interface Session {
   created: string;
   updated: string;
   messages: Message[];
+  /** chapters are the messages pinned as chapters, by index. */
+  chapters?: number[];
   input_tokens: number;
   output_tokens: number;
   job?: string; // the scheduled job this session is a run of

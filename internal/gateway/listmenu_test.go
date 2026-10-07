@@ -41,13 +41,41 @@ func TestListMenuOnAGatewaySession(t *testing.T) {
 		t.Fatalf("after settings: title %q pinned %v closed %v messages %d", got.Title, got.Pinned, got.Closed, len(got.Messages))
 	}
 
-	f, err := r.Fork(s.ID)
+	// A chapter on the answer; one out of range is ignored; unpinning removes it.
+	for _, c := range []ChapterMark{{At: 1, On: true}, {At: 0, On: true}, {At: 9, On: true}, {At: 0, On: false}} {
+		if _, err := h.Route(Command{Type: CmdSettings, Session: s.ID, Chapter: &c}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if got, _ := Load(s.ID); len(got.Chapters) != 1 || got.Chapters[0] != 1 {
+		t.Fatalf("chapters: %v", got.Chapters)
+	}
+
+	f, err := r.Fork(s.ID, -1)
 	if err != nil {
 		t.Fatal(err)
 	}
 	fork, err := Load(f.ID)
-	if err != nil || len(fork.Messages) != 2 || fork.ID == s.ID || fork.Root != root || fork.Closed || fork.Pinned {
+	if err != nil || len(fork.Messages) != 2 || fork.ID == s.ID || fork.Root != root || fork.Closed || fork.Pinned || len(fork.Chapters) != 1 {
 		t.Fatalf("fork: %+v %v", fork, err)
+	}
+	// From the first message: the transcript up to it, and no engine
+	// conversation to resume, since that one goes on past it.
+	src, _ := Load(s.ID)
+	src.ExternalID = "engine-conv"
+	src.Engines = map[string]session.EngineState{"claude": {ExternalID: "engine-conv", Seen: 2}}
+	sm := session.NewManager(config.DataDir(), root, "")
+	sm.SaveNow(src)
+	sm.Shutdown()
+	part, err := r.Fork(s.ID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, _ := Load(part.ID); len(p.Messages) != 1 || p.ExternalID != "" || len(p.Engines) != 0 || p.ForkPending || len(p.Chapters) != 0 {
+		t.Fatalf("fork from here: %d messages, external %q, engines %v, pending %v, chapters %v", len(p.Messages), p.ExternalID, p.Engines, p.ForkPending, p.Chapters)
+	}
+	if _, err := r.Fork(s.ID, 5); err == nil {
+		t.Fatal("forked from a message that is not there")
 	}
 
 	if _, err := h.Route(Command{Type: CmdDelete, Session: s.ID}); err != nil {

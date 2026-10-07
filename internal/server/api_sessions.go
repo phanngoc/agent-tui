@@ -176,6 +176,8 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			Title    *string `json:"title"`
 			Pinned   *bool   `json:"pinned"`
 			Archived *bool   `json:"archived"`
+			// chapter pins a message as a chapter, or unpins it.
+			Chapter *gateway.ChapterMark `json:"chapter"`
 		}
 		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
@@ -194,7 +196,7 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			return
 		}
 		owner, err := s.Hub.Route(gateway.Command{Type: gateway.CmdSettings, Session: r.PathValue("id"),
-			Model: in.Model, Mode: in.Mode, Engine: in.Engine, Title: in.Title, Pinned: in.Pinned, Archived: in.Archived, From: "web"})
+			Model: in.Model, Mode: in.Mode, Engine: in.Engine, Title: in.Title, Pinned: in.Pinned, Archived: in.Archived, Chapter: in.Chapter, From: "web"})
 		if err != nil {
 			fail(w, http.StatusConflict, err)
 			return
@@ -230,7 +232,21 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 		writeJSON(w, map[string]bool{"ok": true})
 	})
 	m.HandleFunc("POST /api/sessions/{id}/fork", func(w http.ResponseWriter, r *http.Request) {
-		f, err := s.Runner.Fork(r.PathValue("id"))
+		// at forks from that message; without it, from the end.
+		var in struct {
+			At *int `json:"at"`
+		}
+		if r.ContentLength != 0 {
+			if err := readJSON(r, &in); err != nil {
+				fail(w, http.StatusBadRequest, err)
+				return
+			}
+		}
+		at := -1
+		if in.At != nil {
+			at = *in.At
+		}
+		f, err := s.Runner.Fork(r.PathValue("id"), at)
 		if err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return

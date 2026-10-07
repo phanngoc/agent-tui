@@ -11,6 +11,7 @@ import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
 import { Button } from "@/components/ui/button";
 import { SubAgentCard } from "@/components/subagent";
 import { useFileOpener } from "@/lib/file-opener";
+import { ChapterMark, MessageActions } from "@/components/message-actions";
 
 export function ToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   if (call.agent) return <SubAgentCard a={call.agent} />;
@@ -118,15 +119,20 @@ function RawToggle({ raw, setRaw }: { raw: boolean; setRaw: (r: boolean) => void
   );
 }
 
-export function MessageView({ m, index, onTrace }: { m: Message; index: number; onTrace?: (index: number) => void }) {
+export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index: number; onTrace?: (index: number) => void; turnEnd?: boolean }) {
+  // The row of actions shows on hover, and always under a turn's answer.
+  const actions = (
+    <MessageActions m={m} index={index} className={cn("mt-1 -ml-1.5 transition-opacity", !turnEnd && "md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100")} />
+  );
   const [raw, setRaw] = React.useState(false);
   if (m.role === "user") {
     return (
-      <div className="group flex gap-3" id={`m${index}`}>
+      <div className="group flex scroll-mt-12 gap-3" id={`m${index}`}>
         <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
           <UserIcon className="size-3.5" />
         </div>
         <div className="min-w-0 flex-1">
+          <ChapterMark index={index} />
           <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">you</span>
             <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
@@ -171,16 +177,18 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
               )}
             </div>
           )}
+          {!m.shell && actions}
         </div>
       </div>
     );
   }
   return (
-    <div className="group flex gap-3" id={`m${index}`}>
+    <div className="group flex scroll-mt-12 gap-3" id={`m${index}`}>
       <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background">
         <BotIcon className="size-3.5" />
       </div>
       <div className="min-w-0 flex-1 space-y-2">
+        <ChapterMark index={index} />
         <div className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">agent</span>
           <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
@@ -197,6 +205,7 @@ export function MessageView({ m, index, onTrace }: { m: Message; index: number; 
           </div>
         )}
         {m.err && <div className="rounded-lg border border-destructive/40 bg-destructive/5 px-3 py-2 text-sm text-destructive">{m.err}</div>}
+        {(m.text || turnEnd) && actions}
       </div>
     </div>
   );
