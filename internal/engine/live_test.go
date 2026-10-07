@@ -268,3 +268,39 @@ func TestLiveAutoAsksOutsideTheProject(t *testing.T) {
 		t.Errorf("the approved write outside the project did not happen: %v", err)
 	}
 }
+
+// A sub-agent's words between its calls reach us while it works, which is
+// what CLAUDE_CODE_FORWARD_SUBAGENT_TEXT is set for.
+func TestLiveClaudeSubAgentWords(t *testing.T) {
+	liveOrSkip(t)
+	root := liveRoot(t)
+	e := newClaude(root)
+	if !e.Available() {
+		t.Skip(e.Detail())
+	}
+	// Full mode: the words are the point here, not the broker, which has a
+	// test of its own.
+	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Minute)
+	defer cancel()
+	ch := make(chan agent.Event, 256)
+	go e.Run(ctx, agent.Turn{Root: root, Mode: agent.ModeFull,
+		Prompt: "Use the Agent tool (subagent_type general-purpose) to have a sub-agent " +
+			"list the files here with Glob and then read marker.go, writing one short sentence before each tool call " +
+			"saying what it will do next. Then reply with exactly: DONE"}, ch)
+	var events []agent.Event
+	for ev := range ch {
+		events = append(events, ev)
+	}
+	checkTurn(t, events, "DONE")
+	// Without the variable only its report arrives; with it, a sentence
+	// before each call as well.
+	said := map[string]bool{}
+	for _, ev := range events {
+		if s, ok := ev.(agent.EvSubAgent); ok && s.Agent.Running() && s.Agent.Summary != "" {
+			said[s.Agent.Summary] = true
+		}
+	}
+	if len(said) < 2 {
+		t.Errorf("the sub-agent said %d things while it worked; want one before each call", len(said))
+	}
+}

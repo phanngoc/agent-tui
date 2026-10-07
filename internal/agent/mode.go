@@ -96,11 +96,15 @@ func (m Mode) Detail() string {
 // is less than a command can do. Asking about one stopped a turn on the
 // first thing it did with a pasted image — reading it, from the folder
 // pasted images are kept in, which is not the project and never will be.
-func AutoAllows(call session.ToolCall, root string) bool {
+//
+// dirs are the folders on the project's side of the line besides root — the
+// temp folders and what the user allowed (config.AllowedDirs) — so a clone
+// in /tmp is worked on without a prompt for every file in it.
+func AutoAllows(call session.ToolCall, root string, dirs ...string) bool {
 	if readOnlyTool(call.Name) {
 		return true
 	}
-	inside, decided := call.PathsInside(root)
+	inside, decided := call.PathsInside(append([]string{root}, dirs...)...)
 	return !decided || inside
 }
 

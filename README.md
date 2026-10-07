@@ -1185,6 +1185,22 @@ Without that, a write to `/tmp` in auto mode comes back denied by the CLI with
 nobody having been asked — which looks like the agent failing rather than a
 boundary doing its job.
 
+Some folders count as inside, so routine work outside the repository does not
+stop a turn at every file: **the temp folders** (`/tmp`, `%TEMP%` — where an
+agent clones a second repository to make a PR there, or writes a PR body),
+**`<project>.worktrees`**, where agent-tui puts this project's worktrees, and
+whatever you list in `allowed_dirs` — in `config.json` for every project, or in
+a project's `.agent-tui/settings.json` for that one:
+
+```json
+{ "allowed_dirs": ["~/code/api", "$HOME/code/shared-ui"] }
+```
+
+`~` and environment variables are expanded; a relative path is ignored. Claude
+Code and codex get the folders as `--add-dir` too, so they work there as in the
+project. This widens `auto` only: `ask` still confirms every change and `plan`
+still changes nothing.
+
 Plan mode is enforced by withholding the tools rather than by asking the model
 to hold back: a tool that is never offered cannot be called.
 
@@ -1285,7 +1301,8 @@ retry it.
   "max_file_kb": 2048,
   "index_limit": 200000,
   "workers": 8,
-  "auto_approve": false
+  "auto_approve": false,
+  "allowed_dirs": ["~/code/api"]
 }
 ```
 

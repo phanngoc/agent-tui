@@ -51,6 +51,10 @@ type ProjectSettings struct {
 	// Instructions are standing orders for the agent in this project, added to
 	// its system prompt — the project's own AGENTS.md, edited from the admin.
 	Instructions string `json:"instructions,omitempty"`
+	// AllowedDirs are folders besides this project that auto mode may change
+	// without asking when working on it: the sibling repositories it is
+	// developed alongside.
+	AllowedDirs []string `json:"allowed_dirs,omitempty"`
 }
 
 func projectSettingsPath(root string) string {

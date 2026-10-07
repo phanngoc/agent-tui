@@ -786,6 +786,7 @@ func (m *Model) startTurn(s *session.Session, text string, files []session.Attac
 		ExternalID: st.ExternalID,
 		Fork:       s.ForkPending,
 		Root:       m.sessionCWD(s),
+		Dirs:       config.AllowedDirs(firstNonBlank(s.Root, m.idx.Root())),
 		Mode:       sessionMode(s),
 		Model:      m.sessionModel(s),
 		FS:         fsys,

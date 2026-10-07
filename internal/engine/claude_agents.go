@@ -22,6 +22,13 @@ import (
 //     that started it — which are its own tool calls and their results;
 //   - and, for an agent started by a sub-agent, an Agent call inside those.
 //
+// Its words — what it says it is about to do, between calls — are withheld
+// unless CLAUDE_CODE_FORWARD_SUBAGENT_TEXT is set, which newClaude does; they
+// then arrive the same way, one block at a time. Nothing finer is sent: the
+// CLI streams no token deltas for a sub-agent (measured against 2.1.292, with
+// --include-partial-messages and with the option above), so a block as it is
+// finished is as live as a sub-agent gets.
+//
 // Read without parent_tool_use_id, a sub-agent's calls land in the main
 // transcript as if the main agent had made them, which is what happened.
 // Here they are kept apart, on a tree rooted at each top-level Agent call,
@@ -132,6 +139,9 @@ func (d *claudeDec) agentTask(raw []byte, emit func(agent.Event)) bool {
 		if a.State == "starting" {
 			a.State = "running"
 		}
+		// An agent whose call was made in an earlier turn is first seen
+		// here, and its type with it.
+		a.Type = firstNonEmpty(a.Type, t.SubagentType)
 		a.Activity = firstNonEmpty(t.Description, a.Activity)
 		a.LastTool = firstNonEmpty(t.LastTool, a.LastTool)
 		if t.Usage.TotalTokens > 0 {
@@ -223,6 +233,10 @@ func (d *claudeDec) subMessage(kind, parent string, raw json.RawMessage, emit fu
 			changed = true
 		case kind == "assistant" && b.Type == "text" && strings.TrimSpace(b.Text) != "":
 			a.Summary = strings.TrimSpace(b.Text)
+			changed = true
+		case kind == "user" && b.Type == "text" && a.Prompt == "":
+			// What it was asked, for an agent whose call was not seen.
+			a.Prompt = b.Text
 			changed = true
 		case kind == "user" && b.Type == "tool_result":
 			for i := range a.Calls {

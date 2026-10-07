@@ -149,6 +149,9 @@ type Turn struct {
 	// continuing it, so the original is left untouched.
 	Fork bool
 	Root string
+	// Dirs are folders besides Root the agent may work in, and auto mode may
+	// change without asking (config.AllowedDirs).
+	Dirs []string
 	// Mode is how much the agent may do without asking on this turn.
 	Mode Mode
 	// Model is the model this session runs on. It belongs to the turn rather

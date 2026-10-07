@@ -180,6 +180,7 @@ func run() error {
 		FS:       hostFS,
 		Tasks:    tasks,
 		Root:     abs,
+		Dirs:     config.AllowedDirs(abs),
 		Index:    idx,
 		MaxBytes: int64(cfg.MaxFileKB) << 10,
 		Workers:  cfg.Workers,

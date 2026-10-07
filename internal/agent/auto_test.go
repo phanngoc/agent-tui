@@ -147,3 +147,42 @@ func TestAutoReadsAnywhere(t *testing.T) {
 		}
 	}
 }
+
+// TestAutoAllowsTheAllowedDirs: a write to a folder on the list — a clone in
+// the temp folder, where the agent is making a PR to another repository — is
+// not asked about; one anywhere else still is, and so is everything in ask.
+func TestAutoAllowsTheAllowedDirs(t *testing.T) {
+	const root = "/home/me/project"
+	dirs := []string{"/tmp", "/home/me/project.worktrees"}
+	for _, p := range []string{"/tmp/adm-d2/src/a.ts", "/tmp/adm-d2-pr-body.md", "/home/me/project.worktrees/fix/a.go"} {
+		c := call(t, "Write", map[string]any{"file_path": p})
+		if !AutoAllows(c, root, dirs...) {
+			t.Errorf("auto asked about %s, in an allowed folder", p)
+		}
+	}
+	for _, p := range []string{"/etc/hosts", "/tmpx/a", "/tmp/../etc/hosts"} {
+		c := call(t, "Write", map[string]any{"file_path": p})
+		if AutoAllows(c, root, dirs...) {
+			t.Errorf("auto allowed %s", p)
+		}
+	}
+	// A path relative to the project is judged against the project only.
+	if c := call(t, "Write", map[string]any{"file_path": "../x"}); AutoAllows(c, root, dirs...) {
+		t.Error("auto allowed a relative path out of the project")
+	}
+
+	e := &Executor{Root: root, Dirs: dirs}
+	c := call(t, "write_file", map[string]any{"file_path": "/tmp/adm-d2/a.ts"})
+	if ask, _ := e.ShouldAsk(c, ModeAuto, false); ask {
+		t.Error("the built-in agent asked about an allowed folder in auto")
+	}
+	if ask, _ := e.ShouldAsk(c, ModeAsk, false); !ask {
+		t.Error("ask mode stopped confirming a change in an allowed folder")
+	}
+	if _, err := e.resolve("/tmp/adm-d2/a.ts"); err != nil {
+		t.Errorf("the built-in tools cannot reach an allowed folder: %v", err)
+	}
+	if _, err := e.resolve("/etc/hosts"); err == nil {
+		t.Error("the built-in tools reached outside every allowed folder")
+	}
+}

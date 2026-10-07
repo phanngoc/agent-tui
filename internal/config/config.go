@@ -28,6 +28,10 @@ type Config struct {
 	// Auto is the default: confirming every edit is what makes an agent
 	// tedious, and the mode is always on screen so it is never a surprise.
 	Mode string `json:"mode"`
+	// AllowedDirs are folders besides the project that auto mode may change
+	// without asking, in every project: a clone kept for cross-repo work,
+	// say. The temp folders are on the list already (AllowedDirs).
+	AllowedDirs []string `json:"allowed_dirs,omitempty"`
 
 	Root string `json:"-"` // project root, always absolute
 }

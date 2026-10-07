@@ -18,8 +18,12 @@ func newClaude(root string) *CLI {
 		id: IDClaude, label: "Claude Code", bin: "claude",
 		root: root, fs: vfs.NewLocal(root), approvals: true,
 		streamIn: true,
-		argv:     claudeArgv,
-		newDec:   func() decoder { return &claudeDec{} },
+		// A sub-agent's words between its calls, which say what it is doing
+		// better than its last tool does. An environment variable rather than
+		// --forward-subagent-text, which a CLI too old to know it refuses.
+		env:    []string{"CLAUDE_CODE_FORWARD_SUBAGENT_TEXT=1"},
+		argv:   claudeArgv,
+		newDec: func() decoder { return &claudeDec{} },
 	}
 }
 
@@ -71,6 +75,14 @@ func claudeArgv(c *CLI, t agent.Turn, br *broker) []string {
 		// Followed by a flag of its own, since --mcp-config takes a list and
 		// would swallow the prompt.
 		a = append(a, "--mcp-config", string(cfg), "--verbose")
+	}
+	if dirs := addDirs(t); len(dirs) > 0 {
+		// The folders besides the project that auto may change: Claude Code
+		// then works in them as in the project, and its acceptEdits policy
+		// settles an edit there without a prompt. It takes a list, so a flag
+		// of its own follows.
+		a = append(append(a, "--add-dir"), dirs...)
+		a = append(a, "--verbose")
 	}
 	if t.Model != "" {
 		a = append(a, "--model", t.Model)

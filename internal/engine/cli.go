@@ -54,6 +54,8 @@ type CLI struct {
 	// streamIn is a CLI that reads its prompt as stream-json user messages
 	// on stdin, and more of them while it works (Claude Code).
 	streamIn bool
+	// env is added to the environment of a CLI run on this machine.
+	env []string
 
 	detectOnce sync.Once
 }
@@ -235,7 +237,7 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 				}
 				reason := "the agent asked for permission"
 				if !t.Mode.Confirms() {
-					if agent.AutoAllows(call, root) {
+					if agent.AutoAllows(call, root, t.Dirs...) {
 						return true // what auto already permits
 					}
 					reason = "this is outside " + root
@@ -305,7 +307,7 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	// as long as it lives, stranding the session. WaitDelay bounds that.
 	cmd.WaitDelay = 5 * time.Second
 	if fsys.IsLocal() {
-		cmd.Env = append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0")
+		cmd.Env = append(append(os.Environ(), "NO_COLOR=1", "CLICOLOR=0"), c.env...)
 	}
 
 	stdout, err := cmd.StdoutPipe()
