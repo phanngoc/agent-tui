@@ -268,6 +268,7 @@ func (s *Server) routes() {
 
 	s.gatewayRoutes(m)
 	s.sessionRoutes(m)
+	s.btwRoutes(m)
 	s.skillRoutes(m)
 	s.mcpRoutes(m)
 	s.memoryRoutes(m)

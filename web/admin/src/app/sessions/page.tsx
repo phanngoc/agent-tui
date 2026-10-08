@@ -8,9 +8,13 @@ import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
+import { useLiveSession } from "@/lib/live-session";
 import { useFollow } from "@/lib/follow";
 import { onEvent, useGateway, useVersion } from "@/lib/store";
-import type { Message, MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
+import { parseCommand, unescapeSlash, type ParsedCommand } from "@/lib/commands";
+import { CommandBackdrop, CommandHint, CommandMenu, CommandTip, systemTone, useCommandMenu } from "@/components/commands";
+import { BtwPanel } from "@/components/btw-panel";
+import type { MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
 import { Ago, CopyButton, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
 import { CredentialBadge } from "@/components/token-pool";
@@ -133,10 +137,13 @@ interface Detail {
   traces: Trace[];
   learning?: SessionState;
   queue?: QueueData;
+  /** side is the conversation's side chat (/btw), if it has one. */
+  side?: string;
 }
 
 function Conversation({ id }: { id: string }) {
-  const { data, error, reload, setData } = useFetch<Detail>(`/api/sessions/${id}`, []);
+  const { data, error, reload } = useLiveSession<Detail>(id);
+  const router = useRouter();
   const live = useGateway((s) => s.live[id]);
   const summary = useGateway((s) => s.summaries[id]);
   const [traceFor, setTraceFor] = React.useState<number | null>(null);
@@ -201,48 +208,6 @@ function Conversation({ id }: { id: string }) {
   // What was just chosen in the header, shown until the session says so.
   const [chosen, setChosen] = React.useState<{ engine?: string; model?: string; mode?: string }>({});
 
-  // Messages arrive as events; a turn's end refetches to settle on disk.
-  React.useEffect(
-    () =>
-      onEvent((e) => {
-        if (e.session !== id) return;
-        if (e.type === "message") {
-          setData((d) => {
-            if (!d) return d;
-            const msgs: Message[] = [...d.session.messages];
-            msgs[e.data.index] = e.data.message;
-            return { ...d, session: { ...d.session, messages: msgs } };
-          });
-        }
-        if (e.type === "subagent") {
-          // A sub-agent's progress belongs on the Agent call that started it.
-          setData((d) => {
-            if (!d) return d;
-            const { tool_use, agent } = e.data;
-            const msgs = d.session.messages.map((m) =>
-              m.tools?.some((t) => t.id === tool_use) ? { ...m, tools: m.tools.map((t) => (t.id === tool_use ? { ...t, agent } : t)) } : m,
-            );
-            return { ...d, session: { ...d.session, messages: msgs } };
-          });
-        }
-        if (e.type === "tool.done") {
-          // A finished call's result belongs on the message that made it.
-          setData((d) => {
-            if (!d) return d;
-            const call = e.data.call;
-            const msgs = d.session.messages.map((m) =>
-              m.tools?.some((t) => t.id === call.id)
-                ? { ...m, tools: m.tools.map((t) => (t.id === call.id ? { ...t, ...call, name: call.name || t.name, input: call.input ?? t.input } : t)) }
-                : m,
-            );
-            return { ...d, session: { ...d.session, messages: msgs } };
-          });
-        }
-        if (e.type === "turn.done" || e.type === "turn.started") setTimeout(() => void reload(), 400);
-      }),
-    [id, reload, setData],
-  );
-
   const owner = summary?.owner ?? data?.summary.owner;
   const busy = live?.busy ?? false;
   const busyRef = React.useRef(busy);
@@ -257,6 +222,58 @@ function Conversation({ id }: { id: string }) {
       if (now) toast("Stopping the turn to send it now");
       else if (busyRef.current) toast(queue.steers ? "Queued: the agent gets it after its current step" : "Queued: it goes when this turn ends");
       else toast.success(r.owner.startsWith("tui") ? "Sent to the terminal holding this session" : "Running in the gateway");
+    } catch (e) {
+      toast.error((e as Error).message);
+    }
+  };
+  // The side chat (/btw): the one the conversation has, and whether it shows.
+  const [side, setSide] = React.useState<string | null>(null);
+  const [showBtw, setShowBtw] = React.useState(false);
+  const loadedSide = data?.side;
+  const [seenSide, setSeenSide] = React.useState<string | undefined>();
+  if (loadedSide !== seenSide) {
+    setSeenSide(loadedSide);
+    if (loadedSide) setSide(loadedSide);
+  }
+  // A system command typed in the composer runs here instead of going to the
+  // agent. It says whether it was carried out, so a failed one keeps its text.
+  const runCommand = async (c: ParsedCommand, files: Attached[], quotes: string[]): Promise<boolean> => {
+    try {
+      switch (c.cmd.name) {
+        case "btw": {
+          const text = withQuotes(quotes, c.arg);
+          const r = await api.post<{ id: string }>(`/api/sessions/${id}/btw`, { text, files: files.length ? filesOf(files) : undefined });
+          setSide(r.id);
+          setShowBtw(true);
+          return true;
+        }
+        case "stop":
+          if (!busyRef.current) {
+            toast("Nothing is running");
+            return true;
+          }
+          await api.post(`/api/sessions/${id}/cancel`, {});
+          toast("Stopping the turn");
+          return true;
+        case "fork": {
+          const r = await api.post<{ id: string }>(`/api/sessions/${id}/fork`, {});
+          toast.success("Forked", { description: "The new conversation carries this one's context." });
+          router.push(`/sessions?id=${r.id}`);
+          return true;
+        }
+      }
+    } catch (e) {
+      toast.error((e as Error).message);
+      return false;
+    }
+    return false;
+  };
+  const resetBtw = async () => {
+    try {
+      await api.del(`/api/sessions/${id}/btw`);
+      setSide(null);
+      setShowBtw(false);
+      toast("Side chat cleared: the next /btw starts afresh from here");
     } catch (e) {
       toast.error((e as Error).message);
     }
@@ -280,7 +297,6 @@ function Conversation({ id }: { id: string }) {
 
   // A chapter just pinned or unpinned shows until the session says so.
   const [marks, setMarks] = React.useState<Record<number, boolean>>({});
-  const router = useRouter();
   const messages = data?.session.messages;
   const chapters = React.useMemo(() => {
     const set = new Set(data?.session.chapters ?? []);
@@ -451,6 +467,9 @@ function Conversation({ id }: { id: string }) {
         <SelectionAction container={content} onAdd={(t) => setQuotes((q) => [...q, t])} />
         <Composer
           session={id}
+          onCommand={runCommand}
+          btw={side ? { shown: showBtw, show: setShowBtw } : undefined}
+          above={side && showBtw ? <BtwPanel key={side} side={side} parentCount={s.messages.length} onClose={() => setShowBtw(false)} onReset={() => void resetBtw()} /> : undefined}
           root={s.root}
           busy={busy}
           owner={owner}
@@ -547,6 +566,9 @@ function Composer({
   onQuotes,
   queue,
   onUnqueue,
+  onCommand,
+  btw,
+  above,
 }: {
   session: string;
   root: string;
@@ -558,6 +580,11 @@ function Composer({
   onQuotes: (q: string[]) => void;
   queue: QueueData;
   onUnqueue: (item: string) => Promise<string | null>;
+  onCommand: (c: ParsedCommand, files: Attached[], quotes: string[]) => Promise<boolean>;
+  /** btw: the conversation has a side chat, shown or hidden. */
+  btw?: { shown: boolean; show: (on: boolean) => void };
+  /** above: what sits over the box — the side chat. */
+  above?: React.ReactNode;
 }) {
   // A prompt forked from ("Fork from here" on it) starts the text, to edit.
   const [text, setText] = React.useState(() => useChatDraft.getState().pending);
@@ -579,7 +606,22 @@ function Composer({
   // step, or when the turn ends); send now stops the turn so the queue goes
   // at once — Claude Code's Enter and Ctrl+Enter.
   const go = async (now = false) => {
-    const t = withQuotes(quotes, text);
+    // A system command is carried out here, not sent; "//name" sends "/name".
+    const c = parseCommand(text);
+    if (c) {
+      if (att.uploading) return;
+      setSending(true);
+      const done = await onCommand(c, c.cmd.name === "btw" ? att.items : [], c.cmd.name === "btw" ? quotes : []);
+      setSending(false);
+      if (!done) return;
+      setText("");
+      if (c.cmd.name === "btw") {
+        onQuotes([]);
+        att.clear();
+      }
+      return;
+    }
+    const t = withQuotes(quotes, unescapeSlash(text.trim()));
     if ((!t && !att.items.length && !(now && queue.items.length)) || att.uploading) return;
     setSending(true);
     await onSend(t, now && busy, att.items);
@@ -596,9 +638,24 @@ function Composer({
       box.current?.focus();
     }
   };
+  const menu = useCommandMenu({
+    text,
+    busy,
+    onPick: (c) => {
+      // One that takes words waits for them; one that does not runs.
+      if (c.args) setText(`/${c.name} `);
+      else {
+        setText(`/${c.name}`);
+        void onCommand({ cmd: c, arg: "", end: c.name.length + 1 }, [], []).then((ok) => ok && setText(""));
+      }
+    },
+  });
+  const [scrollTop, setScrollTop] = React.useState(0);
+  const isCommand = !!parseCommand(text);
   const canNow = busy && (!!text.trim() || quotes.length > 0 || att.items.length > 0 || queue.items.length > 0);
   return (
     <div className="border-t p-2 md:p-3">
+      {above}
       <div className="mx-auto max-w-3xl">
         {/* Who runs the prompt is a tooltip, not a line of its own: the room
             under the composer goes to the conversation. */}
@@ -614,6 +671,7 @@ function Composer({
           className="relative rounded-xl border bg-background p-1.5 focus-within:ring-[3px] focus-within:ring-ring/30 md:p-2"
         >
           <DropHint show={att.dragging} />
+          <CommandMenu menu={menu} />
           <AttachmentStrip items={att.items} uploading={att.uploading} onRemove={att.remove} className="mb-1.5 px-1" />
           {queue.items.length > 0 && (
             <div className="mb-1.5 flex flex-col gap-1">
@@ -656,12 +714,29 @@ function Composer({
             </div>
           )}
           <div className="flex items-end gap-2">
+            {/* The command at the start of the text is marked from behind:
+                the backdrop shares the box's padding and font. */}
+            <div className="relative min-w-0 flex-1 rounded-lg dark:bg-input/30">
+              <CommandBackdrop text={text} scrollTop={scrollTop} className="px-2.5 py-2 text-base md:text-sm" />
             <Textarea
               ref={box}
               onPaste={att.onPaste}
               value={text}
             onChange={(e) => setText(e.target.value)}
+            onScroll={(e) => setScrollTop(e.currentTarget.scrollTop)}
             onKeyDown={(e) => {
+              if (menu.onKeyDown(e)) return;
+              if (e.key === "Escape" && !text && btw?.shown) {
+                e.preventDefault();
+                btw.show(false);
+                return;
+              }
+              if (isCommand && e.key === "Enter" && !e.shiftKey) {
+                // A command runs on Enter, on a phone too, and never as "send now".
+                e.preventDefault();
+                void go();
+                return;
+              }
               if (e.key === "Enter" && (e.ctrlKey || e.metaKey) && busy) {
                 e.preventDefault();
                 void go(true);
@@ -687,8 +762,10 @@ function Composer({
                   ? "Reply…"
                   : "Reply…  (Enter to send, Shift+Enter for a new line)"
             }
-              className="max-h-48 min-h-10 resize-none border-0 shadow-none focus-visible:ring-0"
+              aria-describedby={`hint-${session}`}
+              className="relative max-h-48 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
+            </div>
             {busy && (
               <Button
                 onClick={() => void go(true)}
@@ -705,7 +782,8 @@ function Composer({
               onClick={() => void go()}
               disabled={sending || att.uploading > 0 || (!text.trim() && !quotes.length && !att.items.length)}
               size="icon"
-              title={busy ? (queue.steers ? "Queue: the agent gets it after its current step (Enter)" : "Queue: it goes when this turn ends (Enter)") : "Send (Enter)"}
+              className={cn(isCommand && "bg-violet-600 text-white hover:bg-violet-600/90")}
+              title={isCommand ? "Run the command (Enter)" : busy ? (queue.steers ? "Queue: the agent gets it after its current step (Enter)" : "Queue: it goes when this turn ends (Enter)") : "Send (Enter)"}
             >
               <SendIcon />
             </Button>
@@ -718,6 +796,19 @@ function Composer({
                 {quotes.length} selection{quotes.length > 1 ? "s" : ""} as context
               </span>
             )}
+            {btw && !btw.shown && (
+              <button
+                type="button"
+                title="Show the side chat (/btw)"
+                onClick={() => btw.show(true)}
+                className={cn("shrink-0 rounded px-1.5 py-0.5 font-mono text-[11px] font-medium", systemTone)}
+              >
+                /btw
+              </button>
+            )}
+            <div id={`hint-${session}`} className="ml-auto flex min-w-0 justify-end">
+              {text.trim() ? <CommandHint text={text} /> : <CommandTip busy={busy} className={cn(mobile && "hidden")} />}
+            </div>
           </div>
         </div>
       </div>
