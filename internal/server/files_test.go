@@ -27,7 +27,9 @@ func TestProjectExplorer(t *testing.T) {
 	ts := httptest.NewServer(srv.guard(srv.mux))
 	defer ts.Close()
 	get := func(path string, q url.Values, out any) int {
-		q.Set("root", root)
+		if !q.Has("root") {
+			q.Set("root", root)
+		}
 		r, err := http.Get(ts.URL + path + "?" + q.Encode())
 		if err != nil {
 			t.Fatal(err)
@@ -77,5 +79,53 @@ func TestProjectExplorer(t *testing.T) {
 		if res.Path != want {
 			t.Errorf("resolve %q = %q (%v); want %q", in, res.Path, res.Candidates, want)
 		}
+	}
+
+	// A file outside the project opens from its own folder, named absolutely
+	// or relative to a session folder outside the project.
+	elsewhere := t.TempDir()
+	_ = os.WriteFile(filepath.Join(elsewhere, "reply-drafts.md"), []byte("# Drafts\n"), 0o644)
+	for _, q := range []url.Values{
+		{"p": {filepath.Join(elsewhere, "reply-drafts.md") + ":3"}},
+		{"p": {"reply-drafts.md"}, "cwd": {elsewhere}},
+	} {
+		var res struct {
+			Root, Path string
+			Outside    bool
+		}
+		get("/api/files/resolve", q, &res)
+		if !res.Outside || filepath.Clean(res.Root) != filepath.Clean(elsewhere) || res.Path != "reply-drafts.md" {
+			t.Errorf("resolve %v = %+v; want reply-drafts.md in %s", q, res, elsewhere)
+			continue
+		}
+		var file struct{ Text string }
+		get("/api/files/read", url.Values{"root": {res.Root}, "path": {res.Path}}, &file)
+		if file.Text != "# Drafts\n" {
+			t.Errorf("read the outside file: %q", file.Text)
+		}
+	}
+	var none struct{ Path string }
+	get("/api/files/resolve", url.Values{"p": {filepath.Join(elsewhere, "missing.md")}}, &none)
+	if none.Path != "" {
+		t.Errorf("a missing outside file resolved to %q", none.Path)
+	}
+}
+
+// A path outside a WSL project opens from its folder's \\wsl.localhost share.
+func TestOutsideRootWSL(t *testing.T) {
+	root := `\\wsl.localhost\Ubuntu-24.04\home\me\fpaas-be`
+	for in, want := range map[string][2]string{
+		"/home/me/notes/reply-drafts.md":                    {`\\wsl.localhost\Ubuntu-24.04\home\me\notes`, "reply-drafts.md"},
+		`\\wsl$\Debian\tmp\a.md`:                            {`\\wsl.localhost\Debian\tmp`, "a.md"},
+		"//wsl.localhost/Ubuntu-24.04/home/me/x/../y/b.md":  {`\\wsl.localhost\Ubuntu-24.04\home\me\y`, "b.md"},
+		joinAbs(`\\wsl.localhost\Ubuntu-24.04\tmp`, "c.md"): {`\\wsl.localhost\Ubuntu-24.04\tmp`, "c.md"},
+	} {
+		dir, name, ok := outsideRoot(root, in)
+		if !ok || dir != want[0] || name != want[1] {
+			t.Errorf("outsideRoot(%q) = %q, %q, %v; want %q, %q", in, dir, name, ok, want[0], want[1])
+		}
+	}
+	if _, _, ok := outsideRoot(root, "notes/a.md"); ok {
+		t.Error("a relative path is not outside anything")
 	}
 }
