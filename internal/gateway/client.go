@@ -86,6 +86,12 @@ func Find() (string, bool) {
 	return "", false
 }
 
+// hasAdmin reports whether dir holds a build of the web admin.
+func hasAdmin(dir string) bool {
+	st, err := os.Stat(filepath.Join(dir, "index.html"))
+	return err == nil && !st.IsDir()
+}
+
 // Start launches `agent-tui serve` in the background, detached from this
 // process so it outlives it, with its output in the data directory.
 //
@@ -107,11 +113,13 @@ func Start() error {
 	env := os.Environ()
 	// The admin is found beside the binary, or — for a build run from the
 	// repository — under the starter's directory, which the gateway no
-	// longer runs in; so that one is handed over.
-	if os.Getenv("AGENT_TUI_WEB") == "" {
+	// longer runs in; so that one is handed over. Only when there is none
+	// beside the binary: an installed gateway started from inside the
+	// repository served the repository's last `npm run build`, however old,
+	// in place of the admin installed with it.
+	if os.Getenv("AGENT_TUI_WEB") == "" && !hasAdmin(filepath.Join(filepath.Dir(self), "admin")) {
 		if wd, err := os.Getwd(); err == nil {
-			out := filepath.Join(wd, "web", "admin", "out")
-			if st, err := os.Stat(filepath.Join(out, "index.html")); err == nil && !st.IsDir() {
+			if out := filepath.Join(wd, "web", "admin", "out"); hasAdmin(out) {
 				env = append(env, "AGENT_TUI_WEB="+out)
 			}
 		}
