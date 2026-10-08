@@ -11,7 +11,7 @@ import { baseName, nanos, pretty, stamp, toolSummary } from "@/lib/format";
 import { ImageViewer } from "@/components/image-viewer";
 import { Button } from "@/components/ui/button";
 import { AgentGroup, SubAgentCard } from "@/components/subagent";
-import { useFileOpener } from "@/lib/file-opener";
+import { filePathOf, useFileOpener } from "@/lib/file-opener";
 import { ChapterMark, MessageActions } from "@/components/message-actions";
 import { DiffView, changeCounts, fileChange, type FileChange } from "@/components/diff-view";
 import { CommandChip, splitCommand } from "@/components/commands";
@@ -38,17 +38,6 @@ function groupAgents(tools: ToolCall[]): (ToolCall | AgentCall[])[] {
     }
   }
   return out;
-}
-
-/** filePathOf is the file a tool call worked on, when it names one. */
-function filePathOf(input: unknown): string | undefined {
-  if (!input || typeof input !== "object") return undefined;
-  const o = input as Record<string, unknown>;
-  for (const k of ["file_path", "path", "notebook_path", "filePath"]) {
-    const v = o[k];
-    if (typeof v === "string" && v.trim() && /\.[A-Za-z0-9]{1,8}$/.test(v)) return v;
-  }
-  return undefined;
 }
 
 /** toolLabel is a tool's name as a reader wants it: an MCP tool as

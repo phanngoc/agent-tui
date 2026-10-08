@@ -15,7 +15,7 @@ import { parseCommand, unescapeSlash, type ParsedCommand } from "@/lib/commands"
 import { CommandBackdrop, CommandHint, CommandMenu, CommandTip, systemTone, useCommandMenu } from "@/components/commands";
 import { BtwPanel } from "@/components/btw-panel";
 import { RunRoot } from "@/components/run-command";
-import type { MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
+import type { MemoryRecord, Message, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
 import { Ago, CopyButton, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
 import { CredentialBadge } from "@/components/token-pool";
@@ -26,7 +26,7 @@ import { FocusButton } from "@/components/focus-button";
 import { SessionSettings } from "@/components/session-settings";
 import { Explorer } from "@/components/explorer";
 import { TerminalPanel } from "@/components/terminal-panel";
-import { FileOpener } from "@/lib/file-opener";
+import { FileOpener, fullPathOf } from "@/lib/file-opener";
 import { useIsMobile } from "@/lib/mobile";
 import { SelectionAction, withQuotes } from "@/components/selection-action";
 import { BranchPicker } from "@/components/branch-picker";
@@ -150,11 +150,17 @@ function Conversation({ id }: { id: string }) {
   const [traceFor, setTraceFor] = React.useState<number | null>(null);
   const [tab, setTab] = React.useState("context");
   const ws = useWorkspace();
-  // A path clicked in the conversation opens in the Files tab.
+  // A path clicked in the conversation opens in the Files tab. A bare name is
+  // first looked up among the files the conversation's tools touched, so one
+  // written outside the project opens from where it is.
   const [fileReq, setFileReq] = React.useState<{ path: string; seq: number } | undefined>();
+  const seen = React.useRef<Message[]>([]);
+  React.useEffect(() => {
+    seen.current = [...(data?.session.messages ?? []), { role: "assistant", at: "", tools: Object.values(live?.running ?? {}) }];
+  }, [data, live]);
   const openFile = React.useCallback(
     (path: string) => {
-      setFileReq({ path, seq: Date.now() });
+      setFileReq({ path: fullPathOf(seen.current, path) ?? path, seq: Date.now() });
       setTab("files");
       ws.openRight();
     },

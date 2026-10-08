@@ -251,7 +251,9 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 
 	// resolve finds the file a path in a conversation means: relative to the
 	// project or the session's folder, absolute inside the project in either
-	// spelling, or — failing those — the project file it is the end of.
+	// spelling, or — failing those — the project file it is the end of. A file
+	// outside the project, absolute or relative to a session folder outside
+	// it, comes back with the folder it is in as its root.
 	m.HandleFunc("GET /api/files/resolve", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		p, err := filesOf(q.Get("root"))
@@ -280,6 +282,28 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 		found := func(rel string) {
 			writeJSON(w, map[string]any{"path": rel})
 		}
+		// beyond is a file outside the project, opened as the one file of its
+		// own folder: that folder is the root the explorer reads it through.
+		beyond := func(abs string) bool {
+			dir, name, ok := outsideRoot(q.Get("root"), abs)
+			if !ok {
+				return false
+			}
+			op, err := filesOf(dir)
+			if err != nil {
+				return false
+			}
+			full, err := op.join(name)
+			if err != nil {
+				return false
+			}
+			if st, err := op.fs.Stat(ctx, full); err != nil || st.Dir {
+				return false
+			}
+			writeJSON(w, map[string]any{"root": dir, "path": name, "outside": true})
+			return true
+		}
+		orig := want
 		var tries []string
 		// Absolute: a host path, a WSL UNC path or a Linux path in the project.
 		if d, linux, ok := gateway.WSLPath(want); ok {
@@ -287,13 +311,24 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 				want = linux
 			}
 		}
-		if rel, ok := p.rel(want); ok && (strings.HasPrefix(want, "/") || filepath.IsAbs(want)) {
+		absolute := strings.HasPrefix(want, "/") || filepath.IsAbs(want)
+		var outside []string // absolute paths beyond the project to try
+		if rel, ok := p.rel(want); ok && absolute {
 			tries = append(tries, rel)
+		} else if absolute {
+			outside = append(outside, orig)
 		} else {
 			tries = append(tries, want)
 			if cwd := q.Get("cwd"); cwd != "" {
+				if _, linux, ok := gateway.WSLPath(cwd); ok {
+					if _, isWSL := p.fs.(*vfs.WSL); isWSL {
+						cwd = linux
+					}
+				}
 				if rel, ok := p.rel(cwd); ok && rel != "" {
 					tries = append(tries, path.Join(rel, want))
+				} else if !ok {
+					outside = append(outside, joinAbs(cwd, want))
 				}
 			}
 		}
@@ -304,6 +339,15 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 					return
 				}
 			}
+		}
+		for _, o := range outside {
+			if beyond(o) {
+				return
+			}
+		}
+		if absolute {
+			writeJSON(w, map[string]any{"candidates": []string{}})
+			return
 		}
 		// The end of a project file's path: "sequence.md", "server/api.go".
 		files, err := p.fs.ListFiles(ctx, p.dir, 60000)
@@ -328,6 +372,42 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"candidates": nz(cands)})
 	})
+}
+
+// outsideRoot splits an absolute path beyond the project into the folder the
+// explorer opens it from and the file's name there, the folder spelled as a
+// root: a WSL path as its \\wsl.localhost share — a Linux one in the
+// distribution the project lives in — and a host path as it is.
+func outsideRoot(root, abs string) (dir, name string, ok bool) {
+	unc := func(distro, linux string) (string, string, bool) {
+		linux = path.Clean(linux)
+		if linux == "/" {
+			return "", "", false
+		}
+		return `\\wsl.localhost\` + distro + strings.ReplaceAll(path.Dir(linux), "/", `\`), path.Base(linux), true
+	}
+	if d, linux, ok := gateway.WSLPath(abs); ok {
+		return unc(d, linux)
+	}
+	if strings.HasPrefix(abs, "/") {
+		if d, _, ok := gateway.WSLPath(root); ok {
+			return unc(d, abs)
+		}
+	}
+	if filepath.IsAbs(abs) {
+		abs = filepath.Clean(abs)
+		return filepath.Dir(abs), filepath.Base(abs), true
+	}
+	return "", "", false
+}
+
+// joinAbs is a relative path in an absolute folder, kept in the folder's own
+// spelling: a Linux or WSL path slash-joined, a host path the host's way.
+func joinAbs(dir, rel string) string {
+	if _, _, ok := gateway.WSLPath(dir); ok || strings.HasPrefix(dir, "/") {
+		return strings.TrimRight(strings.ReplaceAll(dir, `\`, "/"), "/") + "/" + strings.ReplaceAll(rel, `\`, "/")
+	}
+	return filepath.Join(dir, rel)
 }
 
 func parseLine(s string) (int, error) {

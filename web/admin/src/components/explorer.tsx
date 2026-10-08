@@ -75,7 +75,7 @@ function Tree({ root, dir, depth, selected, open, onPick }: { root: string; dir:
   );
 }
 
-function FileView({ root, path, line, onBack }: { root: string; path: string; line?: number; onBack: () => void }) {
+function FileView({ root, path, line, shown, onBack }: { root: string; path: string; line?: number; shown?: string; onBack: () => void }) {
   const [data, setData] = React.useState<FileData | null>(null);
   const [err, setErr] = React.useState<string | null>(null);
   const [raw, setRaw] = React.useState(false);
@@ -105,8 +105,8 @@ function FileView({ root, path, line, onBack }: { root: string; path: string; li
         <button onClick={onBack} className="rounded p-1 hover:bg-muted" title="Back to the tree">
           <ArrowLeftIcon className="size-3.5" />
         </button>
-        <span className="min-w-0 flex-1 truncate font-mono" title={path}>
-          {path}
+        <span className="min-w-0 flex-1 truncate font-mono" title={shown ?? path}>
+          {shown ?? path}
           {line ? `:${line}` : ""}
         </span>
         {isMd && data?.text !== undefined && (
@@ -114,7 +114,7 @@ function FileView({ root, path, line, onBack }: { root: string; path: string; li
             {showRaw ? "rendered" : "source"}
           </button>
         )}
-        <CopyButton text={path} />
+        <CopyButton text={shown ?? path} />
         <Link
           href={"/editor" + qs({ root, path, line })}
           className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
@@ -163,11 +163,13 @@ function ancestors(p: string): string[] {
 /**
  * Explorer is the project's tree, a quick file search, and the file open in
  * it. `request` is a path someone asked to see (from the conversation): it is
- * resolved to a project file, and opened.
+ * resolved to a project file — or a file outside the project — and opened.
  */
 export function Explorer({ root, cwd, request }: { root: string; cwd?: string; request?: { path: string; seq: number } }) {
   const [open, setOpen] = React.useState<Set<string>>(new Set());
-  const [file, setFile] = React.useState<{ path: string; line?: number } | null>(null);
+  // file is the one open; one outside the project carries its own folder as
+  // root, and is shown by the path it was asked for.
+  const [file, setFile] = React.useState<{ path: string; line?: number; root?: string; shown?: string } | null>(null);
   const [q, setQ] = React.useState("");
   const [found, setFound] = React.useState<string[] | null>(null);
   const [pick, setPick] = React.useState<string[] | null>(null);
@@ -184,14 +186,17 @@ export function Explorer({ root, cwd, request }: { root: string; cwd?: string; r
     if (!request) return;
     let live = true;
     api
-      .get<{ path?: string; candidates?: string[] }>("/api/files/resolve" + qs({ root, cwd, p: request.path }))
+      .get<{ path?: string; root?: string; outside?: boolean; candidates?: string[] }>("/api/files/resolve" + qs({ root, cwd, p: request.path }))
       .then((r) => {
         if (!live) return;
-        if (r.path) show(r.path, lineOf(request.path));
+        if (r.path && r.outside) {
+          setFile({ path: r.path, line: lineOf(request.path), root: r.root, shown: request.path.replace(/:\d+(?::\d+)?$/, "") });
+          setPick(null);
+        } else if (r.path) show(r.path, lineOf(request.path));
         else if (r.candidates?.length) {
           setFile(null);
           setPick(r.candidates);
-        } else toast.error(`${request.path} is not in this project`);
+        } else toast.error(`${request.path} was not found`);
       })
       .catch((e) => toast.error((e as Error).message));
     return () => {
@@ -215,7 +220,17 @@ export function Explorer({ root, cwd, request }: { root: string; cwd?: string; r
     };
   }, [q, root]);
 
-  if (file) return <FileView key={file.path + (file.line ?? "")} root={root} path={file.path} line={file.line} onBack={() => setFile(null)} />;
+  if (file)
+    return (
+      <FileView
+        key={(file.root ?? "") + file.path + (file.line ?? "")}
+        root={file.root ?? root}
+        path={file.path}
+        line={file.line}
+        shown={file.shown}
+        onBack={() => setFile(null)}
+      />
+    );
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
