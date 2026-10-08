@@ -1,12 +1,13 @@
 "use client";
 
 import * as React from "react";
-import { BookmarkIcon, CheckIcon, CopyIcon, GitForkIcon, ListIcon, PinIcon, SquareIcon, Volume2Icon } from "lucide-react";
+import { BookmarkIcon, CheckIcon, CopyIcon, GitForkIcon, HashIcon, ListIcon, PinIcon, SquareIcon, Volume2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types";
 import { Ago } from "@/components/common";
 import { canSpeak, useSpeech } from "@/lib/speech";
+import { copyMarkdownForSlack } from "@/components/slack-copy";
 
 /** What a conversation lets its messages do; the transcript is read-only without it. */
 export interface MessageHooks {
@@ -47,7 +48,7 @@ export function MessageActions({ m, index, className }: { m: Message; index: num
   const chapter = hooks.chapters.includes(index);
   const user = m.role === "user";
   return (
-    <div className={cn("flex items-center gap-0.5 text-muted-foreground", className)}>
+    <div data-copy-skip className={cn("flex items-center gap-0.5 text-muted-foreground", className)}>
       {text && (
         <Act
           title={copied ? "Copied" : "Copy"}
@@ -62,6 +63,19 @@ export function MessageActions({ m, index, className }: { m: Message; index: num
           }
         >
           {copied ? <CheckIcon className="size-3.5" /> : <CopyIcon className="size-3.5" />}
+        </Act>
+      )}
+      {text && !user && (
+        <Act
+          title="Copy for Slack: formatted to paste into a Slack message"
+          onClick={() =>
+            void copyMarkdownForSlack(text).then(
+              () => toast.success("Copied for Slack", { description: "Paste it into a Slack message." }),
+              (e: Error) => toast.error(`Could not copy: ${e.message}`),
+            )
+          }
+        >
+          <HashIcon className="size-3.5" />
         </Act>
       )}
       <Act title={user ? "Fork from here: a new conversation up to this prompt, with it ready to edit" : "Fork from here: a new conversation up to this message"} onClick={() => hooks.fork(index)}>
@@ -104,7 +118,7 @@ export function ChapterMark({ index }: { index: number }) {
   if (!hooks?.chapters.includes(index)) return null;
   const label = chapterLabel(hooks.messages, index);
   return (
-    <div className="mb-1 flex items-center gap-2 text-[11px] font-medium tracking-wide text-primary uppercase">
+    <div data-copy-skip className="mb-1 flex items-center gap-2 text-[11px] font-medium tracking-wide text-primary uppercase">
       <BookmarkIcon className="size-3 fill-current" />
       <span className="truncate normal-case">{label}</span>
       <span className="h-px flex-1 bg-primary/20" />

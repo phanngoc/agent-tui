@@ -363,8 +363,10 @@ function stackItems(tools: ToolCall[]): StackItem[] {
 
 /** ToolStack draws calls made one after another, with nothing said between them. */
 function ToolStack({ calls }: { calls: ToolCall[] }) {
+  // The agent's steps are how it got there, not what it said: a copy for
+  // Slack leaves them out.
   return (
-    <div className="-ml-1.5">
+    <div data-copy-skip className="-ml-1.5">
       {stackItems(calls).map((it) =>
         it.kind === "agents" ? (
           <AgentGroup key={it.calls[0].id} calls={it.calls} />
@@ -381,7 +383,7 @@ function ToolStack({ calls }: { calls: ToolCall[] }) {
 function Thinking({ text, live }: { text: string; live?: boolean }) {
   const [open, setOpen] = React.useState(false);
   return (
-    <div className="text-xs text-muted-foreground">
+    <div data-copy-skip className="text-xs text-muted-foreground">
       <button className="flex items-center gap-1.5 hover:text-foreground" onClick={() => setOpen(!open)}>
         <BrainCircuitIcon className={cn("size-3.5", live && "animate-pulse")} />
         {live ? "thinking…" : "thought"} <span className="tabular-nums">({text.length} chars)</span>
@@ -427,7 +429,7 @@ export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index:
         </div>
         <div className="min-w-0 flex-1">
           <ChapterMark index={index} />
-          <div className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
+          <div data-copy-skip className="mb-1 flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">you</span>
             <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
             {m.steered && (
@@ -503,7 +505,7 @@ export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index:
       </div>
       <div className="min-w-0 flex-1 space-y-2">
         <ChapterMark index={index} />
-        <div className="flex items-center gap-2 text-xs text-muted-foreground">
+        <div data-copy-skip className="flex items-center gap-2 text-xs text-muted-foreground">
           <span className="font-medium text-foreground">agent</span>
           <span title={stamp(m.at)}>{new Date(m.at).toLocaleTimeString()}</span>
           <span className="opacity-0 group-hover:opacity-100">#{index}</span>
@@ -635,7 +637,7 @@ export function AssistantRun({
               <ChapterMark index={index} />
             </div>
           ))}
-          <div className="flex items-center gap-2 text-xs text-muted-foreground">
+          <div data-copy-skip className="flex items-center gap-2 text-xs text-muted-foreground">
             <span className="font-medium text-foreground">agent</span>
             <span title={stamp(first.m.at)}>{new Date(first.m.at).toLocaleTimeString()}</span>
             {took && <span title="From your message to the agent's last step">· {took}</span>}

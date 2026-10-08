@@ -1,12 +1,15 @@
 "use client";
 
 import * as React from "react";
-import { TextQuoteIcon } from "lucide-react";
+import { HashIcon, TextQuoteIcon } from "lucide-react";
+import { toast } from "sonner";
+import { copySelectionForSlack } from "@/components/slack-copy";
 
 /**
  * SelectionAction is the Claude app's "selection as context": select text in
  * the conversation and a button over it adds the selection to the next
- * message, as a quote above the composer.
+ * message, as a quote above the composer. Beside it, "Copy for Slack" copies
+ * the selection formatted to paste into Slack, for the team.
  */
 export function SelectionAction({
   container,
@@ -40,8 +43,8 @@ export function SelectionAction({
         setSel({
           text,
           x: Math.min(
-            Math.max(r.left + r.width / 2, 70),
-            window.innerWidth - 70,
+            Math.max(r.left + r.width / 2, 130),
+            window.innerWidth - 130,
           ),
           y: below ? r.bottom + 8 : r.top - 8,
           below,
@@ -60,21 +63,44 @@ export function SelectionAction({
   }, [container]);
 
   if (!sel) return null;
+  const item = "inline-flex items-center gap-1.5 px-3 py-1.5 hover:bg-muted";
   return (
-    <button
-      type="button"
+    <div
       // Pressing must not clear the selection before the click lands.
       onMouseDown={(e) => e.preventDefault()}
-      onClick={() => {
-        onAdd(sel.text);
-        document.getSelection()?.removeAllRanges();
-        setSel(null);
-      }}
       style={{ left: sel.x, top: sel.y }}
-      className={`fixed z-40 inline-flex -translate-x-1/2 items-center gap-1.5 rounded-full border bg-popover px-3 py-1.5 text-xs font-medium text-popover-foreground shadow-lg hover:bg-muted ${sel.below ? "" : "-translate-y-full"}`}
+      className={`fixed z-40 inline-flex -translate-x-1/2 divide-x overflow-hidden rounded-full border bg-popover text-xs font-medium text-popover-foreground shadow-lg ${sel.below ? "" : "-translate-y-full"}`}
     >
-      <TextQuoteIcon className="size-3.5" /> Add to chat
-    </button>
+      <button
+        type="button"
+        className={item}
+        onClick={() => {
+          onAdd(sel.text);
+          document.getSelection()?.removeAllRanges();
+          setSel(null);
+        }}
+      >
+        <TextQuoteIcon className="size-3.5" /> Add to chat
+      </button>
+      <button
+        type="button"
+        className={item}
+        title="Copy the selection formatted for Slack: bold, lists, links and code come through; headings turn bold and tables into an aligned block"
+        onClick={() => {
+          const el = container.current;
+          if (!el) return;
+          copySelectionForSlack(el).then(
+            (ok) => {
+              if (ok) toast.success("Copied for Slack", { description: "Paste it into a Slack message." });
+              else toast("Nothing to copy in that selection");
+            },
+            (e: Error) => toast.error(`Could not copy: ${e.message}`),
+          );
+        }}
+      >
+        <HashIcon className="size-3.5" /> Copy for Slack
+      </button>
+    </div>
   );
 }
 
