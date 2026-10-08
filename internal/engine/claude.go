@@ -488,9 +488,13 @@ func (d *claudeDec) toolResults(raw json.RawMessage, emit func(agent.Event)) {
 		if b.Type != "tool_result" {
 			continue
 		}
+		res := flattenContent(b.Content)
+		if b.IsError {
+			res = toolError(res)
+		}
 		emit(agent.EvToolDone{Call: session.ToolCall{
 			ID:      b.ToolUseID,
-			Result:  flattenContent(b.Content),
+			Result:  res,
 			IsError: b.IsError,
 			Done:    true,
 		}})

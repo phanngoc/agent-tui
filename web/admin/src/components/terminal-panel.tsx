@@ -13,7 +13,7 @@ import "@xterm/xterm/css/xterm.css";
 // belong to the gateway, so a reload or another tab reattaches to them, with
 // what they printed lately replayed.
 
-type TermInfo = { id: string; shell: string; exited?: boolean };
+type TermInfo = { id: string; shell: string; exited?: boolean; command?: string };
 type Shell = { id: string; label: string };
 
 function decode(b64: string): Uint8Array {
@@ -26,10 +26,15 @@ function decode(b64: string): Uint8Array {
 const darkTheme = { background: "#0a0a0a", foreground: "#e5e5e5", cursor: "#e5e5e5", selectionBackground: "#3b82f680" };
 const lightTheme = { background: "#ffffff", foreground: "#171717", cursor: "#171717", selectionBackground: "#3b82f640" };
 
-/** TermView draws one terminal and wires it to the gateway. */
-function TermView({ id, active }: { id: string; active: boolean }) {
+/** TermView draws one terminal and wires it to the gateway. onExit hears the
+ * code its process ended with. */
+export function TermView({ id, active, onExit }: { id: string; active: boolean; onExit?: (code: number) => void }) {
   const box = React.useRef<HTMLDivElement>(null);
   const fitRef = React.useRef<(() => void) | null>(null);
+  const exitRef = React.useRef(onExit);
+  React.useEffect(() => {
+    exitRef.current = onExit;
+  }, [onExit]);
   React.useEffect(() => {
     let disposed = false;
     let cleanup = () => {};
@@ -87,6 +92,7 @@ function TermView({ id, active }: { id: string; active: boolean }) {
       es.addEventListener("exit", (e) => {
         term.write(`\r\n\x1b[2m[process exited with code ${e.data}]\x1b[0m\r\n`);
         es.close();
+        exitRef.current?.(Number(e.data));
       });
 
       const themeObs = new MutationObserver(() => {
@@ -142,7 +148,8 @@ export function TerminalPanel({ root, onClose }: { root: string; onClose: () => 
       .then(([t, s]) => {
         if (!live) return;
         setShells(s.shells);
-        const alive = t.terms.filter((x) => !x.exited);
+        // A command run from an answer is shown there, not as a tab.
+        const alive = t.terms.filter((x) => !x.exited && !x.command);
         setTerms(alive);
         if (alive.length) setActive(alive[alive.length - 1].id);
         else void open();
@@ -152,6 +159,9 @@ export function TerminalPanel({ root, onClose }: { root: string; onClose: () => 
       live = false;
     };
   }, [root, open]);
+
+  // For a project in WSL: the first Windows shell it can open.
+  const host = shells.some((s) => s.id === "wsl") ? shells.find((s) => s.id.startsWith("host-")) : undefined;
 
   const close = async (id: string) => {
     await api.del(`/api/term/${id}`).catch(() => undefined);
@@ -198,6 +208,18 @@ export function TerminalPanel({ root, onClose }: { root: string; onClose: () => 
           <button onClick={() => open()} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="New terminal">
             <PlusIcon className="size-3.5" />
           </button>
+          {/* In WSL the Windows drives are under /mnt; a Windows shell is a
+              click away for what has to run on that side. */}
+          {host && (
+            <span className="ml-1 hidden shrink-0 items-center gap-1 text-muted-foreground md:flex">
+              <span title="Inside WSL the Windows drives are /mnt/c, /mnt/d…">
+                Windows: <code className="rounded bg-muted px-1 font-mono">/mnt/c</code> ·
+              </span>
+              <button onClick={() => open(host.id)} className="rounded border px-1.5 py-0.5 hover:bg-muted hover:text-foreground" title={`Open ${host.label}`}>
+                {host.label}
+              </button>
+            </span>
+          )}
         </div>
         <button onClick={onClose} className="rounded p-0.5 text-muted-foreground hover:bg-muted hover:text-foreground" title="Hide the panel (the shells keep running)">
           <XIcon className="size-3.5" />

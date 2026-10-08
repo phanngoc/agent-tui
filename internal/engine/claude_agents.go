@@ -242,6 +242,9 @@ func (d *claudeDec) subMessage(kind, parent string, raw json.RawMessage, emit fu
 			for i := range a.Calls {
 				if a.Calls[i].ID == b.ToolUseID {
 					res := flattenContent(b.Content)
+					if b.IsError {
+						res = toolError(res)
+					}
 					if r := []rune(res); len(r) > maxAgentResult {
 						res = string(r[:maxAgentResult]) + "…"
 					}

@@ -14,6 +14,7 @@ import { onEvent, useGateway, useVersion } from "@/lib/store";
 import { parseCommand, unescapeSlash, type ParsedCommand } from "@/lib/commands";
 import { CommandBackdrop, CommandHint, CommandMenu, CommandTip, systemTone, useCommandMenu } from "@/components/commands";
 import { BtwPanel } from "@/components/btw-panel";
+import { RunRoot } from "@/components/run-command";
 import type { MemoryRecord, QueueData, Session, SessionState, Summary, Trace, Live } from "@/lib/types";
 import { Ago, CopyButton, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
@@ -353,6 +354,7 @@ function Conversation({ id }: { id: string }) {
   return (
     <FileOpener.Provider value={openFile}>
       <ProjectRoot.Provider value={s.root}>
+      <RunRoot.Provider value={s.root}>
     <MessageHooksContext.Provider value={hooks}>
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -513,6 +515,7 @@ function Conversation({ id }: { id: string }) {
       </RightPane>
     </div>
     </MessageHooksContext.Provider>
+      </RunRoot.Provider>
       </ProjectRoot.Provider>
     </FileOpener.Provider>
   );
