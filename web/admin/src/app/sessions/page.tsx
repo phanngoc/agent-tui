@@ -14,7 +14,7 @@ import type { Message, MemoryRecord, QueueData, Session, SessionState, Summary, 
 import { Ago, CopyButton, Empty, ErrorNote, Mono, Pre } from "@/components/common";
 import { OwnerBadge } from "@/components/owner-badge";
 import { CredentialBadge } from "@/components/token-pool";
-import { LiveTail, MessageView } from "@/components/transcript";
+import { AssistantRun, LiveTail, MessageView, ProjectRoot, groupTurns } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
 import { PaneToggle, RightPane, Workspace, useWorkspace } from "@/components/workspace";
 import { FocusButton } from "@/components/focus-button";
@@ -326,6 +326,9 @@ function Conversation({ id }: { id: string }) {
       },
     };
   }, [id, messages, chapters, router, data]);
+  const turns = React.useMemo(() => groupTurns(messages ?? []), [messages]);
+  const approve = (aid: string, verdict: "allow" | "allow_all" | "deny") => cmd("approve", { id: aid, verdict });
+  const choose = (cid: string, index: number) => cmd("choose", { id: cid, index });
 
   if (error) return <ErrorNote error={error} className="m-6" />;
   if (!data) return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
@@ -333,6 +336,7 @@ function Conversation({ id }: { id: string }) {
 
   return (
     <FileOpener.Provider value={openFile}>
+      <ProjectRoot.Provider value={s.root}>
     <MessageHooksContext.Provider value={hooks}>
     <div className="flex min-h-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
@@ -400,20 +404,35 @@ function Conversation({ id }: { id: string }) {
           </div>
           <div ref={scroller} className="min-h-0 flex-1 overflow-auto px-3 py-3 [overflow-anchor:none] md:px-5 md:py-4">
             <div ref={content} className={cn("mx-auto space-y-5", ws.rightOpen ? "max-w-3xl" : "max-w-5xl")}>
-              {s.messages.map((m, i) => (
-                <MessageView
-                  key={i}
-                  m={m}
-                  index={i}
-                  turnEnd={m.role === "assistant" && !busy && (i === s.messages.length - 1 || s.messages[i + 1]?.role === "user")}
-                  onTrace={(idx) => {
-                    setTraceFor(idx);
-                    setTab("context");
-                    ws.openRight();
-                  }}
-                />
-              ))}
-              <LiveTail live={live} onApprove={(aid, verdict) => cmd("approve", { id: aid, verdict })} onChoose={(cid, index) => cmd("choose", { id: cid, index })} />
+              {turns.map((g, gi) => {
+                const lastGroup = gi === turns.length - 1;
+                if (g.role === "user") {
+                  const { m, index } = g.items[0];
+                  return (
+                    <MessageView
+                      key={index}
+                      m={m}
+                      index={index}
+                      onTrace={(idx) => {
+                        setTraceFor(idx);
+                        setTab("context");
+                        ws.openRight();
+                      }}
+                    />
+                  );
+                }
+                const first = g.items[0].index;
+                return (
+                  <AssistantRun
+                    key={first}
+                    items={g.items}
+                    since={first > 0 && s.messages[first - 1].role === "user" ? s.messages[first - 1].at : undefined}
+                    turnEnd={!lastGroup || !busy}
+                    tail={lastGroup && live?.busy ? <LiveTail live={live} attached onApprove={approve} onChoose={choose} /> : undefined}
+                  />
+                );
+              })}
+              {(turns[turns.length - 1]?.role !== "assistant" || !live?.busy) && <LiveTail live={live} onApprove={approve} onChoose={choose} />}
             </div>
           </div>
           {below && (
@@ -475,6 +494,7 @@ function Conversation({ id }: { id: string }) {
       </RightPane>
     </div>
     </MessageHooksContext.Provider>
+      </ProjectRoot.Provider>
     </FileOpener.Provider>
   );
 }
