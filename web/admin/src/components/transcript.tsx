@@ -7,7 +7,8 @@ import { cn } from "@/lib/utils";
 import type { Live, Message, SubAgent, ToolCall } from "@/lib/types";
 import { Pre } from "@/components/common";
 import { Markdown } from "@/components/markdown";
-import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
+import { baseName, nanos, pretty, stamp, toolSummary } from "@/lib/format";
+import { ImageViewer } from "@/components/image-viewer";
 import { Button } from "@/components/ui/button";
 import { AgentGroup, SubAgentCard } from "@/components/subagent";
 import { useFileOpener } from "@/lib/file-opener";
@@ -366,12 +367,16 @@ function RawToggle({ raw, setRaw }: { raw: boolean; setRaw: (r: boolean) => void
   );
 }
 
+const isImage = (f: { path: string; media?: string }) => (f.media ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(f.path);
+
 export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index: number; onTrace?: (index: number) => void; turnEnd?: boolean }) {
   // The row of actions shows on hover, and always under a turn's answer.
   const actions = (
     <MessageActions m={m} index={index} className={cn("mt-1 -ml-1.5 transition-opacity", !turnEnd && "md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100")} />
   );
   const [raw, setRaw] = React.useState(false);
+  const [viewing, setViewing] = React.useState<number | null>(null);
+  const images = (m.files ?? []).filter(isImage);
   if (m.role === "user") {
     return (
       <div className="group flex scroll-mt-12 gap-3" id={`m${index}`}>
@@ -411,17 +416,24 @@ export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index:
           {m.files && m.files.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-2">
               {m.files.map((f) =>
-                (f.media ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(f.path) ? (
-                  <a key={f.path} href={attachmentURL(f.path)} target="_blank" rel="noreferrer" title={f.path}>
+                isImage(f) ? (
+                  <button
+                    key={f.path}
+                    type="button"
+                    title={`${baseName(f.path)} · click to enlarge`}
+                    className="cursor-zoom-in"
+                    onClick={() => setViewing(images.findIndex((g) => g.path === f.path))}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={attachmentURL(f.path)} alt="" className="max-h-40 max-w-60 rounded-lg border object-contain" />
-                  </a>
+                  </button>
                 ) : (
                   <span key={f.path} className="text-xs text-muted-foreground">
                     attached: {f.path}
                   </span>
                 ),
               )}
+              <ImageViewer images={images.map((f) => ({ src: attachmentURL(f.path), name: baseName(f.path) }))} index={viewing} onIndex={setViewing} />
             </div>
           )}
           {!m.shell && actions}
