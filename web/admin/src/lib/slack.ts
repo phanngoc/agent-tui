@@ -273,9 +273,9 @@ function table(el: Element): Block[] {
       .map((w, i) => (r[i] ?? "") + " ".repeat(w - width(r[i] ?? "")))
       .join("  ")
       .trimEnd();
-  // Too wide for a grid that reads in a Slack message: a row per bullet
-  // instead, its first cell in bold and the rest each named by its column.
-  if (widths.reduce((a, w) => a + w + 2, 0) > WIDE) return [tableAsList(el)];
+  // Too wide for a grid that reads in a Slack message: a block per row
+  // instead, its cells each on a line named by its column.
+  if (widths.reduce((a, w) => a + w + 2, 0) > WIDE) return tableAsCards(el);
   const lines = real.map(fmt);
   // A rule under the header row, when there is one.
   if (el.querySelector("th") && lines.length > 1) lines.splice(1, 0, widths.map((w) => "-".repeat(w)).join("  "));
@@ -286,30 +286,46 @@ function table(el: Element): Block[] {
 /** How wide a table can be and still be sent as an aligned grid. */
 const WIDE = 90;
 
-/** tableAsList writes a wide table as a list, one row an item:
- * "*mng#2186* — Status: Open · Note: …". Cells keep their own marks. */
-function tableAsList(el: Element): Block {
+/** tableAsCards writes a wide table a row at a time, each row a short block
+ * of its own: a bold title line, then a line per other cell, named by its
+ * column. One line per row crammed every cell into a run of text Slack wraps
+ * into a wall; a block per row reads as the table did.
+ *
+ *   *06/2026*
+ *   *Ai / ở đâu:* SBI FPAAS-518
+ *   *Nhận định:* 「…」
+ *
+ * The title is the first cell with something in it ("—" is nothing), so a
+ * row that leaves its first column blank is still headed by what it says. */
+function tableAsCards(el: Element): Block[] {
   const trs = el.tagName === "TR" ? [el] : Array.from(el.querySelectorAll("tr"));
   const cells = (tr: Element) => Array.from(tr.children).filter((c) => c.tagName === "TD" || c.tagName === "TH");
   const headRow = trs.find((tr) => cells(tr).some((c) => c.tagName === "TH"));
   const heads = headRow ? cells(headRow).map((c) => (c.textContent ?? "").replace(/\s+/g, " ").trim()) : [];
-  const html: string[] = [];
-  const text: string[] = [];
+  const blank = (t: string) => !t.trim() || /^[—–-]+$/.test(t.trim());
+  const out: Block[] = [];
   for (const tr of trs) {
     if (tr === headRow) continue;
-    const runs = cells(tr).map((c) => inline(c));
-    if (!runs.some((r) => r.text.trim())) continue;
-    const empty = (r: Run) => !r.text.trim() || /^[—–-]$/.test(r.text.trim());
-    const rest = runs.slice(1).map((r, i) => ({ r, head: heads[i + 1] ?? "" })).filter((x) => !empty(x.r));
-    // The first cell is set in bold whole, so its own marks are dropped.
-    const lead = (cells(tr)[0]?.textContent ?? "").replace(/\s+/g, " ").trim();
-    const first = { text: lead, html: esc(lead) };
-    const t = [`${OPEN}*${first.text}*${CLOSE}`, rest.map((x) => (x.head ? `${x.head}: ` : "") + x.r.text.trim()).join(" · ")].filter(Boolean).join(" — ");
-    const h = [`<b>${first.html}</b>`, rest.map((x) => (x.head ? `${esc(x.head)}: ` : "") + x.r.html.trim()).join(" · ")].filter(Boolean).join(" — ");
-    text.push(`• ${t}`);
-    html.push(`<li>${h}</li>`);
+    const row = cells(tr);
+    const runs = row.map((c) => inline(c));
+    const at = runs.findIndex((r) => !blank(r.text));
+    if (at < 0) continue;
+    // The title is set in bold whole, so its own marks are dropped.
+    const title = (row[at].textContent ?? "").replace(/\s+/g, " ").trim();
+    const html = [`<b>${esc(title)}</b>`];
+    const text = [`${OPEN}*${title}*${CLOSE}`];
+    runs.forEach((r, i) => {
+      if (i === at || blank(r.text)) return;
+      const head = heads[i] ?? "";
+      html.push((head ? `<b>${esc(head)}:</b> ` : "") + r.html.trim());
+      text.push((head ? `${OPEN}*${head}:*${CLOSE} ` : "") + r.text.trim());
+    });
+    // An empty line between rows: Slack's composer can set pasted
+    // paragraphs one under another with no space, and the rows would run
+    // together.
+    out.push({ html: `${out.length ? "<p><br></p>" : ""}<p>${html.join("<br>")}</p>`, text: text.join("\n") });
   }
-  return { html: `<ul>${html.join("")}</ul>`, text: text.join("\n") };
+  return out;
 }
 
 /** slackFrom renders a selection's contents for Slack: HTML and mrkdwn. */
