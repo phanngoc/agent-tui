@@ -265,6 +265,30 @@ func TestClaudeErrorResultSurfaces(t *testing.T) {
 	}
 }
 
+// Claude Code wraps its own refusals of a call in <tool_use_error>; the
+// transcript keeps the words, and only a failed call loses the tag.
+func TestClaudeToolErrorLosesItsTag(t *testing.T) {
+	d := &claudeDec{}
+	var done []session.ToolCall
+	d.line([]byte(`{"type":"user","message":{"role":"user","content":[`+
+		`{"type":"tool_result","tool_use_id":"t1","is_error":true,"content":"<tool_use_error>File has not been read yet. Read it first before writing to it.</tool_use_error>"},`+
+		`{"type":"tool_result","tool_use_id":"t2","content":"<tool_use_error>quoted</tool_use_error>"}]}}`),
+		func(e agent.Event) {
+			if v, ok := e.(agent.EvToolDone); ok {
+				done = append(done, v.Call)
+			}
+		})
+	if len(done) != 2 {
+		t.Fatalf("results = %+v", done)
+	}
+	if got := done[0].Result; got != "File has not been read yet. Read it first before writing to it." || !done[0].IsError {
+		t.Errorf("failed call result = %q", got)
+	}
+	if got := done[1].Result; got != "<tool_use_error>quoted</tool_use_error>" {
+		t.Errorf("a successful result was changed: %q", got)
+	}
+}
+
 // resumeOnlyFlags are rejected by `codex exec resume`. Passing them made every
 // turn after the first fail with "unexpected argument '-C' found".
 var codexResumeRejects = []string{"-C", "--cd", "--sandbox"}

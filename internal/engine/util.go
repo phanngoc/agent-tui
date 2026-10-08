@@ -29,6 +29,18 @@ func joinText(a, b string) string {
 	}
 }
 
+// toolError is a failed call's result as said, without the tag Claude Code
+// wraps its own refusals in ("<tool_use_error>File has not been read yet.
+// Read it first before writing to it.</tool_use_error>"): the words are the
+// error, the tag is only how the CLI told the model which kind it was.
+func toolError(res string) string {
+	t := strings.TrimSpace(res)
+	if strings.HasPrefix(t, "<tool_use_error>") && strings.HasSuffix(t, "</tool_use_error>") {
+		return strings.TrimSpace(t[len("<tool_use_error>") : len(t)-len("</tool_use_error>")])
+	}
+	return res
+}
+
 // flattenContent renders a tool_result payload, which the Claude CLI sends
 // either as a bare string or as a list of content blocks.
 func flattenContent(raw json.RawMessage) string {

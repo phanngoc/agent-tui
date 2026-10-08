@@ -116,6 +116,38 @@ function inProject(path: string, root: string): string {
   return r && p.toLowerCase().startsWith(r.toLowerCase() + "/") ? p.slice(r.length + 1) : path;
 }
 
+/** errorText is a failed call's result without the <tool_use_error> tag
+ * Claude Code wraps its own refusals in; the engine drops it, sessions saved
+ * before that still have it. */
+export function errorText(result: string): string {
+  const m = /^\s*<tool_use_error>([\s\S]*)<\/tool_use_error>\s*$/.exec(result);
+  return m ? m[1].trim() : result;
+}
+
+/** errorWhy explains a refusal that reads like a fault of the app: Claude
+ * Code's Write only replaces a file it has Read in this conversation, so a
+ * file a shell command made is refused, and the agent goes another way. */
+function errorWhy(err: string): string | undefined {
+  if (/has not been read yet/i.test(err))
+    return "Claude Code only overwrites a file it has read in this conversation; one made by a shell command does not count. The agent usually reads it or writes it another way next.";
+  if (/modified since read/i.test(err)) return "The file changed after the agent read it, so Claude Code refused to write over the change. The agent reads it again and retries.";
+  return undefined;
+}
+
+/** CallError is why a call failed, under its line. */
+function CallError({ result }: { result: string }) {
+  const err = errorText(result);
+  const why = errorWhy(err);
+  return (
+    <div className="ml-6 text-xs">
+      <div className="truncate text-destructive" title={err}>
+        Error: {err.split("\n")[0]}
+      </div>
+      {why && <div className="text-muted-foreground">{why}</div>}
+    </div>
+  );
+}
+
 /** EditRow is a call that changed a file, drawn as Claude Code draws it: what
  * it did to which file and by how many lines, then the diff itself, open —
  * the change is the point of the call. A failed, refused or running edit
@@ -162,12 +194,12 @@ function EditRow({ call, change, running }: { call: ToolCall; change: FileChange
           <DiffView change={change} />
           {call.is_error && call.result && (
             <Pre max="max-h-40" className="border-destructive/40">
-              {call.result}
+              {errorText(call.result)}
             </Pre>
           )}
         </div>
       )}
-      {!open && call.is_error && call.result && <div className="ml-6 truncate text-xs text-destructive">{call.result.split("\n")[0]}</div>}
+      {!open && call.is_error && call.result && <CallError result={call.result} />}
     </div>
   );
 }
@@ -222,6 +254,7 @@ function GenericToolRow({ call, output, running }: { call: ToolCall; output?: st
           </span>
         )}
       </button>
+      {!open && !running && call.is_error && call.result && <CallError result={call.result} />}
       {(open || (running && output)) && (
         <div className="mt-1 mb-2 ml-[0.6rem] space-y-2 border-l pl-4">
           {open && note && <div className="text-xs text-muted-foreground">{note}</div>}
@@ -235,7 +268,7 @@ function GenericToolRow({ call, output, running }: { call: ToolCall; output?: st
             <div>
               <div className="mb-1 text-[11px] font-medium uppercase text-muted-foreground">{running ? "live output" : "result"}</div>
               <Pre max="max-h-80" className={call.is_error ? "border-destructive/40" : ""}>
-                {running ? output : call.result}
+                {running ? output : call.is_error && call.result ? errorText(call.result) : call.result}
               </Pre>
             </div>
           )}
