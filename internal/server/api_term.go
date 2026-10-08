@@ -9,6 +9,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
+	"strings"
 
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/term"
@@ -24,30 +26,59 @@ type shellChoice struct {
 	Label string   `json:"label"`
 	argv  []string `json:"-"`
 	dir   string
+	// run is the shell running one command and ending, or nil when it
+	// cannot be handed one faithfully (cmd parses its own command line).
+	run func(command string) []string
 }
 
 // shellsFor lists the shells a project can open, the usual one first: the
 // distribution's own shell for a project in WSL; PowerShell, cmd, PowerShell
-// 7 and Git Bash, where present, for one on the host.
+// 7 and Git Bash, where present, for one on the host. A project in WSL can
+// open the host's too, in the Windows home: what the agent asks to be run
+// "on the Windows side" — a login helper, a .exe — has no other way there.
 func shellsFor(root string) []shellChoice {
 	if d, linux, ok := gateway.WSLPath(root); ok {
-		return []shellChoice{{ID: "wsl", Label: d + " (WSL)", argv: []string{"wsl.exe", "-d", d, "--cd", linux}}}
+		wsl := shellChoice{ID: "wsl", Label: d + " (WSL)", argv: []string{"wsl.exe", "-d", d, "--cd", linux},
+			// --exec keeps the command one argument: without it wsl.exe joins
+			// what follows into a line its login shell parses a second time.
+			// -i reads .bashrc, where PATH additions (nvm, pyenv) usually are.
+			run: func(c string) []string {
+				return []string{"wsl.exe", "-d", d, "--cd", linux, "--exec", "bash", "-lic", c}
+			}}
+		out := []shellChoice{wsl}
+		for _, h := range hostShells(os.Getenv("USERPROFILE")) {
+			h.ID, h.Label = "host-"+h.ID, h.Label+" (Windows)"
+			out = append(out, h)
+		}
+		return out
 	}
 	if runtime.GOOS != "windows" {
 		sh := os.Getenv("SHELL")
 		if sh == "" {
 			sh = "/bin/sh"
 		}
-		return []shellChoice{{ID: "sh", Label: filepath.Base(sh), argv: []string{sh, "-l"}, dir: root}}
+		return []shellChoice{{ID: "sh", Label: filepath.Base(sh), argv: []string{sh, "-l"}, dir: root,
+			run: func(c string) []string { return []string{sh, "-lc", c} }}}
 	}
-	out := []shellChoice{{ID: "powershell", Label: "PowerShell", argv: []string{"powershell.exe", "-NoLogo"}, dir: root}}
+	return hostShells(root)
+}
+
+// hostShells are the Windows shells, started in dir.
+func hostShells(dir string) []shellChoice {
+	if runtime.GOOS != "windows" {
+		return nil
+	}
+	out := []shellChoice{{ID: "powershell", Label: "PowerShell", argv: []string{"powershell.exe", "-NoLogo"}, dir: dir,
+		run: func(c string) []string { return []string{"powershell.exe", "-NoLogo", "-Command", c} }}}
 	if p, err := exec.LookPath("pwsh.exe"); err == nil {
-		out = append(out, shellChoice{ID: "pwsh", Label: "PowerShell 7", argv: []string{p, "-NoLogo"}, dir: root})
+		out = append(out, shellChoice{ID: "pwsh", Label: "PowerShell 7", argv: []string{p, "-NoLogo"}, dir: dir,
+			run: func(c string) []string { return []string{p, "-NoLogo", "-Command", c} }})
 	}
-	out = append(out, shellChoice{ID: "cmd", Label: "Command Prompt", argv: []string{"cmd.exe"}, dir: root})
+	out = append(out, shellChoice{ID: "cmd", Label: "Command Prompt", argv: []string{"cmd.exe"}, dir: dir})
 	for _, p := range []string{`C:\Program Files\Git\bin\bash.exe`, filepath.Join(os.Getenv("LOCALAPPDATA"), `Programs\Git\bin\bash.exe`)} {
 		if st, err := os.Stat(p); err == nil && !st.IsDir() {
-			out = append(out, shellChoice{ID: "bash", Label: "Git Bash", argv: []string{p, "--login", "-i"}, dir: root})
+			out = append(out, shellChoice{ID: "bash", Label: "Git Bash", argv: []string{p, "--login", "-i"}, dir: dir,
+				run: func(c string) []string { return []string{p, "--login", "-i", "-c", c} }})
 			break
 		}
 	}
@@ -56,14 +87,19 @@ func shellsFor(root string) []shellChoice {
 
 func (s *Server) termRoutes(m *http.ServeMux) {
 	m.HandleFunc("GET /api/term/shells", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, map[string]any{"shells": shellsFor(r.URL.Query().Get("root"))})
+		// run=1 lists the shells that can run one command (the Run button).
+		shells := shellsFor(r.URL.Query().Get("root"))
+		if r.URL.Query().Get("run") == "1" {
+			shells = slices.DeleteFunc(shells, func(sh shellChoice) bool { return sh.run == nil })
+		}
+		writeJSON(w, map[string]any{"shells": shells})
 	})
 
 	m.HandleFunc("GET /api/term", func(w http.ResponseWriter, r *http.Request) {
 		out := []map[string]any{}
 		for _, t := range s.Terms.List(r.URL.Query().Get("root")) {
 			exited, code := t.State()
-			out = append(out, map[string]any{"id": t.ID, "root": t.Root, "shell": t.Shell, "started": t.Started, "exited": exited, "code": code})
+			out = append(out, map[string]any{"id": t.ID, "root": t.Root, "shell": t.Shell, "started": t.Started, "exited": exited, "code": code, "command": t.Command})
 		}
 		writeJSON(w, map[string]any{"terms": out})
 	})
@@ -74,6 +110,9 @@ func (s *Server) termRoutes(m *http.ServeMux) {
 			Shell string `json:"shell"`
 			Cols  int    `json:"cols"`
 			Rows  int    `json:"rows"`
+			// Command, when given, is run by the shell, which then ends:
+			// a command an answer suggested, run from beside it.
+			Command string `json:"command"`
 		}
 		if err := readJSON(r, &in); err != nil || in.Root == "" {
 			fail(w, http.StatusBadRequest, errors.New("which project?"))
@@ -86,7 +125,15 @@ func (s *Server) termRoutes(m *http.ServeMux) {
 				pick = sh
 			}
 		}
-		t, err := s.Terms.Start(term.Spec{Root: in.Root, Dir: pick.dir, Shell: pick.Label, Argv: pick.argv, Cols: in.Cols, Rows: in.Rows})
+		argv := pick.argv
+		if in.Command = strings.TrimSpace(in.Command); in.Command != "" {
+			if pick.run == nil {
+				fail(w, http.StatusBadRequest, fmt.Errorf("%s cannot be handed a command; pick another shell", pick.Label))
+				return
+			}
+			argv = pick.run(in.Command)
+		}
+		t, err := s.Terms.Start(term.Spec{Root: in.Root, Dir: pick.dir, Shell: pick.Label, Argv: argv, Cols: in.Cols, Rows: in.Rows, Command: in.Command})
 		if err != nil {
 			fail(w, http.StatusInternalServerError, err)
 			return

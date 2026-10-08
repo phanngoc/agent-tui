@@ -38,8 +38,11 @@ type Spec struct {
 	Shell string // the shell's name, for the page
 	Argv  []string
 	Env   []string
-	Cols  int
-	Rows  int
+	// Command is the one command the shell runs before it ends, if it was
+	// started for one; a terminal to type in has none.
+	Command string
+	Cols    int
+	Rows    int
 }
 
 // Term is one terminal.
@@ -50,6 +53,7 @@ type Term struct {
 	Started time.Time `json:"started"`
 	Exited  bool      `json:"exited"`
 	Code    int       `json:"code"`
+	Command string    `json:"command,omitempty"`
 
 	p    pty
 	mu   sync.Mutex
@@ -85,11 +89,12 @@ func (m *Manager) Start(s Spec) (*Term, error) {
 	}
 	b := make([]byte, 6)
 	_, _ = rand.Read(b)
-	t := &Term{ID: hex.EncodeToString(b), Root: s.Root, Shell: s.Shell, Started: time.Now().UTC(),
+	t := &Term{ID: hex.EncodeToString(b), Root: s.Root, Shell: s.Shell, Started: time.Now().UTC(), Command: s.Command,
 		p: p, subs: map[int]chan []byte{}, done: make(chan struct{})}
 	m.mu.Lock()
 	m.terms[t.ID] = t
 	m.mu.Unlock()
+	m.forgetOldRuns(t.Started)
 	go t.pump()
 	go func() {
 		code, _ := p.Wait()
@@ -203,6 +208,22 @@ func (m *Manager) List(root string) []*Term {
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].Started.Before(out[j].Started) })
 	return out
+}
+
+// runKept is how long a command's run is kept after it ends, for a page that
+// comes back to its output; the page that ran it closes it sooner.
+const runKept = time.Hour
+
+// forgetOldRuns drops the runs of one command that ended long ago. A
+// terminal to type in stays until it is closed.
+func (m *Manager) forgetOldRuns(now time.Time) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for id, t := range m.terms {
+		if exited, _ := t.State(); exited && t.Command != "" && now.Sub(t.Started) > runKept {
+			delete(m.terms, id)
+		}
+	}
 }
 
 // Close ends a terminal and forgets it.
