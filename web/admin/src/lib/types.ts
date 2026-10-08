@@ -75,6 +75,9 @@ export interface Session {
   cache_reads: number;
   credential?: Credential;
   engines?: Record<string, { external_id?: string; seen?: number }>;
+  /** side_of: this is a side chat (/btw) of that conversation, forked from its first side_from messages. */
+  side_of?: string;
+  side_from?: number;
 }
 
 /** Credential names the Claude pool token a conversation runs on, never the token itself. */

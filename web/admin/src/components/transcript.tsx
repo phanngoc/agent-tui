@@ -7,12 +7,14 @@ import { cn } from "@/lib/utils";
 import type { Live, Message, SubAgent, ToolCall } from "@/lib/types";
 import { Pre } from "@/components/common";
 import { Markdown } from "@/components/markdown";
-import { nanos, pretty, stamp, toolSummary } from "@/lib/format";
+import { baseName, nanos, pretty, stamp, toolSummary } from "@/lib/format";
+import { ImageViewer } from "@/components/image-viewer";
 import { Button } from "@/components/ui/button";
 import { AgentGroup, SubAgentCard } from "@/components/subagent";
 import { useFileOpener } from "@/lib/file-opener";
 import { ChapterMark, MessageActions } from "@/components/message-actions";
 import { DiffView, changeCounts, fileChange, type FileChange } from "@/components/diff-view";
+import { CommandChip, splitCommand } from "@/components/commands";
 
 export function ToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   if (call.agent) return <SubAgentCard a={call.agent} />;
@@ -94,6 +96,11 @@ function Dot({ call, running }: { call: ToolCall; running?: boolean }) {
 /** ProjectRoot is the folder of the conversation on show, so paths in it can
  * be shown from there. */
 export const ProjectRoot = React.createContext("");
+
+/** AnchorPrefix starts each message's element id (#m12): a second transcript
+ * on the page, as the side chat is, takes another so jumps land in the main
+ * one. */
+export const AnchorPrefix = React.createContext("m");
 
 /** posix is a path with forward slashes, a WSL share (\\wsl.localhost\Distro
  * or \\wsl$\Distro) read as the Linux path it is. */
@@ -366,15 +373,22 @@ function RawToggle({ raw, setRaw }: { raw: boolean; setRaw: (r: boolean) => void
   );
 }
 
+const isImage = (f: { path: string; media?: string }) => (f.media ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(f.path);
+
 export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index: number; onTrace?: (index: number) => void; turnEnd?: boolean }) {
   // The row of actions shows on hover, and always under a turn's answer.
   const actions = (
     <MessageActions m={m} index={index} className={cn("mt-1 -ml-1.5 transition-opacity", !turnEnd && "md:opacity-0 md:group-hover:opacity-100 md:focus-within:opacity-100")} />
   );
   const [raw, setRaw] = React.useState(false);
+  const [viewing, setViewing] = React.useState<number | null>(null);
+  const images = (m.files ?? []).filter(isImage);
+  const anchor = React.useContext(AnchorPrefix);
   if (m.role === "user") {
+    // A /command it starts with is marked as one.
+    const command = raw ? null : splitCommand(m.text ?? "");
     return (
-      <div className="group flex scroll-mt-12 gap-3" id={`m${index}`}>
+      <div className="group flex scroll-mt-12 gap-3" id={`${anchor}${index}`}>
         <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground">
           <UserIcon className="size-3.5" />
         </div>
@@ -405,23 +419,43 @@ export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index:
             </div>
           ) : (
             <div className="rounded-xl bg-muted/60 px-3 py-2">
-              <Body text={m.text ?? ""} raw={raw} />
+              {command ? (
+                <div className="flex items-start">
+                  <span className="mt-0.5 shrink-0">
+                    <CommandChip name={command.name} />
+                  </span>
+                  {command.rest && (
+                    <div className="min-w-0 flex-1">
+                      <Body text={command.rest} raw={false} />
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <Body text={m.text ?? ""} raw={raw} />
+              )}
             </div>
           )}
           {m.files && m.files.length > 0 && (
             <div className="mt-1.5 flex flex-wrap gap-2">
               {m.files.map((f) =>
-                (f.media ?? "").startsWith("image/") || /\.(png|jpe?g|gif|webp)$/i.test(f.path) ? (
-                  <a key={f.path} href={attachmentURL(f.path)} target="_blank" rel="noreferrer" title={f.path}>
+                isImage(f) ? (
+                  <button
+                    key={f.path}
+                    type="button"
+                    title={`${baseName(f.path)} · click to enlarge`}
+                    className="cursor-zoom-in"
+                    onClick={() => setViewing(images.findIndex((g) => g.path === f.path))}
+                  >
                     {/* eslint-disable-next-line @next/next/no-img-element */}
                     <img src={attachmentURL(f.path)} alt="" className="max-h-40 max-w-60 rounded-lg border object-contain" />
-                  </a>
+                  </button>
                 ) : (
                   <span key={f.path} className="text-xs text-muted-foreground">
                     attached: {f.path}
                   </span>
                 ),
               )}
+              <ImageViewer images={images.map((f) => ({ src: attachmentURL(f.path), name: baseName(f.path) }))} index={viewing} onIndex={setViewing} />
             </div>
           )}
           {!m.shell && actions}
@@ -430,7 +464,7 @@ export function MessageView({ m, index, onTrace, turnEnd }: { m: Message; index:
     );
   }
   return (
-    <div className="group flex scroll-mt-12 gap-3" id={`m${index}`}>
+    <div className="group flex scroll-mt-12 gap-3" id={`${anchor}${index}`}>
       <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background">
         <BotIcon className="size-3.5" />
       </div>
@@ -553,6 +587,7 @@ export function AssistantRun({
   const lastText = entries.findLastIndex((e) => e.kind === "text");
   const calls = entries.reduce((n, e) => n + (e.kind === "tools" ? e.calls.length : 0), 0);
   const took = turnEnd ? duration(since ?? first.m.at, last.m.at) : "";
+  const anchor = React.useContext(AnchorPrefix);
   return (
     <div className="group flex gap-3">
       <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full border bg-background">
@@ -563,7 +598,7 @@ export function AssistantRun({
           {items.map(({ index }) => (
             // Anchors first, so a jump to any message of the run lands on the
             // run; empty ones take no room.
-            <div key={index} id={`m${index}`} className="scroll-mt-12">
+            <div key={index} id={`${anchor}${index}`} className="scroll-mt-12">
               <ChapterMark index={index} />
             </div>
           ))}

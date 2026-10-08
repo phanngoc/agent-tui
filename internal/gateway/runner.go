@@ -636,6 +636,32 @@ func (r *Runner) Fork(id string, at int) (*session.Session, error) {
 	return f, nil
 }
 
+// Side makes a side chat of a session, as the terminal's /btw does: a fork
+// that carries its context, runs at the same time as it, and belongs to it
+// rather than standing in the list of conversations. The conversation it was
+// asked beside never learns it happened.
+func (r *Runner) Side(id string) (*session.Session, error) {
+	src, err := Load(id)
+	if err != nil {
+		return nil, err
+	}
+	if src.SideOf != "" {
+		return nil, errors.New("this is a side chat already")
+	}
+	if len(src.Messages) == 0 {
+		return nil, errors.New("nothing to ask beside yet: send a prompt first")
+	}
+	m := session.NewManager(config.DataDir(), src.Root, src.Model)
+	f := m.Fork(src)
+	f.Mode = src.Mode
+	f.SideOf, f.SideFrom = src.ID, len(f.Messages)
+	f.Title = "btw · " + src.Label()
+	m.Shutdown()
+	m.SaveNow(f)
+	r.publishSummary(f, false)
+	return f, nil
+}
+
 // Running lists the sessions whose turns run here now: what stopping the
 // gateway would cancel.
 func (r *Runner) Running() []string {

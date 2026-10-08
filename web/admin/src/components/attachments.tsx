@@ -5,6 +5,7 @@ import { Loader2Icon, PaperclipIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { gatewayBase, qs } from "@/lib/api";
 import { cn } from "@/lib/utils";
+import { ImageViewer } from "@/components/image-viewer";
 
 // Images for a prompt: dropped on the composer, pasted into it, or picked
 // with the paperclip. Each is uploaded to the gateway at once
@@ -107,15 +108,21 @@ export function useAttachments() {
   return { items, uploading, dragging, add, remove, clear, dropProps, onPaste };
 }
 
-/** AttachmentStrip shows what will go with the prompt, each with a ×. */
+const kb = (bytes: number) => `${Math.round(bytes / 1024)} KB`;
+
+/** AttachmentStrip shows what will go with the prompt, each with a × — and
+ * opens one large on a click, to check it before sending. */
 export function AttachmentStrip({ items, uploading, onRemove, className }: { items: Attached[]; uploading: number; onRemove: (i: number) => void; className?: string }) {
+  const [viewing, setViewing] = React.useState<number | null>(null);
   if (!items.length && !uploading) return null;
   return (
     <div className={cn("flex flex-wrap gap-2", className)}>
       {items.map((a, i) => (
-        <div key={a.path} className="group relative size-14 overflow-hidden rounded-lg border bg-muted" title={`${a.name} · ${Math.round(a.bytes / 1024)} KB`}>
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img src={a.preview} alt={a.name} className="size-full object-cover" />
+        <div key={a.path} className="group relative size-14 overflow-hidden rounded-lg border bg-muted" title={`${a.name} · ${kb(a.bytes)} · click to enlarge`}>
+          <button type="button" onClick={() => setViewing(i)} aria-label={`View ${a.name}`} className="size-full cursor-zoom-in">
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src={a.preview} alt={a.name} className="size-full object-cover" />
+          </button>
           <button
             type="button"
             onClick={() => onRemove(i)}
@@ -131,6 +138,7 @@ export function AttachmentStrip({ items, uploading, onRemove, className }: { ite
           <Loader2Icon className="size-4 animate-spin" />
         </div>
       )}
+      <ImageViewer images={items.map((a) => ({ src: a.preview, name: a.name, note: kb(a.bytes) }))} index={viewing} onIndex={setViewing} />
     </div>
   );
 }

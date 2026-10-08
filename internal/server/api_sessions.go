@@ -55,6 +55,8 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			"traces":   kit.Traces(id),
 			"learning": learn.Default().Status().Sessions[id],
 			"queue":    s.Runner.Queue(id),
+			// side is the conversation's side chat (/btw), if it has one.
+			"side": s.sideOf(id),
 		})
 	})
 
