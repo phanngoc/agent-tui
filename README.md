@@ -618,6 +618,10 @@ it, so a conversation whose agent finished long ago can stay *In progress*
 until you have reviewed it. A pulsing dot on a card is the agent working; the
 column is not. The list view stays as it was.
 
+The columns read Todo, In progress, Done, Backlog until you drag one by its
+header somewhere else; the order is kept in your browser. A column's ⋯ moves
+it left or right, puts it back, or moves every card in it to another column.
+
 Each card shows where the conversation came from — the first link you pinned
 to it, or else the first one you gave it, such as the Slack thread of a bug —
 and how many links it has. Open a card, or the conversation's **References**
