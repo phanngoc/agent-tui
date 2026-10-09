@@ -16,7 +16,7 @@ import { FolderPicker, describePath } from "@/components/folder-picker";
  * the top of every page; now it is a chip where it is wanted: under the logo,
  * at the head of the session list, in the phone's More sheet.
  */
-export function ProjectSwitcher({ variant = "pill", className, onPicked }: { variant?: "pill" | "sidebar" | "row"; className?: string; onPicked?: () => void }) {
+export function ProjectSwitcher({ variant = "pill", className, onPicked }: { variant?: "pill" | "bar" | "sidebar" | "row"; className?: string; onPicked?: () => void }) {
   const root = useGateway((s) => s.root);
   const setRoot = useGateway((s) => s.setRoot);
   const v = useVersion("sessions", "peers");
@@ -43,8 +43,11 @@ export function ProjectSwitcher({ variant = "pill", className, onPicked }: { var
         <PopoverTrigger
           title={root || "No project picked: everything"}
           className={cn(
-            "flex min-w-0 items-center gap-1.5 text-left",
+            // overflow-hidden: squeezed, the chip clips its badge rather than
+            // spilling it over whatever sits beside it.
+            "flex min-w-0 items-center gap-1.5 overflow-hidden text-left",
             variant === "pill" && "h-6 max-w-48 rounded px-2 text-xs font-medium hover:bg-muted",
+            variant === "bar" && "h-7 w-full rounded-md border bg-background px-2 text-xs font-medium hover:bg-muted",
             variant === "sidebar" && "h-8 w-full rounded-lg border bg-background px-2 text-sm hover:bg-muted",
             variant === "row" && "h-11 w-full rounded-xl border px-3 text-sm hover:bg-muted",
             className,
@@ -52,7 +55,9 @@ export function ProjectSwitcher({ variant = "pill", className, onPicked }: { var
         >
           <Icon className="size-3.5 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1 truncate">{name}</span>
-          {where.where && <span className="shrink-0 rounded bg-muted px-1 text-[10px] text-muted-foreground">{where.where.replace("WSL ", "wsl ")}</span>}
+          {where.where && (
+            <span className="max-w-[45%] shrink truncate rounded bg-muted px-1 text-[10px] text-muted-foreground">{where.where.replace("WSL ", "wsl ")}</span>
+          )}
           <ChevronsUpDownIcon className="size-3 shrink-0 text-muted-foreground" />
         </PopoverTrigger>
         <PopoverContent align="start" className="w-[min(22rem,calc(100vw-2rem))] p-1.5">
