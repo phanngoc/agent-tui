@@ -2,8 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { AlarmClockIcon, LinkIcon, ListIcon, MessageSquareTextIcon, PinIcon, SearchIcon } from "lucide-react";
+import { AlarmClockIcon, LinkIcon, ListIcon, Maximize2Icon, MessageSquareTextIcon, PinIcon, SearchIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -13,10 +12,12 @@ import { baseName } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import { Ago, Dot, ErrorNote, PageHeader } from "@/components/common";
 import { ProjectSwitcher } from "@/components/project-switcher";
-import { BOARD_COLUMNS, BoardPicker, LinkChip, RefsPanel } from "@/components/refs-panel";
+import { BOARD_COLUMNS, BoardPicker, LinkChip } from "@/components/refs-panel";
+import { Conversation } from "@/components/conversation";
+import { Workspace } from "@/components/workspace";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
+import { Sheet, SheetContent, SheetDescription, SheetTitle } from "@/components/ui/sheet";
 
 // The board reads conversations as tasks. Where a card sits is the user's
 // call, saved on the conversation, and has nothing to do with whether its
@@ -60,7 +61,6 @@ function placeAt(list: Summary[], i: number): { rank: number; renumber: { id: st
 }
 
 export default function BoardPage() {
-  const router = useRouter();
   const root = useGateway((s) => s.root);
   const live = useGateway((s) => s.live);
   const [all, setAll] = React.useState(false);
@@ -212,7 +212,6 @@ export default function BoardPage() {
         s={cards.find((x) => x.id === open)}
         onClose={() => setOpen(null)}
         onMoved={(id, col) => patch(id, { board: col, board_rank: 0 })}
-        onOpenConversation={(id) => router.push(`/sessions?id=${id}`)}
       />
     </div>
   );
@@ -295,36 +294,47 @@ function Card({
   );
 }
 
-function CardSheet({
-  s,
-  onClose,
-  onMoved,
-  onOpenConversation,
-}: {
-  s?: Summary;
-  onClose: () => void;
-  onMoved: (id: string, col: BoardColumn) => void;
-  onOpenConversation: (id: string) => void;
-}) {
+/**
+ * CardSheet opens a card as its conversation, whole — the transcript as it
+ * streams, the composer, approvals and questions, the side panel with its
+ * references — so a task is read, answered and moved without leaving the
+ * board.
+ */
+function CardSheet({ s, onClose, onMoved }: { s?: Summary; onClose: () => void; onMoved: (id: string, col: BoardColumn) => void }) {
   return (
-    <Sheet open={!!s} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-xl">
+    <Sheet
+      open={!!s}
+      onOpenChange={(o, details) => {
+        if (o) return;
+        // Escape while typing is the composer's (its menu, its side chat), not a reason to leave.
+        const el = document.activeElement;
+        if (details?.reason === "escape-key" && el && (el.tagName === "TEXTAREA" || el.tagName === "INPUT")) return;
+        onClose();
+      }}
+    >
+      <SheetContent showCloseButton={false} className="w-full gap-0 p-0 data-[side=right]:w-[min(1500px,96vw)] data-[side=right]:sm:max-w-none">
         {s && (
           <>
-            <SheetHeader>
-              <SheetTitle className="pr-6 leading-snug">{s.title || "(untitled)"}</SheetTitle>
-              <SheetDescription>
-                {baseName(s.root)} · {s.engine || "api"} · {s.messages} messages · last <Ago at={s.updated} />
-              </SheetDescription>
-            </SheetHeader>
-            <div className="space-y-5 px-4 pb-6">
-              <div className="flex flex-wrap items-center gap-2">
-                <BoardPicker key={s.id + (s.board || "")} id={s.id} value={s.board} onMoved={(c) => onMoved(s.id, c)} />
-                <Button size="sm" className="ml-auto" onClick={() => onOpenConversation(s.id)}>
-                  <MessageSquareTextIcon /> Open conversation
+            <SheetTitle className="sr-only">{s.title || "(untitled)"}</SheetTitle>
+            <SheetDescription className="sr-only">The conversation, to read and answer here, and its place on the board.</SheetDescription>
+            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+              <BoardPicker key={s.id + (s.board || "")} id={s.id} value={s.board} onMoved={(c) => onMoved(s.id, c)} />
+              <span className="truncate text-xs text-muted-foreground">
+                {baseName(s.root)} · {s.messages} messages
+              </span>
+              <div className="ml-auto flex items-center gap-1">
+                <Link href={`/sessions?id=${s.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })} title="Open it on the sessions page">
+                  <Maximize2Icon /> Full page
+                </Link>
+                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close" title="Close (Esc)">
+                  <XIcon />
                 </Button>
               </div>
-              <RefsPanel id={s.id} onJump={(at) => onOpenConversation(`${s.id}#m${at}`)} />
+            </div>
+            <div className="min-h-0 flex-1">
+              <Workspace id="board-chat" right={{ node: null, defaultSize: 380, minSize: 300, maxSize: 640, foldBelow: 1200, label: "side panel" }}>
+                <Conversation key={s.id} id={s.id} initialTab="refs" />
+              </Workspace>
             </div>
           </>
         )}
