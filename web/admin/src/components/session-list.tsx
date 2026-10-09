@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { ArchiveIcon, MoreHorizontalIcon, PinIcon, PlusIcon, SearchIcon } from "lucide-react";
+import { AlarmClockIcon, ArchiveIcon, MoreHorizontalIcon, PinIcon, PlusIcon, SearchIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -159,23 +159,44 @@ export function SessionList({ selected, onSelect, onNew }: { selected: string; o
             <PlusIcon />
           </Button>
         </div>
-        <div className="flex items-center gap-1 text-xs">
-          {/* The project in view, picked here: there is no bar across the top any more. */}
-          <ProjectSwitcher variant="pill" className={cn(root && !all ? "bg-muted" : "font-normal text-muted-foreground")} onPicked={() => setAll(false)} />
+        {/* The project in view, picked here: there is no bar across the top
+            any more. A line of its own, so a long name or a WSL badge never
+            runs into the filters. */}
+        <ProjectSwitcher variant="bar" className={cn(all && "text-muted-foreground")} onPicked={() => setAll(false)} />
+        <div className="flex items-center gap-1.5 text-xs">
           {root && (
-            <button className={cn("shrink-0 rounded px-2 py-0.5", all ? "bg-muted font-medium" : "text-muted-foreground")} onClick={() => setAll(!all)}>
-              All projects
-            </button>
+            <div className="flex shrink-0 rounded-md border p-0.5" role="group" aria-label="Which sessions">
+              {[
+                { on: !all, label: "This project", title: "Only this project's sessions" },
+                { on: all, label: "All", title: "Every project's sessions" },
+              ].map((o) => (
+                <button
+                  key={o.label}
+                  title={o.title}
+                  aria-pressed={o.on}
+                  className={cn("rounded px-2 py-0.5", o.on ? "bg-muted font-medium text-foreground" : "text-muted-foreground hover:text-foreground")}
+                  onClick={() => setAll(o.label === "All")}
+                >
+                  {o.label}
+                </button>
+              ))}
+            </div>
           )}
           <button
-            className={cn("flex shrink-0 items-center gap-1 rounded px-2 py-0.5", archived ? "bg-muted font-medium" : "text-muted-foreground")}
+            className={cn(
+              "flex shrink-0 items-center gap-1 rounded-md border border-transparent px-2 py-1",
+              archived ? "border-border bg-muted font-medium" : "text-muted-foreground hover:text-foreground",
+            )}
+            aria-pressed={archived}
             onClick={() => setArchived(!archived)}
             title={archived ? "Back to the conversations" : "Show archived conversations"}
           >
             <ArchiveIcon className="size-3" />
             Archived
           </button>
-          <span className="ml-auto text-muted-foreground">{rows.length}</span>
+          <span className="ml-auto shrink-0 tabular-nums text-muted-foreground" title={`${rows.length} sessions`}>
+            {rows.length}
+          </span>
         </div>
       </div>
       <ErrorNote error={error} className="m-3" />
@@ -208,45 +229,68 @@ export function SessionList({ selected, onSelect, onNew }: { selected: string; o
                 }}
                 onContextMenu={open}
                 className={cn(
-                  "group relative flex w-full cursor-pointer flex-col gap-1 border-b px-3 py-2.5 text-left outline-none hover:bg-muted/50 focus-visible:bg-muted/50",
+                  "group relative flex w-full cursor-pointer gap-2 border-b px-3 py-2 text-left outline-none hover:bg-muted/50 focus-visible:bg-muted/50",
                   (selected === s.id || menu?.s.id === s.id) && "bg-muted",
                 )}
               >
-                <div className="flex items-center gap-2">
-                  {un ? <span className="size-2 shrink-0 rounded-full bg-amber-500" title="Unread" /> : <Dot on={busy} pulse />}
+                {/* The dot sits on the title's first line, however many it takes. */}
+                <span className="flex h-[18px] shrink-0 items-center">
+                  {un ? <span className="size-2 rounded-full bg-amber-500" title="Unread" /> : <Dot on={busy} pulse />}
+                </span>
+                <div className="min-w-0 flex-1 space-y-1">
                   {renaming === s.id ? (
-                    <RenameInput initial={s.title} onDone={(t) => (t === null ? setRenaming("") : rename(s, t))} />
+                    <div className="flex">
+                      <RenameInput initial={s.title} onDone={(t) => (t === null ? setRenaming("") : rename(s, t))} />
+                    </div>
                   ) : (
-                    <span className={cn("min-w-0 flex-1 truncate text-sm", un ? "font-semibold" : "font-medium")}>{s.title || "(untitled)"}</span>
+                    // Two lines before it is cut: most titles are the first
+                    // words of a prompt, and one line was rarely enough to
+                    // tell two of them apart.
+                    <div title={s.title} className={cn("line-clamp-2 pr-7 text-[13px] leading-[18px] break-words md:pr-0", un ? "font-semibold" : "font-medium")}>
+                      {s.title || "(untitled)"}
+                    </div>
                   )}
-                  {s.pinned && renaming !== s.id && <PinIcon className="size-3 shrink-0 rotate-45 text-muted-foreground" />}
-                  {waiting && <span className="rounded bg-amber-500/15 px-1 text-[10px] font-medium text-amber-700 dark:text-amber-300">needs you</span>}
-                  {renaming !== s.id && (
-                    <button
-                      aria-label="More"
-                      title="More"
-                      onClick={(e) => open(e, e.currentTarget.getBoundingClientRect())}
-                      className={cn(
-                        "grid size-6 shrink-0 place-items-center rounded text-muted-foreground hover:bg-background hover:text-foreground md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100",
-                        menu?.s.id === s.id && "md:opacity-100",
-                      )}
-                    >
-                      <MoreHorizontalIcon className="size-4" />
-                    </button>
-                  )}
+                  <div className="flex items-center gap-1.5 text-[11px] leading-4 whitespace-nowrap text-muted-foreground">
+                    {s.pinned && <PinIcon className="size-3 shrink-0 rotate-45" aria-label="Pinned" />}
+                    {waiting && <span className="shrink-0 rounded bg-amber-500/15 px-1 font-medium text-amber-700 dark:text-amber-300">needs you</span>}
+                    {s.job && (
+                      <span className="grid size-4 shrink-0 place-items-center rounded bg-amber-500/15 text-amber-700 dark:text-amber-300" title="Scheduled" aria-label="Scheduled">
+                        <AlarmClockIcon className="size-3" />
+                      </span>
+                    )}
+                    {/* The project only when the list spans several: inside one, it is the same on every row. */}
+                    {(all || !root) && (
+                      <>
+                        <span className="min-w-0 truncate" title={s.root}>
+                          {baseName(s.root)}
+                        </span>
+                        <span className="shrink-0">·</span>
+                      </>
+                    )}
+                    <span className="shrink-0">{s.engine || "api"}</span>
+                    <span className="shrink-0">·</span>
+                    <span className="shrink-0 tabular-nums">{s.messages} msg</span>
+                    <span className="ml-auto shrink-0 pl-1 tabular-nums">
+                      <Ago at={s.updated} />
+                    </span>
+                  </div>
+                  {s.owner?.startsWith("tui") && <div className="text-[11px] text-primary">open in a terminal</div>}
                 </div>
-                <div className="flex items-center gap-2 pl-4 text-xs text-muted-foreground">
-                  <span className="truncate">{baseName(s.root)}</span>
-                  <span>·</span>
-                  {s.job && <span className="rounded bg-amber-500/15 px-1 text-amber-700 dark:text-amber-300">scheduled</span>}
-                  <span>{s.engine || "api"}</span>
-                  <span>·</span>
-                  <span>{s.messages} msg</span>
-                  <span className="ml-auto">
-                    <Ago at={s.updated} />
-                  </span>
-                </div>
-                {s.owner?.startsWith("tui") && <div className="pl-4 text-[11px] text-primary">open in a terminal</div>}
+                {renaming !== s.id && (
+                  // Over the row rather than beside the title, so the title
+                  // has the whole width; shown on hover, always on a phone.
+                  <button
+                    aria-label="More"
+                    title="More"
+                    onClick={(e) => open(e, e.currentTarget.getBoundingClientRect())}
+                    className={cn(
+                      "absolute top-1.5 right-2 grid size-6 place-items-center rounded-md border bg-background text-muted-foreground shadow-sm hover:text-foreground md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100",
+                      menu?.s.id === s.id && "md:opacity-100",
+                    )}
+                  >
+                    <MoreHorizontalIcon className="size-4" />
+                  </button>
+                )}
               </div>
             </React.Fragment>
           );
