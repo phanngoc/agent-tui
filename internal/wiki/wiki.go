@@ -390,6 +390,54 @@ func (w *Wiki) AddRaw(name string, b []byte) (string, error) {
 	return name, writeAtomic(file, b)
 }
 
+// Note is something put into the wiki by hand or by the agent rather than
+// as a file: a passage of a conversation, a finding, a decision.
+type Note struct {
+	Title   string
+	Content string
+	// From says where it came from, for the page's sources and for whoever
+	// reads the document later: "conversation «x» (id), message 12".
+	From string
+}
+
+// AddNote keeps a note as a document under notes/, named by when and what,
+// so the next ingest reads it into pages — a new page, or more on one that
+// is there.
+func (w *Wiki) AddNote(n Note) (string, error) {
+	content := strings.TrimSpace(n.Content)
+	if content == "" {
+		return "", errors.New("nothing to add: the note is empty")
+	}
+	title := strings.Join(strings.Fields(n.Title), " ")
+	if title == "" {
+		title = firstLine(content)
+	}
+	var b strings.Builder
+	b.WriteString("# " + title + "\n\n")
+	if n.From != "" {
+		b.WriteString("> Added to the wiki from " + n.From + ", " + time.Now().Format("2006-01-02 15:04") + ".\n\n")
+	}
+	b.WriteString(content + "\n")
+	slug := Slugify(title)
+	if r := []rune(slug); len(r) > 60 {
+		slug = strings.TrimRight(string(r[:60]), "-")
+	}
+	return w.AddRaw("notes/"+time.Now().Format("20060102-150405")+"-"+slug+".md", []byte(b.String()))
+}
+
+// firstLine is a note's first words, for a title when none was given.
+func firstLine(s string) string {
+	line, _, _ := strings.Cut(strings.TrimSpace(s), "\n")
+	line = strings.Trim(strings.TrimSpace(line), "#>*-_ ")
+	if r := []rune(line); len(r) > 70 {
+		line = string(r[:70]) + "…"
+	}
+	if line == "" {
+		line = "Note"
+	}
+	return line
+}
+
 // ReadRaw reads a document.
 func (w *Wiki) ReadRaw(name string) (string, error) {
 	name, err := CleanRawName(name)

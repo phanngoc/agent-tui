@@ -275,12 +275,41 @@ export function Conversation({ id, initialTab = "context" }: { id: string; initi
     }
     return [...set].sort((a, b) => a - b);
   }, [data?.session.chapters, marks]);
+  // addToWiki puts a message or a selection into the project's wiki: kept as a
+  // document that says where it came from, then read into the pages.
+  const sessionRoot = data?.session.root;
+  const addToWiki = React.useCallback(
+    async (content: string, at?: number) => {
+      const t = toast.loading("Adding to the wiki…");
+      try {
+        const r = await api.post<{ document: string; ingest: string; model?: string; error?: string }>("/api/wiki/add", {
+          root: sessionRoot,
+          session: id,
+          content,
+          at,
+        });
+        const how =
+          r.ingest === "started"
+            ? `${r.model ?? "A model"} is reading it into the pages now.`
+            : r.ingest === "queued"
+              ? "An ingest is running; it reads this next."
+              : r.ingest === "busy"
+                ? "An ingest runs elsewhere; the next one reads this."
+                : `Kept, but not read into pages: ${r.error ?? r.ingest}`;
+        toast.success("Added to the wiki", { id: t, description: how, action: { label: "Open wiki", onClick: () => router.push("/wiki") } });
+      } catch (e) {
+        toast.error((e as Error).message, { id: t });
+      }
+    },
+    [id, sessionRoot, router],
+  );
   const hooks = React.useMemo<MessageHooks | null>(() => {
     if (!messages) return null;
     return {
       session: id,
       messages,
       chapters,
+      toWiki: (at) => void addToWiki(messages[at]?.text ?? "", at),
       chapter: (at, on) => {
         setMarks((m) => ({ ...m, [at]: on }));
         setListSettings(id, { chapter: { at, on } }).catch((e: Error) => {
@@ -310,7 +339,7 @@ export function Conversation({ id, initialTab = "context" }: { id: string; initi
         }
       },
     };
-  }, [id, messages, chapters, router, data]);
+  }, [id, messages, chapters, router, data, addToWiki]);
   const turns = React.useMemo(() => groupTurns(messages ?? []), [messages]);
   const approve = (aid: string, verdict: "allow" | "allow_all" | "deny") => cmd("approve", { id: aid, verdict });
   const choose = (cid: string, index: number) => cmd("choose", { id: cid, index });
@@ -434,7 +463,7 @@ export function Conversation({ id, initialTab = "context" }: { id: string; initi
           )}
         </div>
 
-        <SelectionAction container={content} onAdd={(t) => setQuotes((q) => [...q, t])} />
+        <SelectionAction container={content} onAdd={(t) => setQuotes((q) => [...q, t])} onWiki={(t) => void addToWiki(t)} />
         <Composer
           session={id}
           onCommand={runCommand}

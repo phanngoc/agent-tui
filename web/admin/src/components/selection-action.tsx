@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { HashIcon, TextQuoteIcon } from "lucide-react";
+import { HashIcon, LibraryIcon, TextQuoteIcon } from "lucide-react";
 import { toast } from "sonner";
 import { copySelectionForSlack } from "@/components/slack-copy";
 
@@ -14,9 +14,12 @@ import { copySelectionForSlack } from "@/components/slack-copy";
 export function SelectionAction({
   container,
   onAdd,
+  onWiki,
 }: {
   container: React.RefObject<HTMLElement | null>;
   onAdd: (text: string) => void;
+  /** onWiki puts the selection into the project's wiki. */
+  onWiki?: (text: string) => void;
 }) {
   const [sel, setSel] = React.useState<{
     text: string;
@@ -82,6 +85,20 @@ export function SelectionAction({
       >
         <TextQuoteIcon className="size-3.5" /> Add to chat
       </button>
+      {onWiki && (
+        <button
+          type="button"
+          className={item}
+          title="Put the selection into the project's wiki: kept as a document and read into its pages"
+          onClick={() => {
+            onWiki(sel.text);
+            document.getSelection()?.removeAllRanges();
+            setSel(null);
+          }}
+        >
+          <LibraryIcon className="size-3.5" /> Add to wiki
+        </button>
+      )}
       <button
         type="button"
         className={item}

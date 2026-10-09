@@ -53,6 +53,7 @@ func ServeMCP(ctx context.Context, root, sessionID string, r io.Reader, w io.Wri
 			add(e)
 		}
 	}
+	add(k.wikiAddTool())
 	if k.Root != "" {
 		add(k.scheduleTool())
 	}
@@ -181,7 +182,11 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 		sys.WriteString(wikiContext(k.Wiki, n, native))
 		x.Tools = append(x.Tools, k.wikiTools()...)
 		tr.Wiki = n
+	} else {
+		// Empty, it can still be written to: "put this in the wiki".
+		sys.WriteString(wikiEmptyContext(native))
 	}
+	x.Tools = append(x.Tools, k.wikiAddTool())
 
 	// Memory: the stable part, then what this prompt recalls.
 	mem := k.Memory.SystemContext()

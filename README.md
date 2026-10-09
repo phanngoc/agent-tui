@@ -608,6 +608,13 @@ agent reaches the pages with `wiki_search`, `wiki_read` and `wiki_write` — or
 ingests, browses, edits and lints. How it works, and what was taken from
 TencentDB: [docs/wiki-knowledge-base.md](docs/wiki-knowledge-base.md).
 
+Conversations feed it too. Ask the agent to put something into the wiki —
+"đưa đoạn này vào wiki" — and it calls `wiki_add`; or use **Add to wiki** under
+a message, or over a selection, or **Paste text** on the Wiki page. The text
+is kept as a document under `notes/` that says which conversation and message
+it came from, and read into the pages at once: a page about the same subject
+gains it, with where the sources disagree said plainly.
+
 ## The board
 
 The admin's **Board** (or the board button beside *new conversation*) shows the
