@@ -218,6 +218,28 @@ API tương ứng nằm dưới `/api/wiki`:
 - `PUT /api/wiki/steer`
 - `POST /api/wiki/ingest` — chạy nền; xem trạng thái qua `GET /api/wiki`
 
+### 2.6b Đưa nội dung từ conversation vào wiki
+
+Có bốn cách để đưa nội dung vào wiki. Cả bốn đều gọi cùng một endpoint
+`POST /api/wiki/add`:
+
+- **Nhờ agent**, ví dụ "đưa đoạn này vào wiki cho tôi". Agent gọi tool
+  `wiki_add`. Tool này luôn có sẵn, kể cả khi wiki còn trống.
+- **Nút Add to wiki** dưới mỗi message.
+- **Nút Add to wiki** trên thanh nổi lên khi bôi đen văn bản.
+- **Paste text** ở tab Documents của trang Wiki.
+
+Nội dung được lưu thành tài liệu `raw/notes/<ngày-giờ>-<slug>.md`. Đầu tài
+liệu ghi nguồn: conversation nào, message thứ mấy. Sau đó gateway chạy ingest
+ngay:
+
+- Nếu đã có trang cùng chủ đề, ingest merge nội dung mới vào trang đó và nói
+  rõ chỗ nào nguồn cũ và nguồn mới khác nhau.
+- Nếu đang có một ingest khác chạy, tài liệu mới được xếp hàng và ingest
+  chạy lại ngay khi lần trước xong.
+- Nếu không có gateway, tài liệu vẫn được lưu, chờ lần `agent-tui wiki ingest`
+  sau.
+
 ### 2.7 Kết quả chạy thử
 
 Thử ingest hai README của TencentDB (MemoryKnowledge và MemoryProxy) qua

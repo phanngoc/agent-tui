@@ -11,6 +11,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/session"
+	"github.com/phanngoc/agent-tui/internal/wiki"
 )
 
 // The board is the user's view of conversations as tasks: a move is saved
@@ -22,8 +23,8 @@ func TestBoardAndRefs(t *testing.T) {
 	root := t.TempDir()
 	m := session.NewManager(config.DataDir(), root, "")
 	s := m.New()
-	s.Append(session.Message{Role: session.RoleUser, At: time.Now(), Text: "phân tích lỗi https://sun-vn.slack.com/archives/C0A8WMPPTEF/p1759991234567890"})
-	s.Append(session.Message{Role: session.RoleAssistant, At: time.Now(), Text: "Nguyên nhân ở https://github.com/o/r/pull/5"})
+	s.Append(session.Message{Role: session.RoleUser, At: time.Now(), Text: "phÃ¢n tÃ­ch lá»—i https://sun-vn.slack.com/archives/C0A8WMPPTEF/p1759991234567890"})
+	s.Append(session.Message{Role: session.RoleAssistant, At: time.Now(), Text: "NguyÃªn nhÃ¢n á»Ÿ https://github.com/o/r/pull/5"})
 	m.SaveNow(s)
 	m.Shutdown()
 	before, _ := gateway.Load(s.ID)
@@ -82,6 +83,24 @@ func TestBoardAndRefs(t *testing.T) {
 	if len(refs.Pinned) != 1 || refs.Pinned[0].Kind != "backlog" || len(refs.Found) != 2 ||
 		refs.Found[0].Kind != "slack" || refs.Found[1].Role != "assistant" || refs.Origin == nil || refs.Origin.Kind != "backlog" {
 		t.Fatalf("refs: %+v", refs)
+	}
+
+	// A passage of the conversation put into the wiki keeps where it came from.
+	at := 1
+	b, _ := json.Marshal(map[string]any{"title": "Root cause", "content": "NguyÃªn nhÃ¢n á»Ÿ PR 5", "session": s.ID, "at": at, "no_ingest": true})
+	resp, err = http.Post(ts.URL+"/api/wiki/add", "application/json", strings.NewReader(string(b)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var added struct{ Document, Ingest string }
+	_ = json.NewDecoder(resp.Body).Decode(&added)
+	resp.Body.Close()
+	if !strings.HasPrefix(added.Document, "notes/") || added.Ingest != "not started" {
+		t.Fatalf("wiki add: %+v", added)
+	}
+	doc, _ := wiki.For(root).ReadRaw(added.Document)
+	if !strings.Contains(doc, s.ID) || !strings.Contains(doc, "message 2") || !strings.Contains(doc, "NguyÃªn nhÃ¢n á»Ÿ PR 5") {
+		t.Fatalf("note document:\n%s", doc)
 	}
 
 	resp, err = http.Get(ts.URL + "/api/sessions?root=" + root)

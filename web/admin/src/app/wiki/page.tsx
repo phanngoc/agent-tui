@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpenIcon, FileUpIcon, LockIcon, PencilIcon, PlayIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { BookOpenIcon, ClipboardPasteIcon, FileUpIcon, LockIcon, PencilIcon, PlayIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -211,7 +211,8 @@ function Pages({ data, root, onOpen }: { data: WikiData; root: string; onOpen: (
   if (data.pages.length === 0) {
     return (
       <Empty title="No pages yet">
-        Add documents on the Documents tab — or <Mono>agent-tui wiki add docs/</Mono> — then ingest them.
+        Add documents or paste text on the Documents tab — or <Mono>agent-tui wiki add docs/</Mono> — then ingest them. In a conversation, ask the agent to put
+        something into the wiki, or use <b>Add to wiki</b> on a message or a selection.
       </Empty>
     );
   }
@@ -298,6 +299,7 @@ function Documents({ data, root, onChanged }: { data: WikiData; root: string; on
   const statusVariant = (s: string) => (s === "ingested" ? "secondary" : s === "failed" ? "destructive" : "outline");
   return (
     <div className="space-y-4">
+      <PasteNote root={root} onAdded={onChanged} />
       <div className="flex items-center gap-2">
         <input ref={input} type="file" multiple accept=".md,.markdown,.txt,.rst,.adoc,.org,.csv" className="hidden" onChange={(e) => upload(e.target.files)} />
         <Button variant="outline" size="sm" onClick={() => input.current?.click()}>
@@ -359,6 +361,52 @@ function Documents({ data, root, onChanged }: { data: WikiData; root: string; on
           </TableBody>
         </Table>
       )}
+    </div>
+  );
+}
+
+/** PasteNote puts pasted text into the wiki as a document, and reads it into the pages. */
+function PasteNote({ root, onAdded }: { root: string; onAdded: () => void }) {
+  const [open, setOpen] = React.useState(false);
+  const [title, setTitle] = React.useState("");
+  const [text, setText] = React.useState("");
+  const [busy, setBusy] = React.useState(false);
+  if (!open)
+    return (
+      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+        <ClipboardPasteIcon /> Paste text
+      </Button>
+    );
+  return (
+    <div className="space-y-2 rounded-lg border p-3">
+      <Input value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Title (optional: the first line otherwise)" />
+      <Textarea value={text} onChange={(e) => setText(e.target.value)} rows={8} placeholder="Paste a spec excerpt, a finding, a decision — Markdown is fine." className="text-sm" />
+      <div className="flex items-center gap-2">
+        <Button
+          size="sm"
+          disabled={!text.trim() || busy}
+          onClick={async () => {
+            setBusy(true);
+            try {
+              const r = await api.post<{ document: string; ingest: string; error?: string }>("/api/wiki/add", { root, title, content: text });
+              toast.success(`Added ${r.document}`, { description: r.ingest === "started" ? "Reading it into the pages now." : r.ingest === "queued" ? "An ingest is running; it reads this next." : r.error ?? r.ingest });
+              setTitle("");
+              setText("");
+              setOpen(false);
+              onAdded();
+            } catch (e) {
+              toast.error((e as Error).message);
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          Add and read into pages
+        </Button>
+        <Button variant="ghost" size="sm" onClick={() => setOpen(false)}>
+          Cancel
+        </Button>
+      </div>
     </div>
   );
 }

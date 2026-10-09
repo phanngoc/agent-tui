@@ -190,6 +190,24 @@ func TestPutKeepsHistoryAndIndex(t *testing.T) {
 	}
 }
 
+func TestAddNote(t *testing.T) {
+	w := Open(t.TempDir())
+	name, err := w.AddNote(Note{Content: "## Retry\nPayments retry 3 times.", From: "the conversation «bug» (abc), message 4"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(name, "notes/") || !strings.HasSuffix(name, "-retry.md") {
+		t.Fatalf("name %q: the title comes from the first line", name)
+	}
+	text, _ := w.ReadRaw(name)
+	if !strings.HasPrefix(text, "# Retry\n") || !strings.Contains(text, "message 4") || !strings.Contains(text, "Payments retry 3 times.") {
+		t.Fatalf("document:\n%s", text)
+	}
+	if _, err := w.AddNote(Note{Title: "x", Content: "  "}); err == nil {
+		t.Fatal("an empty note was kept")
+	}
+}
+
 // fake answers each stage by its system prompt.
 type fake struct {
 	mu    sync.Mutex

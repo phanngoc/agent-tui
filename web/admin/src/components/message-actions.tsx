@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { BookmarkIcon, CheckIcon, CopyIcon, GitForkIcon, HashIcon, ListIcon, PinIcon, SquareIcon, Volume2Icon } from "lucide-react";
+import { BookmarkIcon, CheckIcon, CopyIcon, GitForkIcon, HashIcon, LibraryIcon, ListIcon, PinIcon, SquareIcon, Volume2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import type { Message } from "@/lib/types";
@@ -17,6 +17,8 @@ export interface MessageHooks {
   /** fork starts a conversation from this message. */
   fork: (index: number) => void;
   chapter: (index: number, on: boolean) => void;
+  /** toWiki puts a message into the project's wiki, read into its pages. */
+  toWiki?: (index: number) => void;
 }
 
 export const MessageHooksContext = React.createContext<MessageHooks | null>(null);
@@ -81,6 +83,11 @@ export function MessageActions({ m, index, className }: { m: Message; index: num
       <Act title={user ? "Fork from here: a new conversation up to this prompt, with it ready to edit" : "Fork from here: a new conversation up to this message"} onClick={() => hooks.fork(index)}>
         <GitForkIcon className="size-3.5" />
       </Act>
+      {text && hooks.toWiki && (
+        <Act title="Add to wiki: kept as a document and read into the wiki's pages" onClick={() => hooks.toWiki?.(index)}>
+          <LibraryIcon className="size-3.5" />
+        </Act>
+      )}
       <Act title={chapter ? "Unpin chapter" : "Pin as chapter"} active={chapter} onClick={() => hooks.chapter(index, !chapter)}>
         <PinIcon className={cn("size-3.5", chapter && "fill-current")} />
       </Act>

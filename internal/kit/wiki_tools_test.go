@@ -17,8 +17,28 @@ func TestWikiInExtras(t *testing.T) {
 	k := For(root)
 	k.DryRun = true
 	x, tr := k.Extras(context.Background(), "api", "how does login work?")
-	if strings.Contains(x.System, "<wiki") || tr.Wiki != 0 {
-		t.Fatal("an empty wiki was offered")
+	// Empty, the wiki is not searched, but it can be written to.
+	if !strings.Contains(x.System, `<wiki pages="0">`) || tr.Wiki != 0 {
+		t.Fatalf("empty wiki: %s", x.System)
+	}
+	names := map[string]bool{}
+	for _, e := range x.Tools {
+		names[e.Name] = true
+	}
+	if names["wiki_search"] || !names["wiki_add"] {
+		t.Fatalf("empty wiki tools: %v", names)
+	}
+	// No gateway here: the note is kept for the next ingest.
+	for _, e := range x.Tools {
+		if e.Name == "wiki_add" {
+			out, isErr := e.Run(context.Background(), json.RawMessage(`{"title":"Retry rule","content":"Payments retry 3 times, then alert."}`))
+			if isErr || !strings.Contains(out, "raw/notes/") || !strings.Contains(out, "wiki ingest") {
+				t.Fatalf("wiki_add without a gateway: %q", out)
+			}
+		}
+	}
+	if p := wiki.For(root).Pending(); len(p) != 1 || !strings.HasPrefix(p[0], "notes/") || !strings.HasSuffix(p[0], "-retry-rule.md") {
+		t.Fatalf("pending: %v", p)
 	}
 
 	w := wiki.For(root)

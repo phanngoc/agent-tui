@@ -3,12 +3,14 @@ package server
 import (
 	"context"
 	"errors"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
 	"time"
 
 	"github.com/phanngoc/agent-tui/internal/config"
+	"github.com/phanngoc/agent-tui/internal/gateway"
 	"github.com/phanngoc/agent-tui/internal/learn"
 	"github.com/phanngoc/agent-tui/internal/wiki"
 )
@@ -22,6 +24,9 @@ type wikiJob struct {
 	Progress []string     `json:"progress"`
 	Report   *wiki.Report `json:"report,omitempty"`
 	Error    string       `json:"error,omitempty"`
+	// Again asks for another run when this one ends: something was added
+	// while it ran.
+	Again bool `json:"again,omitempty"`
 }
 
 var (
@@ -261,28 +266,99 @@ func (s *Server) wikiRoutes(m *http.ServeMux) {
 			return
 		}
 		wk := wiki.For(in.Root)
-		wikiJobsMu.Lock()
-		if j, ok := wikiJobs[wk.Dir]; (ok && j.Running) || wk.Busy() {
-			wikiJobsMu.Unlock()
+		state, model, err := startWikiIngest(wk, in.Model, false)
+		switch {
+		case err != nil:
+			fail(w, http.StatusBadRequest, err)
+		case state != "started":
 			fail(w, http.StatusConflict, wiki.ErrBusy)
-			return
+		default:
+			writeJSON(w, map[string]any{"started": true, "model": model})
 		}
-		if in.Model == "" {
-			in.Model = config.LoadPrefs().LearnModel
+	})
+
+	// POST /api/wiki/add puts a note into the wiki — a passage of a
+	// conversation, something worked out — as a document, and reads it into
+	// pages at once: new pages, or more on the ones there. An ingest already
+	// running here reads it next.
+	m.HandleFunc("POST /api/wiki/add", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Root    string `json:"root"`
+			Title   string `json:"title"`
+			Content string `json:"content"`
+			// Session and At say where in which conversation it came from.
+			Session string `json:"session"`
+			At      *int   `json:"at"`
+			// NoIngest keeps the document without reading it yet.
+			NoIngest bool `json:"no_ingest"`
 		}
-		llm, err := learn.NewLLM(in.Model)
-		if err != nil {
-			wikiJobsMu.Unlock()
+		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		job := &wikiJob{Running: true, Started: time.Now().UTC(), Model: llm.Name(), Progress: []string{}}
-		wikiJobs[wk.Dir] = job
-		wikiJobsMu.Unlock()
+		from := ""
+		if in.Session != "" {
+			if sess, err := gateway.Load(in.Session); err == nil {
+				from = fmt.Sprintf("the conversation «%s» (%s)", sess.Label(), sess.ID)
+				if in.Root == "" {
+					in.Root = sess.Root
+				}
+			} else {
+				from = "conversation " + in.Session
+			}
+			if in.At != nil {
+				from += fmt.Sprintf(", message %d", *in.At+1)
+			}
+		}
+		wk := wiki.For(in.Root)
+		name, err := wk.AddNote(wiki.Note{Title: in.Title, Content: in.Content, From: from})
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		out := map[string]any{"document": name, "ingest": "not started"}
+		if !in.NoIngest {
+			state, model, err := startWikiIngest(wk, "", true)
+			if err != nil {
+				out["ingest"], out["error"] = "failed", err.Error()
+			} else {
+				out["ingest"], out["model"] = state, model
+			}
+		}
+		writeJSON(w, out)
+	})
+}
 
-		go func() {
+// startWikiIngest starts reading a wiki's new documents in the background and
+// says how it went: "started"; "queued" when one runs here already and queue
+// was asked for, so it runs again when that one ends; "busy" when one runs in
+// another process (a shell's `agent-tui wiki ingest`), which leaves the
+// documents for the next.
+func startWikiIngest(wk *wiki.Wiki, model string, queue bool) (state, modelName string, err error) {
+	wikiJobsMu.Lock()
+	defer wikiJobsMu.Unlock()
+	if j, ok := wikiJobs[wk.Dir]; ok && j.Running {
+		if queue {
+			j.Again = true
+			return "queued", j.Model, nil
+		}
+		return "busy", j.Model, nil
+	}
+	if wk.Busy() {
+		return "busy", "", nil
+	}
+	if model == "" {
+		model = config.LoadPrefs().LearnModel
+	}
+	llm, err := learn.NewLLM(model)
+	if err != nil {
+		return "", "", err
+	}
+	job := &wikiJob{Running: true, Started: time.Now().UTC(), Model: llm.Name(), Progress: []string{}}
+	wikiJobs[wk.Dir] = job
+	go func() {
+		for {
 			ctx, cancel := context.WithTimeout(context.Background(), 2*time.Hour)
-			defer cancel()
 			rep, err := wk.Ingest(ctx, llm, func(line string) {
 				wikiJobsMu.Lock()
 				defer wikiJobsMu.Unlock()
@@ -291,13 +367,24 @@ func (s *Server) wikiRoutes(m *http.ServeMux) {
 					job.Progress = job.Progress[len(job.Progress)-300:]
 				}
 			})
+			cancel()
 			wikiJobsMu.Lock()
-			defer wikiJobsMu.Unlock()
-			job.Running, job.Report = false, &rep
+			job.Report, job.Error = &rep, ""
 			if err != nil {
 				job.Error = err.Error()
 			}
-		}()
-		writeJSON(w, map[string]any{"started": true, "model": job.Model})
-	})
+			// Something was added while this ran: read it now, not at the
+			// next ingest someone remembers to start.
+			if job.Again {
+				job.Again = false
+				job.Progress = append(job.Progress, time.Now().Format("15:04:05")+"  again, for what was added meanwhile")
+				wikiJobsMu.Unlock()
+				continue
+			}
+			job.Running = false
+			wikiJobsMu.Unlock()
+			return
+		}
+	}()
+	return "started", job.Model, nil
 }
