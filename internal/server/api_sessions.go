@@ -180,10 +180,27 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			Archived *bool   `json:"archived"`
 			// chapter pins a message as a chapter, or unpins it.
 			Chapter *gateway.ChapterMark `json:"chapter"`
+			// board moves it on the board, board_rank places it in the
+			// column; refs replaces its pinned links.
+			Board     *string        `json:"board"`
+			BoardRank *float64       `json:"board_rank"`
+			Refs      *[]session.Ref `json:"refs"`
 		}
 		if err := readJSON(r, &in); err != nil {
 			fail(w, http.StatusBadRequest, err)
 			return
+		}
+		if in.Board != nil && !session.ValidBoard(*in.Board) {
+			fail(w, http.StatusBadRequest, fmt.Errorf("no board column %q: one of %s", *in.Board, strings.Join(session.BoardColumns, ", ")))
+			return
+		}
+		if in.Refs != nil {
+			refs, err := cleanRefs(*in.Refs)
+			if err != nil {
+				fail(w, http.StatusBadRequest, err)
+				return
+			}
+			in.Refs = &refs
 		}
 		if in.Model != "" {
 			spec, ok := agent.ResolveModel(in.Model)
@@ -198,7 +215,8 @@ func (s *Server) sessionRoutes(m *http.ServeMux) {
 			return
 		}
 		owner, err := s.Hub.Route(gateway.Command{Type: gateway.CmdSettings, Session: r.PathValue("id"),
-			Model: in.Model, Mode: in.Mode, Engine: in.Engine, Title: in.Title, Pinned: in.Pinned, Archived: in.Archived, Chapter: in.Chapter, From: "web"})
+			Model: in.Model, Mode: in.Mode, Engine: in.Engine, Title: in.Title, Pinned: in.Pinned, Archived: in.Archived, Chapter: in.Chapter,
+			Board: in.Board, BoardRank: in.BoardRank, Refs: in.Refs, From: "web"})
 		if err != nil {
 			fail(w, http.StatusConflict, err)
 			return

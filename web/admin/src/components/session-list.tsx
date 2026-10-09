@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { useRouter } from "next/navigation";
-import { AlarmClockIcon, ArchiveIcon, MoreHorizontalIcon, PinIcon, PlusIcon, SearchIcon } from "lucide-react";
+import Link from "next/link";
+import { AlarmClockIcon, ArchiveIcon, MoreHorizontalIcon, PinIcon, PlusIcon, SearchIcon, SquareKanbanIcon } from "lucide-react";
 import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
@@ -13,7 +14,7 @@ import type { Summary } from "@/lib/types";
 import { Ago, Dot, ErrorNote } from "@/components/common";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { ContextMenu, type MenuItem } from "@/components/context-menu";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { baseName } from "@/lib/format";
 
@@ -155,6 +156,9 @@ export function SessionList({ selected, onSelect, onNew }: { selected: string; o
             <SearchIcon className="absolute top-2 left-2 size-4 text-muted-foreground" />
             <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search sessions" className="pl-8" />
           </div>
+          <Link href="/board" title="Board view: the conversations as tasks" aria-label="Board view" className={buttonVariants({ variant: "outline", size: "icon" })}>
+            <SquareKanbanIcon />
+          </Link>
           <Button size="icon" onClick={onNew} title="New conversation">
             <PlusIcon />
           </Button>

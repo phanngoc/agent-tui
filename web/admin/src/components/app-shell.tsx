@@ -8,6 +8,7 @@ import {
   MessagesSquareIcon,
   BrainIcon,
   LibraryIcon,
+  SquareKanbanIcon,
   SparklesIcon,
   PlugIcon,
   SettingsIcon,
@@ -37,6 +38,7 @@ import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 const NAV = [
   { href: "/", label: "Overview", icon: LayoutDashboardIcon },
   { href: "/sessions", label: "Sessions", icon: MessagesSquareIcon },
+  { href: "/board", label: "Board", icon: SquareKanbanIcon },
   { href: "/agents", label: "Agents", icon: NetworkIcon },
   { href: "/editor", label: "Editor", icon: CodeXmlIcon },
   { href: "/memory", label: "Memory", icon: BrainIcon },

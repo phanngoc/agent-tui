@@ -21,6 +21,7 @@ import { OwnerBadge } from "@/components/owner-badge";
 import { CredentialBadge } from "@/components/token-pool";
 import { AssistantRun, LiveTail, MessageView, ProjectRoot, groupTurns } from "@/components/transcript";
 import { TracePanel } from "@/components/trace-panel";
+import { BoardPicker, RefsPanel } from "@/components/refs-panel";
 import { PaneToggle, RightPane, Workspace, useWorkspace } from "@/components/workspace";
 import { FocusButton } from "@/components/focus-button";
 import { SessionSettings } from "@/components/session-settings";
@@ -194,6 +195,16 @@ function Conversation({ id }: { id: string }) {
     return () => window.removeEventListener("keydown", onKey);
   }, [toggleTerm]);
   const { scroller, content, below, toBottom } = useFollow(!!data);
+  // A link to one message (#m12, from the board's references) opens the
+  // conversation there rather than at its end, once.
+  const hashFor = React.useRef("");
+  React.useEffect(() => {
+    if (!data || hashFor.current === id) return;
+    hashFor.current = id;
+    const m = /^#m(\d+)$/.exec(window.location.hash);
+    if (m) setTimeout(() => document.getElementById(`m${m[1]}`)?.scrollIntoView({ block: "start" }), 150);
+  }, [data, id]);
+  const jumpTo = React.useCallback((at: number) => document.getElementById(`m${at}`)?.scrollIntoView({ behavior: "smooth", block: "start" }), []);
   // Selections added to the next message, quoted above the composer.
   const [quotes, setQuotes] = React.useState<string[]>([]);
   // Messages sent while a turn runs, waiting for the agent (Claude Code's
@@ -500,6 +511,7 @@ function Conversation({ id }: { id: string }) {
           <div className="border-b px-3 py-2">
             <TabsList>
               <TabsTrigger value="context">Context trace</TabsTrigger>
+              <TabsTrigger value="refs">References</TabsTrigger>
               <TabsTrigger value="learned">Learned</TabsTrigger>
               <TabsTrigger value="files">Files</TabsTrigger>
               <TabsTrigger value="details">Details</TabsTrigger>
@@ -507,6 +519,13 @@ function Conversation({ id }: { id: string }) {
           </div>
           <TabsContent value="context" className="min-h-0 flex-1 overflow-auto p-3">
             <TracePanel traces={data.traces} messages={s.messages} focus={traceFor} />
+          </TabsContent>
+          <TabsContent value="refs" className="min-h-0 flex-1 space-y-4 overflow-auto p-3">
+            <div className="space-y-1.5">
+              <div className="text-[11px] font-medium tracking-wide text-muted-foreground uppercase">On the board</div>
+              <BoardPicker key={id + (summary?.board ?? data.summary.board ?? "")} id={id} value={summary?.board ?? data.summary.board} />
+            </div>
+            <RefsPanel id={id} onJump={jumpTo} />
           </TabsContent>
           <TabsContent value="learned" className="min-h-0 flex-1 overflow-auto p-3">
             <LearnedPanel id={id} root={s.root} state={data.learning} count={s.messages.length} />

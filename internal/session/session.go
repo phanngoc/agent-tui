@@ -428,9 +428,20 @@ type Session struct {
 	Pinned bool `json:"pinned,omitempty"`
 	// Chapters are the messages pinned as chapters, by index, in order: the
 	// places in a long conversation worth jumping back to.
-	Chapters []int     `json:"chapters,omitempty"`
-	Created  time.Time `json:"created"`
-	Updated  time.Time `json:"updated"`
+	Chapters []int `json:"chapters,omitempty"`
+	// Board is the column the conversation sits in on the web's board, read
+	// as a task: backlog, todo, doing or done; empty is the backlog. It is
+	// the user's, not the agent's — a turn starting or ending never moves it.
+	Board string `json:"board,omitempty"`
+	// BoardRank orders a column's cards, lowest first; cards without one
+	// follow, newest first.
+	BoardRank float64 `json:"board_rank,omitempty"`
+	// Refs are the links the user pinned to the conversation: where the
+	// task came from (a Slack thread, an issue, a spec) and what it led to.
+	// The links said in the conversation are found without pinning (Links).
+	Refs    []Ref     `json:"refs,omitempty"`
+	Created time.Time `json:"created"`
+	Updated time.Time `json:"updated"`
 
 	Messages []Message `json:"messages"`
 

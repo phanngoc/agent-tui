@@ -112,6 +112,11 @@ type Command struct {
 	Archived *bool   `json:"archived,omitempty"`
 	// Chapter pins a message as a chapter, or unpins it.
 	Chapter *ChapterMark `json:"chapter,omitempty"`
+	// Board moves the conversation to a column of the web's board, and
+	// BoardRank places it in the column; Refs replaces its pinned links.
+	Board     *string        `json:"board,omitempty"`
+	BoardRank *float64       `json:"board_rank,omitempty"`
+	Refs      *[]session.Ref `json:"refs,omitempty"`
 	// Fresh starts a prompt's turn with a context of its own, in a session
 	// that keeps what came before for the reader (a scheduled job's run).
 	Fresh bool `json:"fresh,omitempty"`
@@ -159,16 +164,36 @@ type Summary struct {
 	SideOf     string              `json:"side_of,omitempty"`
 	// Job is the scheduled job the session is a run of.
 	Job string `json:"job,omitempty"`
+	// Board and BoardRank place it on the web's board; empty is the backlog.
+	Board     string  `json:"board,omitempty"`
+	BoardRank float64 `json:"board_rank,omitempty"`
+	// Origin is where it came from — the first pinned link, else the first
+	// the user gave — and Refs how many links it has, pinned and said.
+	Origin *session.Link `json:"origin,omitempty"`
+	Refs   int           `json:"refs,omitempty"`
 }
 
 // SummaryOf summarises a session.
 func SummaryOf(s *session.Session) Summary {
-	return Summary{
+	sum := Summary{
 		ID: s.ID, Title: s.Label(), Root: s.Root, Engine: s.Engine, Model: s.Model, Mode: s.Mode,
 		Target: s.Target, CWD: s.CWD, Messages: len(s.Messages), Created: s.Created, Updated: s.Updated,
 		Busy: s.Busy, Status: s.Status, InTokens: s.InputTokens, OutToks: s.OutputTokens,
 		Credential: s.Credential, Closed: s.Closed, Pinned: s.Pinned, SideOf: s.SideOf, Job: jobOf(s),
+		Board: s.Board, BoardRank: s.BoardRank,
 	}
+	if o, ok := s.Origin(); ok {
+		sum.Origin = &o
+	}
+	urls := map[string]bool{}
+	for _, r := range s.Refs {
+		urls[r.URL] = true
+	}
+	for _, l := range s.Links() {
+		urls[l.URL] = true
+	}
+	sum.Refs = len(urls)
+	return sum
 }
 
 // jobOf is the job a session is a run of. Runs from before sessions said so
