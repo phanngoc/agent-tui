@@ -23,6 +23,7 @@ import (
 	"github.com/phanngoc/agent-tui/internal/mcp"
 	"github.com/phanngoc/agent-tui/internal/memory"
 	"github.com/phanngoc/agent-tui/internal/skill"
+	"github.com/phanngoc/agent-tui/internal/wiki"
 )
 
 // KitServer is the name the skill and memory tools go by when served over MCP
@@ -47,6 +48,11 @@ func ServeMCP(ctx context.Context, root, sessionID string, r io.Reader, w io.Wri
 	for _, e := range k.memoryTools() {
 		add(e)
 	}
+	if k.Wiki.Count() > 0 {
+		for _, e := range k.wikiTools() {
+			add(e)
+		}
+	}
 	if k.Root != "" {
 		add(k.scheduleTool())
 	}
@@ -65,6 +71,7 @@ type Kit struct {
 	Skills   skill.Store
 	MCP      mcp.Store
 	Memory   *memory.Bank
+	Wiki     *wiki.Wiki
 	// DryRun previews: recall does not count as a hit.
 	DryRun bool
 	// Session is the session the turn belongs to, when known: the schedule
@@ -84,7 +91,7 @@ func MCPStore(root string) mcp.Store {
 // For reads a project's kit.
 func For(root string) *Kit {
 	k := &Kit{Root: root, Prefs: config.LoadPrefs(), Skills: skill.For(root), MCP: MCPStore(root),
-		Memory: memory.For(root)}
+		Memory: memory.For(root), Wiki: wiki.For(root)}
 	if root != "" {
 		k.Settings = config.LoadProjectSettings(root)
 	}
@@ -104,6 +111,7 @@ type Trace struct {
 	MCPError []string   `json:"mcp_errors,omitempty"`
 	Tools    []string   `json:"tools"`
 	Persona  bool       `json:"persona"`
+	Wiki     int        `json:"wiki_pages,omitempty"`
 	Doctrine bool       `json:"doctrine"`
 	Chars    int        `json:"system_chars"`
 	System   string     `json:"system"`
@@ -139,6 +147,7 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 		Learning: k.Prefs.LearnOn(k.Settings)}
 	var x agent.Extras
 	var sys strings.Builder
+	native := engineID == "api" || engineID == ""
 
 	// Standing instructions: the user's, then the project's, then the
 	// repository's own AGENTS.md if it has one.
@@ -157,13 +166,21 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 	// Skills: a listing in the prompt, the bodies behind a tool.
 	skills := k.Skills.Active(k.Settings.DisabledSkills)
 	if len(skills) > 0 {
-		sys.WriteString(skillsIntro(engineID == "api" || engineID == ""))
+		sys.WriteString(skillsIntro(native))
 		for _, s := range skills {
 			fmt.Fprintf(&sys, "- %s (%s): %s\n", s.Name, s.Scope, clip(s.Description, 300))
 			tr.Skills = append(tr.Skills, s.Name)
 		}
 		sys.WriteString("</available_skills>\n\n")
 		x.Tools = append(x.Tools, k.skillTool())
+	}
+
+	// Wiki: what it covers, the same every turn so it stays in the prompt
+	// cache. Pages come through the tools, when the agent asks for them.
+	if n := k.Wiki.Count(); n > 0 {
+		sys.WriteString(wikiContext(k.Wiki, n, native))
+		x.Tools = append(x.Tools, k.wikiTools()...)
+		tr.Wiki = n
 	}
 
 	// Memory: the stable part, then what this prompt recalls.
@@ -198,9 +215,8 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 		// Without this, asked to "run it every hour" an agent reaches for
 		// what it knows — a crontab entry, a timer, a loop script — which
 		// runs out of sight, outside the app the user is looking at.
-		sys.WriteString(schedulingGuide(engineID == "api" || engineID == ""))
+		sys.WriteString(schedulingGuide(native))
 	}
-	native := engineID == "api" || engineID == ""
 
 	// MCP: the claude engine runs the servers itself; the built-in one
 	// connects to them here.
