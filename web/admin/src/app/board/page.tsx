@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlarmClockIcon, LinkIcon, ListIcon, Maximize2Icon, MessageSquareTextIcon, PinIcon, SearchIcon, XIcon } from "lucide-react";
+import { AlarmClockIcon, GripVerticalIcon, LinkIcon, ListIcon, Maximize2Icon, MessageSquareTextIcon, MoreHorizontalIcon, PinIcon, SearchIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -14,6 +14,7 @@ import { Ago, Dot, ErrorNote, PageHeader } from "@/components/common";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { BOARD_COLUMNS, BoardPicker, LinkChip } from "@/components/refs-panel";
 import { Conversation } from "@/components/conversation";
+import { ContextMenu, type MenuItem } from "@/components/context-menu";
 import { Workspace } from "@/components/workspace";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +32,60 @@ function order(a: Summary, b: Summary) {
   const rb = b.board_rank || Infinity;
   if (ra !== rb) return ra - rb;
   return b.updated.localeCompare(a.updated);
+}
+
+// The columns left to right, the reader's own: kept in this browser, the
+// backlog last unless moved.
+const DEFAULT_ORDER: BoardColumn[] = ["todo", "doing", "done", "backlog"];
+const ORDER_KEY = "agent-tui.board.order";
+
+function parseOrder(raw: string): BoardColumn[] {
+  try {
+    const v = JSON.parse(raw || "null");
+    if (Array.isArray(v) && v.length === DEFAULT_ORDER.length && DEFAULT_ORDER.every((c) => v.includes(c))) return v;
+  } catch {}
+  return DEFAULT_ORDER;
+}
+
+const orderListeners = new Set<() => void>();
+
+// useColumnOrder reads the order as an external store: the prerendered page
+// and the first render agree on the default, and another tab's change shows.
+function useColumnOrder(): [BoardColumn[], (o: BoardColumn[]) => void] {
+  const raw = React.useSyncExternalStore(
+    (cb) => {
+      orderListeners.add(cb);
+      window.addEventListener("storage", cb);
+      return () => {
+        orderListeners.delete(cb);
+        window.removeEventListener("storage", cb);
+      };
+    },
+    () => {
+      try {
+        return localStorage.getItem(ORDER_KEY) ?? "";
+      } catch {
+        return "";
+      }
+    },
+    () => "",
+  );
+  const order = React.useMemo(() => parseOrder(raw), [raw]);
+  const set = React.useCallback((o: BoardColumn[]) => {
+    try {
+      localStorage.setItem(ORDER_KEY, JSON.stringify(o));
+    } catch {}
+    orderListeners.forEach((f) => f());
+  }, []);
+  return [order, set];
+}
+
+// moveColumn puts column c before (or after) column at.
+function moveColumn(order: BoardColumn[], c: BoardColumn, at: BoardColumn, after: boolean): BoardColumn[] {
+  if (c === at) return order;
+  const rest = order.filter((x) => x !== c);
+  const i = rest.indexOf(at) + (after ? 1 : 0);
+  return [...rest.slice(0, i), c, ...rest.slice(i)];
 }
 
 const STEP = 1000;
@@ -69,6 +124,12 @@ export default function BoardPage() {
   const { data, error, reload, setData } = useFetch<Summary[]>("/api/sessions" + qs({ root: all ? "" : root, q, archived: "0" }), [v]);
   const [open, setOpen] = React.useState<string | null>(null);
   const [drag, setDrag] = React.useState<{ id: string; col?: BoardColumn; at?: number } | null>(null);
+  const [colOrder, reorder] = useColumnOrder();
+  // A column being dragged by its header, and where it would go.
+  const [colDrag, setColDrag] = React.useState<{ id: BoardColumn; at?: BoardColumn; after?: boolean } | null>(null);
+  const [colMenu, setColMenu] = React.useState<{ x: number; y: number; id: BoardColumn } | null>(null);
+
+  const shown = colOrder.map((id) => BOARD_COLUMNS.find((c) => c.id === id)!);
 
   const cards = React.useMemo(() => (data ?? []).filter((s) => !s.side_of), [data]);
   const columns = React.useMemo(() => {
@@ -97,6 +158,39 @@ export default function BoardPage() {
       toast.error((e as Error).message);
       reload();
     }
+  };
+
+  // moveAll empties a column into another, a few requests at a time.
+  const moveAll = async (from: BoardColumn, to: BoardColumn) => {
+    const ids = columns[from].map((s) => s.id);
+    const label = (id: BoardColumn) => BOARD_COLUMNS.find((c) => c.id === id)?.label;
+    if (!ids.length || !confirm(`Move all ${ids.length} cards from ${label(from)} to ${label(to)}?`)) return;
+    setData((d) => d?.map((s) => (ids.includes(s.id) ? { ...s, board: to, board_rank: 0 } : s)));
+    let failed = 0;
+    for (let i = 0; i < ids.length; i += 8) {
+      const res = await Promise.allSettled(ids.slice(i, i + 8).map((id) => api.put(`/api/sessions/${id}/settings`, { board: to, board_rank: 0 })));
+      failed += res.filter((r) => r.status === "rejected").length;
+    }
+    if (failed) {
+      toast.error(`${failed} of ${ids.length} could not be moved`);
+      reload();
+    } else toast.success(`${ids.length} cards → ${label(to)}`);
+  };
+
+  const menuFor = (id: BoardColumn): MenuItem[] => {
+    const i = colOrder.indexOf(id);
+    return [
+      { label: "Move column left", disabled: i === 0, run: () => reorder(moveColumn(colOrder, id, colOrder[i - 1], false)) },
+      { label: "Move column right", disabled: i === colOrder.length - 1, run: () => reorder(moveColumn(colOrder, id, colOrder[i + 1], true)) },
+      "-",
+      {
+        label: `Move all ${columns[id].length} cards to`,
+        disabled: columns[id].length === 0,
+        items: BOARD_COLUMNS.filter((c) => c.id !== id).map((c) => ({ label: c.label, run: () => void moveAll(id, c.id) })),
+      },
+      "-",
+      { label: "Reset column order", disabled: colOrder.join() === DEFAULT_ORDER.join(), run: () => reorder(DEFAULT_ORDER) },
+    ];
   };
 
   const multi = all || !root;
@@ -138,15 +232,29 @@ export default function BoardPage() {
       </div>
       <ErrorNote error={error} className="m-3" />
       <div className="grid min-h-0 flex-1 grid-cols-[repeat(4,minmax(260px,1fr))] gap-3 overflow-auto p-4">
-        {BOARD_COLUMNS.map((c) => {
+        {shown.map((c) => {
           const list = columns[c.id];
           const over = drag?.col === c.id;
+          const colOver = colDrag && colDrag.id !== c.id && colDrag.at === c.id;
           return (
             <section
               key={c.id}
               aria-label={c.label}
-              className={cn("flex min-h-0 flex-col rounded-xl border bg-muted/30", over && "border-primary/60 bg-primary/5")}
+              className={cn(
+                "relative flex min-h-0 flex-col rounded-xl border bg-muted/30",
+                over && "border-primary/60 bg-primary/5",
+                colDrag?.id === c.id && "opacity-50",
+              )}
               onDragOver={(e) => {
+                if (colDrag) {
+                  // A column dragged over another: before or after it, by which half the pointer is in.
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  const r = e.currentTarget.getBoundingClientRect();
+                  const after = e.clientX > r.left + r.width / 2;
+                  if (colDrag.at !== c.id || colDrag.after !== after) setColDrag({ ...colDrag, at: c.id, after });
+                  return;
+                }
                 if (!drag) return;
                 e.preventDefault();
                 e.dataTransfer.dropEffect = "move";
@@ -167,16 +275,45 @@ export default function BoardPage() {
               }}
               onDrop={(e) => {
                 e.preventDefault();
+                if (colDrag) {
+                  if (colDrag.at) reorder(moveColumn(colOrder, colDrag.id, colDrag.at, !!colDrag.after));
+                  setColDrag(null);
+                  return;
+                }
                 const id = e.dataTransfer.getData("text/plain") || drag?.id;
                 const at = drag?.at ?? list.length;
                 setDrag(null);
                 if (id) void drop(id, c.id, at);
               }}
             >
-              <header className="flex items-center gap-2 px-3 pt-3 pb-2">
+              {colOver && <div className={cn("absolute inset-y-2 w-1 rounded-full bg-primary", colDrag?.after ? "-right-2" : "-left-2")} />}
+              {/* The header is the column's handle: drag it to put the column somewhere else. */}
+              <header
+                draggable
+                onDragStart={(e) => {
+                  e.dataTransfer.setData("application/x-board-column", c.id);
+                  e.dataTransfer.effectAllowed = "move";
+                  setColDrag({ id: c.id });
+                }}
+                onDragEnd={() => setColDrag(null)}
+                title="Drag to move the column"
+                className="group/col flex cursor-grab items-center gap-2 px-3 pt-3 pb-2 active:cursor-grabbing"
+              >
+                <GripVerticalIcon className="-ml-1 size-3.5 text-muted-foreground opacity-40 group-hover/col:opacity-100" />
                 <span className={cn("size-2 rounded-full", c.dot)} />
                 <h2 className="text-sm font-medium">{c.label}</h2>
                 <span className="text-xs text-muted-foreground tabular-nums">{list.length}</span>
+                <button
+                  aria-label={`${c.label} column actions`}
+                  title="Column actions"
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setColMenu({ x: r.left, y: r.bottom + 2, id: c.id });
+                  }}
+                  className="ml-auto grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+                >
+                  <MoreHorizontalIcon className="size-4" />
+                </button>
               </header>
               <div className="min-h-24 flex-1 space-y-2 overflow-y-auto px-2 pb-3">
                 {list.map((s) => {
@@ -208,6 +345,7 @@ export default function BoardPage() {
           );
         })}
       </div>
+      {colMenu && <ContextMenu x={colMenu.x} y={colMenu.y} items={menuFor(colMenu.id)} onClose={() => setColMenu(null)} />}
       <CardSheet
         s={cards.find((x) => x.id === open)}
         onClose={() => setOpen(null)}
