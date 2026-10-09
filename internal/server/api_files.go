@@ -5,8 +5,10 @@ import (
 	"errors"
 	"mime"
 	"net/http"
+	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -303,6 +305,34 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 			writeJSON(w, map[string]any{"root": dir, "path": name, "outside": true})
 			return true
 		}
+		// homes are the home folders a path may be relative to, the
+		// distribution's first in a WSL project: "~/keys/a.pem", and
+		// "Documents\x\y.json" as an agent names a Windows file from WSL.
+		homes := func() []string {
+			var hs []string
+			if wsl, ok := p.fs.(*vfs.WSL); ok {
+				if h := wsl.DefaultDir(); h != "/" {
+					hs = append(hs, h)
+				}
+			}
+			if h, err := os.UserHomeDir(); err == nil {
+				hs = append(hs, h)
+			}
+			return hs
+		}
+		var outside []string // absolute paths beyond the project to try
+		if rest, ok := strings.CutPrefix(strings.ReplaceAll(want, `\`, "/"), "~/"); ok || want == "~" {
+			for _, h := range homes() {
+				outside = append(outside, joinAbs(h, rest))
+			}
+			for _, o := range outside {
+				if beyond(o) {
+					return
+				}
+			}
+			writeJSON(w, map[string]any{"candidates": []string{}})
+			return
+		}
 		orig := want
 		var tries []string
 		// Absolute: a host path, a WSL UNC path or a Linux path in the project.
@@ -312,7 +342,6 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 			}
 		}
 		absolute := strings.HasPrefix(want, "/") || filepath.IsAbs(want)
-		var outside []string // absolute paths beyond the project to try
 		if rel, ok := p.rel(want); ok && absolute {
 			tries = append(tries, rel)
 		} else if absolute {
@@ -329,6 +358,13 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 					tries = append(tries, path.Join(rel, want))
 				} else if !ok {
 					outside = append(outside, joinAbs(cwd, want))
+				}
+			}
+			// A path with folders in it, found nowhere above, may be the
+			// home's; a bare name is left to the project search below.
+			if strings.ContainsAny(want, `/\`) {
+				for _, h := range homes() {
+					outside = append(outside, joinAbs(h, want))
 				}
 			}
 		}
@@ -384,6 +420,10 @@ func outsideRoot(root, abs string) (dir, name string, ok bool) {
 		if linux == "/" {
 			return "", "", false
 		}
+		// /mnt/c/... is the host's own drive, read from the host.
+		if host, ok := mntPath(linux); ok {
+			return filepath.Dir(host), filepath.Base(host), true
+		}
 		return `\\wsl.localhost\` + distro + strings.ReplaceAll(path.Dir(linux), "/", `\`), path.Base(linux), true
 	}
 	if d, linux, ok := gateway.WSLPath(abs); ok {
@@ -399,6 +439,23 @@ func outsideRoot(root, abs string) (dir, name string, ok bool) {
 		return filepath.Dir(abs), filepath.Base(abs), true
 	}
 	return "", "", false
+}
+
+// mntPath turns a WSL path into a host drive, /mnt/c/Users/x into C:\Users\x,
+// when it is one and this is Windows.
+func mntPath(linux string) (string, bool) {
+	if runtime.GOOS != "windows" {
+		return "", false
+	}
+	rest, ok := strings.CutPrefix(linux, "/mnt/")
+	if !ok || len(rest) == 0 {
+		return "", false
+	}
+	d := rest[0]
+	if !(d >= 'a' && d <= 'z' || d >= 'A' && d <= 'Z') || (len(rest) > 1 && rest[1] != '/') {
+		return "", false
+	}
+	return filepath.Clean(strings.ToUpper(string(d)) + `:\` + strings.ReplaceAll(strings.TrimPrefix(rest[1:], "/"), "/", `\`)), true
 }
 
 // joinAbs is a relative path in an absolute folder, kept in the folder's own

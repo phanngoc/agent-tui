@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strconv"
 	"sync"
 	"time"
@@ -316,7 +317,8 @@ func (s *Server) wikiRoutes(m *http.ServeMux) {
 			fail(w, http.StatusBadRequest, err)
 			return
 		}
-		out := map[string]any{"document": name, "ingest": "not started"}
+		// url is where the admin shows the note and, once read, the pages it made.
+		out := map[string]any{"document": name, "ingest": "not started", "url": WikiURL(in.Root, "doc", name)}
 		if !in.NoIngest {
 			state, model, err := startWikiIngest(wk, "", true)
 			if err != nil {
@@ -327,6 +329,17 @@ func (s *Server) wikiRoutes(m *http.ServeMux) {
 		}
 		writeJSON(w, out)
 	})
+}
+
+// WikiURL is the admin's path to a page (what "page") or a document (what
+// "doc") of a project's wiki.
+func WikiURL(root, what, ref string) string {
+	q := url.Values{}
+	if root != "" {
+		q.Set("root", root)
+	}
+	q.Set(what, ref)
+	return "/wiki?" + q.Encode()
 }
 
 // startWikiIngest starts reading a wiki's new documents in the background and

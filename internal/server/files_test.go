@@ -6,7 +6,10 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/phanngoc/agent-tui/internal/config"
@@ -108,6 +111,53 @@ func TestProjectExplorer(t *testing.T) {
 	get("/api/files/resolve", url.Values{"p": {filepath.Join(elsewhere, "missing.md")}}, &none)
 	if none.Path != "" {
 		t.Errorf("a missing outside file resolved to %q", none.Path)
+	}
+
+	// The home's: "~/keys/test/private.pem", and a folder an agent names
+	// relative to it, "Documents\keys\public.jwk.json".
+	home := t.TempDir()
+	t.Setenv("USERPROFILE", home)
+	t.Setenv("HOME", home)
+	_ = os.MkdirAll(filepath.Join(home, "keys", "test"), 0o755)
+	_ = os.MkdirAll(filepath.Join(home, "Documents", "keys"), 0o755)
+	_ = os.WriteFile(filepath.Join(home, "keys", "test", "private.pem"), []byte("pem"), 0o600)
+	_ = os.WriteFile(filepath.Join(home, "Documents", "keys", "public.jwk.json"), []byte("{}"), 0o644)
+	for p, want := range map[string]string{
+		"~/keys/test/private.pem":        filepath.Join(home, "keys", "test"),
+		`Documents\keys\public.jwk.json`: filepath.Join(home, "Documents", "keys"),
+		"Documents/keys/public.jwk.json": filepath.Join(home, "Documents", "keys"),
+	} {
+		var res struct {
+			Root, Path string
+			Outside    bool
+		}
+		get("/api/files/resolve", url.Values{"p": {p}}, &res)
+		if !res.Outside || filepath.Clean(res.Root) != filepath.Clean(want) || res.Path != path.Base(strings.ReplaceAll(p, `\`, "/")) {
+			t.Errorf("resolve %q = %+v; want it in %s", p, res, want)
+		}
+	}
+	get("/api/files/resolve", url.Values{"p": {"~/keys/none.pem"}}, &none)
+	if none.Path != "" {
+		t.Errorf("a missing home file resolved to %q", none.Path)
+	}
+}
+
+func TestMntPath(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a host drive is a Windows thing")
+	}
+	for in, want := range map[string]string{
+		"/mnt/c/Users/x/Documents/a.json": `C:\Users\x\Documents\a.json`,
+		"/mnt/d":                          `D:\`,
+	} {
+		if got, ok := mntPath(in); !ok || got != want {
+			t.Errorf("mntPath(%q) = %q %v; want %q", in, got, ok, want)
+		}
+	}
+	for _, in := range []string{"/mnt/wsl/x", "/home/x", "/mnt/"} {
+		if _, ok := mntPath(in); ok {
+			t.Errorf("mntPath(%q) took it for a drive", in)
+		}
 	}
 }
 

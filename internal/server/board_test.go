@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -92,11 +93,15 @@ func TestBoardAndRefs(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var added struct{ Document, Ingest string }
+	var added struct{ Document, Ingest, URL string }
 	_ = json.NewDecoder(resp.Body).Decode(&added)
 	resp.Body.Close()
 	if !strings.HasPrefix(added.Document, "notes/") || added.Ingest != "not started" {
 		t.Fatalf("wiki add: %+v", added)
+	}
+	// The link to read it comes back with it, for the project it belongs to.
+	if u, err := url.Parse(added.URL); err != nil || u.Path != "/wiki" || u.Query().Get("doc") != added.Document || u.Query().Get("root") != root {
+		t.Fatalf("wiki add url: %q", added.URL)
 	}
 	doc, _ := wiki.For(root).ReadRaw(added.Document)
 	if !strings.Contains(doc, s.ID) || !strings.Contains(doc, "message 2") || !strings.Contains(doc, "NguyÃªn nhÃ¢n á»Ÿ PR 5") {

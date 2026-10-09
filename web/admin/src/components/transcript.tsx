@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { attachmentURL } from "@/components/attachments";
-import { ChevronRightIcon, BrainCircuitIcon, UserIcon, BotIcon, TerminalSquareIcon, ShieldAlertIcon } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { ChevronRightIcon, BrainCircuitIcon, UserIcon, BotIcon, TerminalSquareIcon, ShieldAlertIcon, LibraryIcon } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { Live, Message, SubAgent, ToolCall } from "@/lib/types";
 import { Pre } from "@/components/common";
@@ -199,11 +200,33 @@ function PlainToolRow({ call, output, running }: { call: ToolCall; output?: stri
   return <GenericToolRow call={call} output={output} running={running} />;
 }
 
+/**
+ * wikiLinkOf is where in the wiki a wiki tool's work can be read: the note
+ * wiki_add kept (and the pages it is read into), or the page wiki_write wrote.
+ */
+function wikiLinkOf(call: ToolCall, root: string): string | undefined {
+  const name = call.name.replace(/^mcp__agent-tui__/, "");
+  const r = call.result ?? "";
+  if (call.is_error || !r) return undefined;
+  const at = (k: string, v: string) => "/wiki?" + new URLSearchParams({ ...(root ? { root } : {}), [k]: v }).toString();
+  if (name === "wiki_add") {
+    const m = /raw\/(notes\/[^\s;,]+?\.md)/.exec(r);
+    return m ? at("doc", m[1]) : undefined;
+  }
+  if (name === "wiki_write") {
+    const m = /^saved ([^\s.]+(?:\.[^\s.]+)*?)(?:\.\s|\.?$|\s)/u.exec(r);
+    return m ? at("page", m[1]) : undefined;
+  }
+  return undefined;
+}
+
 function GenericToolRow({ call, output, running }: { call: ToolCall; output?: string; running?: boolean }) {
   const [open, setOpen] = React.useState(false);
   const root = React.useContext(ProjectRoot);
+  const router = useRouter();
   const openFile = useFileOpener();
   const file = openFile ? filePathOf(call.input) : undefined;
+  const wiki = running ? undefined : wikiLinkOf(call, root);
   const isMcp = call.name.startsWith("mcp__");
   const isKit = ["skill", "memory_search", "memory_read", "memory_save"].includes(call.name);
   const note = toolNote(call.input);
@@ -240,6 +263,26 @@ function GenericToolRow({ call, output, running }: { call: ToolCall; output?: st
             className="rounded px-1 text-xs text-sky-700 hover:bg-sky-500/10 dark:text-sky-300"
           >
             open
+          </span>
+        )}
+        {wiki && (
+          <span
+            role="link"
+            tabIndex={0}
+            title="Read it in the wiki"
+            onClick={(e) => {
+              e.stopPropagation();
+              router.push(wiki);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter") {
+                e.stopPropagation();
+                router.push(wiki);
+              }
+            }}
+            className="flex shrink-0 items-center gap-1 rounded px-1 text-xs text-sky-700 hover:bg-sky-500/10 dark:text-sky-300"
+          >
+            <LibraryIcon className="size-3" /> read in wiki
           </span>
         )}
       </button>
