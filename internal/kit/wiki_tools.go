@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 
 	"github.com/phanngoc/agent-tui/internal/agent"
@@ -162,6 +163,9 @@ func (k *Kit) wikiTools() []agent.Extension {
 				if err != nil {
 					return err.Error(), true
 				}
+				if addr, err := gatewayAddr(); err == nil {
+					return "saved " + got.ID + ". Link to it for the user: http://" + addr + wikiURL(k.Root, "page", got.ID), false
+				}
 				return "saved " + got.ID, false
 			},
 		},
@@ -207,6 +211,7 @@ func (k *Kit) wikiAddTool() agent.Extension {
 				Ingest   string `json:"ingest"`
 				Model    string `json:"model"`
 				Error    string `json:"error"`
+				URL      string `json:"url"`
 			}
 			err := gatewayCall(ctx, "POST", "/api/wiki/add", map[string]any{
 				"root": k.Root, "title": a.Title, "content": a.Content, "session": k.Session, "at": a.Message,
@@ -219,17 +224,33 @@ func (k *Kit) wikiAddTool() agent.Extension {
 				}
 				return "kept as raw/" + name + "; the gateway is not running, so it is not in the pages yet — run `agent-tui wiki ingest`, or Ingest on the admin's Wiki page", false
 			}
+			// The link to give the user: the note, and the pages it made once read.
+			link := ""
+			if addr, err := gatewayAddr(); err == nil && out.URL != "" {
+				link = " Give the user this link to read it in the wiki, as a Markdown link: http://" + addr + out.URL
+			}
 			switch out.Ingest {
 			case "started":
-				return "added as raw/" + out.Document + "; " + out.Model + " is reading it into the wiki's pages now (about a minute). Tell the user it is on the Wiki page.", false
+				return "added as raw/" + out.Document + "; " + out.Model + " is reading it into the wiki's pages now (about a minute)." + link, false
 			case "queued":
-				return "added as raw/" + out.Document + "; an ingest is running and reads it as soon as it ends.", false
+				return "added as raw/" + out.Document + "; an ingest is running and reads it as soon as it ends." + link, false
 			case "busy":
-				return "added as raw/" + out.Document + "; an ingest runs in another process, so the next ingest reads it.", false
+				return "added as raw/" + out.Document + "; an ingest runs in another process, so the next ingest reads it." + link, false
 			}
-			return "added as raw/" + out.Document + ", but reading it into pages failed: " + out.Error, false
+			return "added as raw/" + out.Document + ", but reading it into pages failed: " + out.Error + link, false
 		},
 	}
+}
+
+// wikiURL is the admin's path to a page or a document of a project's wiki, as
+// server.WikiURL makes it (that package builds on this one).
+func wikiURL(root, what, ref string) string {
+	q := url.Values{}
+	if root != "" {
+		q.Set("root", root)
+	}
+	q.Set(what, ref)
+	return "/wiki?" + q.Encode()
 }
 
 func dedupe(in []string) []string {

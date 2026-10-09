@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { BookOpenIcon, ClipboardPasteIcon, FileUpIcon, LockIcon, PencilIcon, PlayIcon, SearchIcon, Trash2Icon } from "lucide-react";
+import { ArrowLeftIcon, BookOpenIcon, ClipboardPasteIcon, FileUpIcon, LoaderIcon, LockIcon, PencilIcon, PlayIcon, SearchIcon, Trash2Icon } from "lucide-react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -14,9 +14,10 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { cn } from "@/lib/utils";
+import { baseName } from "@/lib/format";
 
 type WikiPage = {
   id: string;
@@ -97,10 +98,17 @@ function Wiki() {
   const params = useSearchParams();
   const router = useRouter();
   const tab = params.get("tab") ?? "pages";
-  const root = useGateway((s) => s.root);
+  const pageRef = params.get("page");
+  const docRef = params.get("doc");
+  // A link from a conversation names its project: follow it.
+  const asked = params.get("root");
+  const stored = useGateway((s) => s.root);
+  const root = asked ?? stored;
+  React.useEffect(() => {
+    if (asked !== null && asked !== useGateway.getState().root) useGateway.getState().setRoot(asked);
+  }, [asked]);
   const [tick, setTick] = React.useState(0);
   const { data, error, reload } = useFetch<WikiData>(`/api/wiki${qs({ root })}`, [tick]);
-  const [open, setOpen] = React.useState<string | null>(null);
   const running = !!data?.job.running || !!data?.busy;
 
   // While an ingest runs, follow it.
@@ -109,6 +117,11 @@ function Wiki() {
     const t = setInterval(() => setTick((n) => n + 1), 2000);
     return () => clearInterval(t);
   }, [running]);
+
+  // Reading is by address, so a link opens a page and Back goes back.
+  const go = React.useCallback((p: Record<string, string | undefined>) => router.push(`/wiki${qs({ root: asked ?? undefined, ...p })}`), [router, asked]);
+  const openPage = React.useCallback((id: string) => go({ page: id }), [go]);
+  const openDoc = React.useCallback((name: string) => go({ doc: name }), [go]);
 
   const ingest = async () => {
     try {
@@ -119,6 +132,10 @@ function Wiki() {
       toast.error((e as Error).message);
     }
   };
+
+  if (pageRef || docRef) {
+    return <Reader data={data} error={error} root={root} pageRef={pageRef} docRef={docRef} onPage={openPage} onDoc={openDoc} onHome={() => go({})} onChanged={reload} onIngest={ingest} />;
+  }
 
   const s = data?.stats;
   return (
@@ -149,7 +166,7 @@ function Wiki() {
           </div>
         )}
         {data && (data.job.running || data.job.report || data.job.error) && <JobCard job={data.job} />}
-        <Tabs value={tab} onValueChange={(v) => router.replace(`/wiki?tab=${v}`)}>
+        <Tabs value={tab} onValueChange={(v) => go({ tab: String(v) })}>
           <TabsList>
             <TabsTrigger value="pages">Pages</TabsTrigger>
             <TabsTrigger value="documents">Documents</TabsTrigger>
@@ -157,23 +174,23 @@ function Wiki() {
             <TabsTrigger value="steering">Purpose &amp; schema</TabsTrigger>
           </TabsList>
           <TabsContent value="pages" className="pt-4">
-            {data && <Pages data={data} root={root} onOpen={setOpen} />}
+            {data && <Pages data={data} root={root} onOpen={openPage} />}
           </TabsContent>
           <TabsContent value="documents" className="pt-4">
-            {data && <Documents data={data} root={root} onChanged={reload} />}
+            {data && <Documents data={data} root={root} onChanged={reload} onOpen={openDoc} />}
           </TabsContent>
           <TabsContent value="overview" className="pt-4">
-            {data && <Overview data={data} onOpen={setOpen} />}
+            {data && <Overview data={data} onOpen={openPage} />}
           </TabsContent>
           <TabsContent value="steering" className="pt-4">
             {data && <Steering data={data} root={root} onSaved={reload} />}
           </TabsContent>
         </Tabs>
       </div>
-      <PageSheet root={root} refId={open} onOpen={setOpen} onClose={() => setOpen(null)} onChanged={reload} />
     </div>
   );
 }
+
 
 function JobCard({ job }: { job: Job }) {
   const r = job.report;
@@ -282,7 +299,7 @@ function Pages({ data, root, onOpen }: { data: WikiData; root: string; onOpen: (
   );
 }
 
-function Documents({ data, root, onChanged }: { data: WikiData; root: string; onChanged: () => void }) {
+function Documents({ data, root, onChanged, onOpen }: { data: WikiData; root: string; onChanged: () => void; onOpen: (name: string) => void }) {
   const input = React.useRef<HTMLInputElement>(null);
   const upload = async (files: FileList | null) => {
     if (!files?.length) return;
@@ -325,7 +342,11 @@ function Documents({ data, root, onChanged }: { data: WikiData; root: string; on
           <TableBody>
             {data.documents.map((d) => (
               <TableRow key={d.name}>
-                <TableCell className="font-mono text-xs">{d.name}</TableCell>
+                <TableCell className="font-mono text-xs">
+                  <button className="text-left hover:underline" onClick={() => onOpen(d.name)} title="Read it, and see the pages it made">
+                    {d.name}
+                  </button>
+                </TableCell>
                 <TableCell>
                   <Badge variant={statusVariant(d.status)} title={d.error}>
                     {d.status}
@@ -495,78 +516,173 @@ function Steering({ data, root, onSaved }: { data: WikiData; root: string; onSav
   );
 }
 
-function PageSheet({ root, refId, onOpen, onClose, onChanged }: { root: string; refId: string | null; onOpen: (id: string) => void; onClose: () => void; onChanged: () => void }) {
-  const { data, error, reload } = useFetch<PageView>(refId ? `/api/wiki/page${qs({ root, id: refId })}` : null, []);
-  // The draft belongs to the page it was started on; opening another drops it.
-  const [draft, setDraft] = React.useState<{ ref: string | null; title: string; description: string; body: string } | null>(null);
-  const edit = draft && draft.ref === refId ? draft : null;
-  const setEdit = (e: { title: string; description: string; body: string } | null) => setDraft(e && { ...e, ref: refId });
-  const p = data?.page;
+
+/**
+ * Reader is the wiki read as a wiki: the pages down the side, the one open in
+ * a column sized for reading, and what links to it and where it came from
+ * beside it. It is reached by address — ?page= or ?doc= — so a link from a
+ * conversation opens it, and wikilinks move through history.
+ */
+function Reader({
+  data,
+  error,
+  root,
+  pageRef,
+  docRef,
+  onPage,
+  onDoc,
+  onHome,
+  onChanged,
+  onIngest,
+}: {
+  data?: WikiData;
+  error: string | null;
+  root: string;
+  pageRef: string | null;
+  docRef: string | null;
+  onPage: (id: string) => void;
+  onDoc: (name: string) => void;
+  onHome: () => void;
+  onChanged: () => void;
+  onIngest: () => void;
+}) {
+  const [filter, setFilter] = React.useState("");
+  const pages = data?.pages ?? [];
+  const f = filter.trim().toLowerCase();
+  const shown = f ? pages.filter((p) => p.title.toLowerCase().includes(f) || p.description.toLowerCase().includes(f)) : pages;
+  const groups = TYPE_ORDER.concat(Array.from(new Set(pages.map((p) => p.type))).filter((t) => !TYPE_ORDER.includes(t)));
+  const notes = (data?.documents ?? []).filter((d) => d.name.startsWith("notes/")).slice(-8).reverse();
+  const isActive = (p: WikiPage) => pageRef === p.id || pageRef === p.title;
+  // A version that moves when an ingest writes, so an open page reloads.
+  const version = `${data?.stats.version ?? 0}.${data?.stats.pages ?? 0}.${data?.job.running ? 1 : 0}`;
+
   return (
-    <Sheet open={!!refId} onOpenChange={(o) => !o && onClose()}>
-      <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
-        <SheetHeader>
-          <SheetTitle className="flex items-center gap-2">
-            {p?.locked && <LockIcon className="size-4 text-muted-foreground" />}
-            {p?.title ?? refId}
-          </SheetTitle>
-          <SheetDescription>
-            {p && (
-              <>
-                {p.type} · <Mono>{p.id}</Mono> · from {(p.sources ?? []).join(", ") || "nowhere"}
-                {p.updated && <> · updated {p.updated}</>}
-                {data?.history ? <> · {data.history} earlier version{data.history > 1 ? "s" : ""} kept</> : null}
-              </>
-            )}
-          </SheetDescription>
-        </SheetHeader>
-        <div className="space-y-4 px-4 pb-6">
-          <ErrorNote error={error} />
-          {p && !edit && (
-            <>
-              {p.description && <p className="text-sm text-muted-foreground">{p.description}</p>}
-              <WikiMarkdown text={data!.body} onOpen={onOpen} />
-              {!!data!.related?.length && (
-                <div className="border-t pt-3">
-                  <div className="mb-1 text-xs text-muted-foreground">Linked pages</div>
-                  <div className="flex flex-wrap gap-1.5">
-                    {data!.related!.map((n) => (
-                      <Button key={n.id} variant="outline" size="sm" onClick={() => onOpen(n.id)} title={n.dir === "in" ? "links here" : n.dir === "out" ? "linked from here" : "both ways"}>
-                        {n.dir === "in" ? "← " : n.dir === "out" ? "→ " : "↔ "}
-                        {n.title}
-                      </Button>
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-4 py-2">
+        <Button variant="ghost" size="sm" onClick={onHome}>
+          <ArrowLeftIcon /> Wiki
+        </Button>
+        <span className="truncate font-mono text-xs text-muted-foreground" title={root}>
+          {root ? baseName(root) : "your own wiki"}
+        </span>
+        {(data?.job.running || data?.busy) && (
+          <span className="ml-auto flex items-center gap-1.5 text-xs text-sky-600 dark:text-sky-400">
+            <LoaderIcon className="size-3.5 animate-spin" /> reading documents into pages…
+          </span>
+        )}
+      </div>
+      <ErrorNote error={error} className="m-3" />
+      <div className="grid min-h-0 flex-1 md:grid-cols-[250px_minmax(0,1fr)] xl:grid-cols-[250px_minmax(0,1fr)_270px]">
+        <nav className="hidden min-h-0 flex-col border-r md:flex" aria-label="Wiki pages">
+          <div className="p-3 pb-2">
+            <div className="relative">
+              <SearchIcon className="absolute top-2 left-2 size-4 text-muted-foreground" />
+              <Input value={filter} onChange={(e) => setFilter(e.target.value)} placeholder={`Filter ${pages.length} pages`} className="h-8 pl-8 text-sm" />
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-4 text-sm">
+            {groups
+              .filter((t) => shown.some((p) => p.type === t))
+              .map((t) => (
+                <div key={t} className="mb-3">
+                  <div className="px-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">{t}</div>
+                  {shown
+                    .filter((p) => p.type === t)
+                    .sort((a, b) => a.title.localeCompare(b.title))
+                    .map((p) => (
+                      <button
+                        key={p.id}
+                        onClick={() => onPage(p.id)}
+                        title={p.description}
+                        className={cn("block w-full truncate rounded-md px-2 py-1 text-left hover:bg-muted", isActive(p) && "bg-muted font-medium text-foreground")}
+                      >
+                        {p.title}
+                      </button>
                     ))}
-                  </div>
                 </div>
-              )}
-              <div className="flex gap-2 border-t pt-3">
-                <Button variant="outline" size="sm" onClick={() => setEdit({ title: p.title, description: p.description, body: data!.body })}>
-                  <PencilIcon /> Edit
-                </Button>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={async () => {
-                    if (!confirm(`Delete ${p.title}? A copy stays in history/.`)) return;
-                    try {
-                      await api.del(`/api/wiki/page${qs({ root, id: p.id })}`);
-                      onChanged();
-                      onClose();
-                    } catch (e) {
-                      toast.error((e as Error).message);
-                    }
-                  }}
-                >
-                  <Trash2Icon /> Delete
-                </Button>
+              ))}
+            {notes.length > 0 && (
+              <div className="mt-4 border-t pt-3">
+                <div className="px-2 pb-1 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Recent notes</div>
+                {notes.map((d) => (
+                  <button
+                    key={d.name}
+                    onClick={() => onDoc(d.name)}
+                    title={d.name}
+                    className={cn("block w-full truncate rounded-md px-2 py-1 text-left text-xs hover:bg-muted", docRef === d.name && "bg-muted font-medium")}
+                  >
+                    {noteTitle(d.name)}
+                  </button>
+                ))}
               </div>
-            </>
-          )}
-          {p && edit && (
+            )}
+          </div>
+        </nav>
+        {pageRef ? (
+          <PageArticle key={pageRef} root={root} pageRef={pageRef} version={version} docs={data?.documents ?? []} onPage={onPage} onDoc={onDoc} onChanged={onChanged} />
+        ) : (
+          docRef && <DocArticle key={docRef} root={root} docRef={docRef} data={data} onPage={onPage} onIngest={onIngest} />
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** noteTitle names a note from its file: notes/20261009-160223-payment-retry.md → "payment retry · 10-09 16:02". */
+function noteTitle(name: string): string {
+  const m = /^notes\/(\d{4})(\d{2})(\d{2})-(\d{2})(\d{2})\d{2}-(.*)\.md$/.exec(name);
+  if (!m) return name.replace(/^notes\//, "");
+  return `${m[6].replace(/-/g, " ")} · ${m[2]}-${m[3]} ${m[4]}:${m[5]}`;
+}
+
+// The column a page is read in: wide enough for a table, narrow enough to read.
+const ARTICLE = "mx-auto w-full max-w-3xl px-6 py-8 md:px-10";
+const PROSE = "text-[15px] leading-7 [&_h1]:mt-8 [&_h2]:mt-8 [&_h2]:border-b [&_h2]:pb-1 [&_h3]:mt-6 [&_table]:text-[13px]";
+
+function PageArticle({
+  root,
+  pageRef,
+  version,
+  docs,
+  onPage,
+  onDoc,
+  onChanged,
+}: {
+  root: string;
+  pageRef: string;
+  version: string;
+  docs: WikiDoc[];
+  onPage: (id: string) => void;
+  onDoc: (name: string) => void;
+  onChanged: () => void;
+}) {
+  const { data, error, reload } = useFetch<PageView>(`/api/wiki/page${qs({ root, id: pageRef })}`, [version]);
+  const [edit, setEdit] = React.useState<{ title: string; description: string; body: string } | null>(null);
+  const p = data?.page;
+  const related = data?.related ?? [];
+  const inbound = related.filter((n) => n.dir !== "out");
+  const outbound = related.filter((n) => n.dir !== "in");
+  const docNames = new Set(docs.map((d) => d.name));
+
+  if (error)
+    return (
+      <main className="min-h-0 overflow-y-auto">
+        <div className={ARTICLE}>
+          <Empty title={`No page “${pageRef}”`}>It may not be written yet: an ingest still running writes it in a minute.</Empty>
+        </div>
+      </main>
+    );
+  return (
+    <>
+      <main className="min-h-0 overflow-y-auto">
+        <article className={ARTICLE}>
+          {!p ? (
+            <div className="text-sm text-muted-foreground">Loading…</div>
+          ) : edit ? (
             <div className="space-y-3">
-              <Input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} />
+              <Input value={edit.title} onChange={(e) => setEdit({ ...edit, title: e.target.value })} className="text-lg font-semibold" />
               <Input value={edit.description} onChange={(e) => setEdit({ ...edit, description: e.target.value })} placeholder="One sentence: what the page is about" />
-              <Textarea value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} rows={20} className="font-mono text-xs" />
+              <Textarea value={edit.body} onChange={(e) => setEdit({ ...edit, body: e.target.value })} rows={24} className="font-mono text-xs" />
               <p className="text-xs text-muted-foreground">A page saved here is locked: later ingests will not merge into it.</p>
               <div className="flex gap-2">
                 <Button
@@ -576,7 +692,7 @@ function PageSheet({ root, refId, onOpen, onClose, onChanged }: { root: string; 
                       const r = await api.put<{ id: string }>("/api/wiki/page", { root, id: p.id, type: p.type, ...edit });
                       setEdit(null);
                       onChanged();
-                      if (r.id !== p.id) onOpen(r.id);
+                      if (r.id !== p.id) onPage(r.id);
                       else reload();
                     } catch (e) {
                       toast.error((e as Error).message);
@@ -590,9 +706,160 @@ function PageSheet({ root, refId, onOpen, onClose, onChanged }: { root: string; 
                 </Button>
               </div>
             </div>
+          ) : (
+            <>
+              <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+                <Badge variant="outline">{p.type}</Badge>
+                <span className="font-mono">{p.id}</span>
+                {p.locked && (
+                  <span className="flex items-center gap-1" title="Edited by hand: ingests do not merge into it">
+                    <LockIcon className="size-3" /> locked
+                  </span>
+                )}
+              </div>
+              <h1 className="text-2xl leading-tight font-semibold tracking-tight">{p.title}</h1>
+              {p.description && <p className="mt-2 text-[15px] text-muted-foreground">{p.description}</p>}
+              <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 border-b pb-4 text-xs text-muted-foreground">
+                {p.updated && <span>updated {p.updated}</span>}
+                {data.history > 0 && <span>{data.history} earlier version{data.history > 1 ? "s" : ""} kept</span>}
+                <span className="ml-auto flex gap-1">
+                  <Button variant="ghost" size="sm" onClick={() => setEdit({ title: p.title, description: p.description, body: data.body })}>
+                    <PencilIcon /> Edit
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={async () => {
+                      if (!confirm(`Delete ${p.title}? A copy stays in history/.`)) return;
+                      try {
+                        await api.del(`/api/wiki/page${qs({ root, id: p.id })}`);
+                        onChanged();
+                        history.back();
+                      } catch (e) {
+                        toast.error((e as Error).message);
+                      }
+                    }}
+                  >
+                    <Trash2Icon /> Delete
+                  </Button>
+                </span>
+              </div>
+              <div className={cn("mt-6", PROSE)}>
+                <WikiMarkdown text={data.body} onOpen={onPage} />
+              </div>
+              {!!data.broken?.length && (
+                <p className="mt-8 text-xs text-muted-foreground">Links to pages not written yet: {data.broken.map((b) => `[[${b}]]`).join(", ")}</p>
+              )}
+            </>
           )}
-        </div>
-      </SheetContent>
-    </Sheet>
+        </article>
+      </main>
+      <aside className="hidden min-h-0 space-y-6 overflow-y-auto border-l p-4 text-sm xl:block">
+        {p && (
+          <>
+            <RelatedList title="Links here" items={inbound} onPage={onPage} empty="Nothing links here yet." />
+            <RelatedList title="Links to" items={outbound} onPage={onPage} empty="No links out." />
+            <div>
+              <div className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Sources</div>
+              {(p.sources ?? []).map((s) =>
+                docNames.has(s) ? (
+                  <button key={s} onClick={() => onDoc(s)} title={s} className="block w-full truncate rounded-md px-2 py-1 text-left text-xs text-primary hover:bg-muted">
+                    {s.startsWith("notes/") ? noteTitle(s) : s}
+                  </button>
+                ) : (
+                  <div key={s} className="px-2 py-1 text-xs text-muted-foreground">
+                    {s === "agent" ? "filed by the agent" : s === "user" ? "edited by hand" : s}
+                  </div>
+                ),
+              )}
+            </div>
+          </>
+        )}
+      </aside>
+    </>
+  );
+}
+
+function RelatedList({ title, items, onPage, empty }: { title: string; items: Neighbour[]; onPage: (id: string) => void; empty: string }) {
+  return (
+    <div>
+      <div className="mb-1.5 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">
+        {title} <span className="tabular-nums">{items.length || ""}</span>
+      </div>
+      {items.length === 0 && <div className="px-2 text-xs text-muted-foreground">{empty}</div>}
+      {items.map((n) => (
+        <button key={n.id} onClick={() => onPage(n.id)} className="block w-full truncate rounded-md px-2 py-1 text-left hover:bg-muted">
+          {n.title}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** DocArticle is one document: what it says, and the pages it was read into — or that it is being read. */
+function DocArticle({ root, docRef, data, onPage, onIngest }: { root: string; docRef: string; data?: WikiData; onPage: (id: string) => void; onIngest: () => void }) {
+  const doc = data?.documents.find((d) => d.name === docRef);
+  const { data: raw, error } = useFetch<{ content: string }>(`/api/wiki/raw${qs({ root, name: docRef })}`, []);
+  const reading = !!data?.job.running && doc?.status !== "ingested";
+  const made = (doc?.pages ?? []).map((id) => data?.pages.find((p) => p.id === id)).filter((p): p is WikiPage => !!p);
+  return (
+    <>
+      <main className="min-h-0 overflow-y-auto">
+        <article className={ARTICLE}>
+          <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+            <Badge variant="outline">document</Badge>
+            <span className="truncate font-mono">{docRef}</span>
+          </div>
+          <ErrorNote error={error} />
+          {reading && (
+            <div className="my-4 rounded-lg border bg-muted/40 p-3 text-sm">
+              <div className="flex items-center gap-2 font-medium">
+                <LoaderIcon className="size-4 animate-spin" /> Being read into the wiki&apos;s pages…
+              </div>
+              <Pre max="max-h-32" className="mt-2">
+                {(data?.job.progress ?? []).slice(-5).join("\n")}
+              </Pre>
+            </div>
+          )}
+          {made.length > 0 && (
+            <div className="my-4 rounded-lg border p-3">
+              <div className="mb-2 text-[11px] font-medium tracking-wide text-muted-foreground uppercase">Read into {made.length} pages</div>
+              <div className="flex flex-wrap gap-1.5">
+                {made.map((p) => (
+                  <Button key={p.id} variant="outline" size="sm" onClick={() => onPage(p.id)} title={p.description}>
+                    {p.title}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+          {doc && !reading && (doc.status === "new" || doc.status === "changed") && (
+            <div className="my-4 flex items-center gap-3 rounded-lg border bg-muted/40 p-3 text-sm">
+              <span className="flex-1">Not read into the wiki&apos;s pages yet.</span>
+              <Button size="sm" onClick={onIngest} disabled={!!data?.busy}>
+                <PlayIcon /> Ingest now
+              </Button>
+            </div>
+          )}
+          {doc?.status === "failed" && <ErrorNote error={`Reading it failed: ${doc.error}`} />}
+          <div className={cn("mt-6", PROSE)}>{raw ? <Markdown text={raw.content} /> : <div className="text-sm text-muted-foreground">Loading…</div>}</div>
+        </article>
+      </main>
+      <aside className="hidden min-h-0 space-y-2 overflow-y-auto border-l p-4 text-xs text-muted-foreground xl:block">
+        {doc && (
+          <>
+            <div>
+              status <Badge variant={doc.status === "ingested" ? "secondary" : doc.status === "failed" ? "destructive" : "outline"}>{reading ? "reading" : doc.status}</Badge>
+            </div>
+            <div>{(doc.size / 1024).toFixed(1)} KB</div>
+            {doc.ingested && (
+              <div>
+                read <Ago at={doc.ingested} />
+              </div>
+            )}
+          </>
+        )}
+      </aside>
+    </>
   );
 }
