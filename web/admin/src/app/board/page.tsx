@@ -2,7 +2,7 @@
 
 import * as React from "react";
 import Link from "next/link";
-import { AlarmClockIcon, GripVerticalIcon, LinkIcon, ListIcon, Maximize2Icon, MessageSquareTextIcon, MoreHorizontalIcon, PinIcon, SearchIcon, XIcon } from "lucide-react";
+import { AlarmClockIcon, GripVerticalIcon, LinkIcon, ListIcon, Maximize2Icon, MessageSquareTextIcon, MoreHorizontalIcon, PinIcon, PlusIcon, SearchIcon, XIcon } from "lucide-react";
 import { toast } from "sonner";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -10,10 +10,11 @@ import { useGateway, useVersion } from "@/lib/store";
 import type { BoardColumn, Summary } from "@/lib/types";
 import { baseName } from "@/lib/format";
 import { cn } from "@/lib/utils";
-import { Ago, Dot, ErrorNote, PageHeader } from "@/components/common";
+import { Ago, Dot, ErrorNote } from "@/components/common";
 import { ProjectSwitcher } from "@/components/project-switcher";
 import { BOARD_COLUMNS, BoardPicker, LinkChip } from "@/components/refs-panel";
 import { Conversation } from "@/components/conversation";
+import { NewChat } from "@/components/new-chat";
 import { ContextMenu, type MenuItem } from "@/components/context-menu";
 import { Workspace } from "@/components/workspace";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -123,6 +124,21 @@ export default function BoardPage() {
   const v = useVersion("sessions");
   const { data, error, reload, setData } = useFetch<Summary[]>("/api/sessions" + qs({ root: all ? "" : root, q, archived: "0" }), [v]);
   const [open, setOpen] = React.useState<string | null>(null);
+  // newIn is the column a conversation being started from the board lands in.
+  const [newIn, setNewIn] = React.useState<BoardColumn | null>(null);
+  const created = async (id: string) => {
+    const col = newIn;
+    setOpen(id);
+    setNewIn(null);
+    if (col && col !== "backlog") {
+      try {
+        await api.put(`/api/sessions/${id}/settings`, { board: col });
+      } catch (e) {
+        toast.error((e as Error).message);
+      }
+    }
+    reload();
+  };
   const [drag, setDrag] = React.useState<{ id: string; col?: BoardColumn; at?: number } | null>(null);
   const [colOrder, reorder] = useColumnOrder();
   // A column being dragged by its header, and where it would go.
@@ -196,17 +212,15 @@ export default function BoardPage() {
   const multi = all || !root;
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <PageHeader
-        title="Board"
-        description="Your conversations as tasks. Drag a card between columns, or open it to move it, read where it came from and jump to the conversation. A card stays where you put it, whatever its agent is doing."
-        actions={
-          <Link href="/sessions" className={buttonVariants({ variant: "outline", size: "sm" })}>
-            <ListIcon /> List view
-          </Link>
-        }
-      />
-      <div className="flex flex-wrap items-center gap-2 border-b px-6 py-3">
-        <div className="relative w-64 max-w-full">
+      {/* One bar, title to actions: the room goes to the columns. */}
+      <div className="flex flex-wrap items-center gap-2 border-b px-4 py-2">
+        <h1
+          className="mr-1 text-base font-semibold"
+          title="Your conversations as tasks. Drag a card between columns, or open it to read and answer it here. A card stays where you put it, whatever its agent is doing."
+        >
+          Board
+        </h1>
+        <div className="relative w-56 max-w-full">
           <SearchIcon className="absolute top-2 left-2 size-4 text-muted-foreground" />
           <Input value={q} onChange={(e) => setQ(e.target.value)} placeholder="Search the cards" className="h-8 pl-8" />
         </div>
@@ -228,10 +242,18 @@ export default function BoardPage() {
             ))}
           </div>
         )}
-        <span className="ml-auto text-xs text-muted-foreground">{cards.length} conversations · archived ones are left out</span>
+        <span className="ml-auto text-xs text-muted-foreground" title="Archived conversations are left out">
+          {cards.length} conversation{cards.length === 1 ? "" : "s"}
+        </span>
+        <Link href="/sessions" className={buttonVariants({ variant: "ghost", size: "sm" })}>
+          <ListIcon /> List view
+        </Link>
+        <Button size="sm" onClick={() => setNewIn("todo")} title="Start a conversation here, as a card in Todo">
+          <PlusIcon /> New conversation
+        </Button>
       </div>
       <ErrorNote error={error} className="m-3" />
-      <div className="grid min-h-0 flex-1 grid-cols-[repeat(4,minmax(260px,1fr))] gap-3 overflow-auto p-4">
+      <div className="grid min-h-0 flex-1 grid-cols-[repeat(4,minmax(260px,1fr))] gap-3 overflow-auto p-3">
         {shown.map((c) => {
           const list = columns[c.id];
           const over = drag?.col === c.id;
@@ -304,13 +326,21 @@ export default function BoardPage() {
                 <h2 className="text-sm font-medium">{c.label}</h2>
                 <span className="text-xs text-muted-foreground tabular-nums">{list.length}</span>
                 <button
+                  aria-label={`New conversation in ${c.label}`}
+                  title={`New conversation in ${c.label}`}
+                  onClick={() => setNewIn(c.id)}
+                  className="ml-auto grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+                >
+                  <PlusIcon className="size-4" />
+                </button>
+                <button
                   aria-label={`${c.label} column actions`}
                   title="Column actions"
                   onClick={(e) => {
                     const r = e.currentTarget.getBoundingClientRect();
                     setColMenu({ x: r.left, y: r.bottom + 2, id: c.id });
                   }}
-                  className="ml-auto grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
+                  className="grid size-6 place-items-center rounded-md text-muted-foreground hover:bg-background hover:text-foreground"
                 >
                   <MoreHorizontalIcon className="size-4" />
                 </button>
@@ -347,8 +377,15 @@ export default function BoardPage() {
       </div>
       {colMenu && <ContextMenu x={colMenu.x} y={colMenu.y} items={menuFor(colMenu.id)} onClose={() => setColMenu(null)} />}
       <CardSheet
+        id={open}
         s={cards.find((x) => x.id === open)}
-        onClose={() => setOpen(null)}
+        newIn={newIn}
+        root={root}
+        onCreated={(id) => void created(id)}
+        onClose={() => {
+          setOpen(null);
+          setNewIn(null);
+        }}
         onMoved={(id, col) => patch(id, { board: col, board_rank: 0 })}
       />
     </div>
@@ -436,12 +473,30 @@ function Card({
  * CardSheet opens a card as its conversation, whole — the transcript as it
  * streams, the composer, approvals and questions, the side panel with its
  * references — so a task is read, answered and moved without leaving the
- * board.
+ * board. Opened with newIn and no id, it starts a conversation instead, and
+ * becomes that conversation once it is made.
  */
-function CardSheet({ s, onClose, onMoved }: { s?: Summary; onClose: () => void; onMoved: (id: string, col: BoardColumn) => void }) {
+function CardSheet({
+  id,
+  s,
+  newIn,
+  root,
+  onCreated,
+  onClose,
+  onMoved,
+}: {
+  id: string | null;
+  s?: Summary;
+  newIn: BoardColumn | null;
+  root: string;
+  onCreated: (id: string) => void;
+  onClose: () => void;
+  onMoved: (id: string, col: BoardColumn) => void;
+}) {
+  const label = BOARD_COLUMNS.find((c) => c.id === newIn)?.label;
   return (
     <Sheet
-      open={!!s}
+      open={!!id || !!newIn}
       onOpenChange={(o, details) => {
         if (o) return;
         // Escape while typing is the composer's (its menu, its side chat), not a reason to leave.
@@ -451,31 +506,43 @@ function CardSheet({ s, onClose, onMoved }: { s?: Summary; onClose: () => void; 
       }}
     >
       <SheetContent showCloseButton={false} className="w-full gap-0 p-0 data-[side=right]:w-[min(1500px,96vw)] data-[side=right]:sm:max-w-none">
-        {s && (
-          <>
-            <SheetTitle className="sr-only">{s.title || "(untitled)"}</SheetTitle>
-            <SheetDescription className="sr-only">The conversation, to read and answer here, and its place on the board.</SheetDescription>
-            <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
-              <BoardPicker key={s.id + (s.board || "")} id={s.id} value={s.board} onMoved={(c) => onMoved(s.id, c)} />
-              <span className="truncate text-xs text-muted-foreground">
-                {baseName(s.root)} · {s.messages} messages
-              </span>
-              <div className="ml-auto flex items-center gap-1">
-                <Link href={`/sessions?id=${s.id}`} className={buttonVariants({ variant: "ghost", size: "sm" })} title="Open it on the sessions page">
-                  <Maximize2Icon /> Full page
-                </Link>
-                <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close" title="Close (Esc)">
-                  <XIcon />
-                </Button>
-              </div>
-            </div>
-            <div className="min-h-0 flex-1">
-              <Workspace id="board-chat" right={{ node: null, defaultSize: 380, minSize: 300, maxSize: 640, foldBelow: 1200, label: "side panel" }}>
-                <Conversation key={s.id} id={s.id} initialTab="refs" />
-              </Workspace>
-            </div>
-          </>
-        )}
+        <SheetTitle className="sr-only">{id ? s?.title || "(untitled)" : `New conversation in ${label}`}</SheetTitle>
+        <SheetDescription className="sr-only">The conversation, to read and answer here, and its place on the board.</SheetDescription>
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
+          {id ? (
+            <>
+              <BoardPicker key={id + (s?.board || "")} id={id} value={s?.board} onMoved={(c) => onMoved(id, c)} />
+              {s && (
+                <span className="truncate text-xs text-muted-foreground">
+                  {baseName(s.root)} · {s.messages} messages
+                </span>
+              )}
+            </>
+          ) : (
+            <span className="text-sm font-medium">
+              New conversation <span className="font-normal text-muted-foreground">· lands in {label}</span>
+            </span>
+          )}
+          <div className="ml-auto flex items-center gap-1">
+            {id && (
+              <Link href={`/sessions?id=${id}`} className={buttonVariants({ variant: "ghost", size: "sm" })} title="Open it on the sessions page">
+                <Maximize2Icon /> Full page
+              </Link>
+            )}
+            <Button variant="ghost" size="icon-sm" onClick={onClose} aria-label="Close" title="Close (Esc)">
+              <XIcon />
+            </Button>
+          </div>
+        </div>
+        <div className="flex min-h-0 flex-1 flex-col">
+          {id ? (
+            <Workspace id="board-chat" right={{ node: null, defaultSize: 380, minSize: 300, maxSize: 640, foldBelow: 1200, label: "side panel" }}>
+              <Conversation key={id} id={id} initialTab="refs" />
+            </Workspace>
+          ) : (
+            newIn && <NewChat key={newIn + root} root={root} onCreated={onCreated} />
+          )}
+        </div>
       </SheetContent>
     </Sheet>
   );
