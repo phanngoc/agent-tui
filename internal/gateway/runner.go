@@ -543,6 +543,21 @@ func ApplyListSettings(s *session.Session, cmd Command) bool {
 	if cmd.Archived != nil && *cmd.Archived != s.Closed {
 		s.Closed, changed = *cmd.Archived, true
 	}
+	if b := cmd.Board; b != nil && session.ValidBoard(*b) {
+		col := *b
+		if col == session.BoardBacklog {
+			col = "" // the backlog is where a conversation starts
+		}
+		if col != s.Board {
+			s.Board, changed = col, true
+		}
+	}
+	if r := cmd.BoardRank; r != nil && *r != s.BoardRank {
+		s.BoardRank, changed = *r, true
+	}
+	if r := cmd.Refs; r != nil {
+		s.Refs, changed = slices.Clone(*r), true
+	}
 	if c := cmd.Chapter; c != nil && c.At >= 0 && c.At < len(s.Messages) {
 		has := slices.Contains(s.Chapters, c.At)
 		switch {

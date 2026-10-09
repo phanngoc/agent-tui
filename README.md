@@ -608,6 +608,24 @@ agent reaches the pages with `wiki_search`, `wiki_read` and `wiki_write` — or
 ingests, browses, edits and lints. How it works, and what was taken from
 TencentDB: [docs/wiki-knowledge-base.md](docs/wiki-knowledge-base.md).
 
+## The board
+
+The admin's **Board** (or the board button beside *new conversation*) shows the
+same conversations as tasks, in four columns — Backlog, Todo, In progress,
+Done — and a card is dragged from one to another, or up and down its column.
+Where a card sits is yours: it is saved on the conversation and no turn moves
+it, so a conversation whose agent finished long ago can stay *In progress*
+until you have reviewed it. A pulsing dot on a card is the agent working; the
+column is not. The list view stays as it was.
+
+Each card shows where the conversation came from — the first link you pinned
+to it, or else the first one you gave it, such as the Slack thread of a bug —
+and how many links it has. Open a card, or the conversation's **References**
+tab, for all of them: the ones pinned, then every link said in the
+conversation with who said it, the words around it and a jump to the message.
+Slack threads are named by when they were posted, so two threads of one
+channel are told apart.
+
 ## Engines
 
 The same UI drives four different agents. Press `ctrl+r` to pick one per

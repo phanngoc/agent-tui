@@ -109,6 +109,33 @@ export interface Summary {
   closed?: boolean;
   pinned?: boolean;
   side_of?: string;
+  board?: BoardColumn | ""; // the board column; empty is the backlog
+  board_rank?: number;
+  origin?: Link; // where it came from: the first pinned link, else the user's first
+  refs?: number; // links pinned and said
+}
+
+/** The board's columns, left to right. Not the agent's state: the user's. */
+export type BoardColumn = "backlog" | "todo" | "doing" | "done";
+
+/** A link said in a conversation, or pinned to it. */
+export interface Link {
+  url: string;
+  kind: string; // slack, github, google, backlog, jira, confluence, miro, notion, web
+  label: string;
+  at: number; // the message it is first in; -1 for a pinned one
+  role?: string;
+  when?: string;
+  snippet?: string;
+  times?: number;
+}
+
+export interface PinnedRef {
+  url: string;
+  title?: string;
+  added: string;
+  kind: string;
+  label: string;
 }
 
 export interface ApprovalData {
