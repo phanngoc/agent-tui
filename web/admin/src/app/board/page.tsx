@@ -505,7 +505,7 @@ function CardSheet({
         onClose();
       }}
     >
-      <SheetContent showCloseButton={false} className="w-full gap-0 p-0 data-[side=right]:w-[min(1500px,96vw)] data-[side=right]:sm:max-w-none">
+      <SheetContent showCloseButton={false} className="w-full gap-0 p-0 data-[side=right]:w-[min(100vw,max(70vw,720px))] data-[side=right]:sm:max-w-none">
         <SheetTitle className="sr-only">{id ? s?.title || "(untitled)" : `New conversation in ${label}`}</SheetTitle>
         <SheetDescription className="sr-only">The conversation, to read and answer here, and its place on the board.</SheetDescription>
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b px-3 py-2">
