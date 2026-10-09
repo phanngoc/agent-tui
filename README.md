@@ -584,6 +584,30 @@ With no project picked, the Memory page shows every store — global and each
 project's, named after the project — and *Consolidate all* rebuilds every
 one, then says what each came out with.
 
+## The wiki
+
+Memory is what was said; the wiki is what the documents say. Give a project
+its specs, designs and runbooks, and a model reads each once and writes them
+up as a wiki of linked Markdown pages — sources, entities, concepts — the LLM
+wiki of TencentDB's MemoryKnowledge, after Karpathy's.
+
+```sh
+agent-tui wiki add docs/ spec.md   # keep documents (.md .txt .rst .adoc .org)
+agent-tui wiki ingest              # read the new and changed ones into pages
+agent-tui wiki search -hops 1 login token
+agent-tui wiki show "Auth API"     # or index · overview · log
+agent-tui wiki lint                # links to nowhere, orphans, failures
+```
+
+An ingest reads only what changed since the last, plans each document before
+writing it, merges a page with the one already there (a page edited by hand is
+left alone), and takes out what came only from a document that is gone. Every
+overwritten page is kept in `history/`. The overview is in every prompt; the
+agent reaches the pages with `wiki_search`, `wiki_read` and `wiki_write` — or
+`mcp__agent-tui__wiki_*` from Claude Code. The admin's **Wiki** page uploads,
+ingests, browses, edits and lints. How it works, and what was taken from
+TencentDB: [docs/wiki-knowledge-base.md](docs/wiki-knowledge-base.md).
+
 ## Engines
 
 The same UI drives four different agents. Press `ctrl+r` to pick one per

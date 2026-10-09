@@ -272,6 +272,7 @@ func (s *Server) routes() {
 	s.skillRoutes(m)
 	s.mcpRoutes(m)
 	s.memoryRoutes(m)
+	s.wikiRoutes(m)
 	s.settingsRoutes(m)
 	s.fsRoutes(m)
 	s.scheduleRoutes(m)
