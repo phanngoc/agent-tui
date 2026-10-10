@@ -54,6 +54,11 @@ func ServeMCP(ctx context.Context, root, sessionID string, r io.Reader, w io.Wri
 		}
 	}
 	add(k.wikiAddTool())
+	if browserConnected(ctx) {
+		for _, e := range k.browserTools() {
+			add(e)
+		}
+	}
 	if k.Root != "" {
 		add(k.scheduleTool())
 	}
@@ -187,6 +192,12 @@ func (k *Kit) Extras(ctx context.Context, engineID, prompt string) (agent.Extras
 		sys.WriteString(wikiEmptyContext(native))
 	}
 	x.Tools = append(x.Tools, k.wikiAddTool())
+
+	// Browser: the user's Chrome, while the extension is connected.
+	if browserConnected(ctx) {
+		sys.WriteString(browserGuide(native))
+		x.Tools = append(x.Tools, k.browserTools()...)
+	}
 
 	// Memory: the stable part, then what this prompt recalls.
 	mem := k.Memory.SystemContext()
