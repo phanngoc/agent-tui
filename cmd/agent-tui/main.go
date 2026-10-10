@@ -64,6 +64,9 @@ func run() error {
 	if len(os.Args) > 1 && os.Args[1] == "wiki" {
 		return wikiCmd(os.Args[2:])
 	}
+	if len(os.Args) > 1 && os.Args[1] == "browser" {
+		return browserCmd(os.Args[2:])
+	}
 	if len(os.Args) > 1 && os.Args[1] == "web" {
 		path := ""
 		if len(os.Args) > 2 {

@@ -27,6 +27,7 @@ import (
 	"time"
 
 	"github.com/phanngoc/agent-tui/internal/awake"
+	"github.com/phanngoc/agent-tui/internal/browser"
 	"github.com/phanngoc/agent-tui/internal/config"
 	"github.com/phanngoc/agent-tui/internal/engine"
 	"github.com/phanngoc/agent-tui/internal/gateway"
@@ -41,8 +42,10 @@ import (
 
 // Server is the gateway process.
 type Server struct {
-	Hub     *gateway.Hub
-	Runner  *gateway.Runner
+	Hub    *gateway.Hub
+	Runner *gateway.Runner
+	// Browser is the user's Chrome, through the agent-tui extension.
+	Browser *browser.Hub
 	Cfg     config.Config
 	Version string
 	// WebDir, when set, is a static export of the admin to serve at /.
@@ -98,6 +101,7 @@ func New(cfg config.Config, version, webDir string) *Server {
 		cache: map[string]cached{}, stop: make(chan struct{}), logins: map[string]pendingLogin{}}
 	s.Runner = gateway.NewRunner(hub, cfg)
 	s.Runner.Learner = learn.Default()
+	s.Browser = browser.New("")
 	hub.Local = s.Runner
 	s.Terms = term.NewManager()
 	s.LSP = lsp.NewManager()
@@ -233,7 +237,11 @@ func (s *Server) guard(next http.Handler) http.Handler {
 			return
 		}
 		origin := r.Header.Get("Origin")
-		if !loopbackOrigin(origin) {
+		// The Chrome extension calls from its own origin, on its own paths
+		// only, and every call but its first carries the token the user's
+		// approval gave it (api_browser.go).
+		ext := strings.HasPrefix(origin, "chrome-extension://") && strings.HasPrefix(r.URL.Path, "/api/browser/ext/")
+		if !loopbackOrigin(origin) && !ext {
 			http.Error(w, "forbidden origin", http.StatusForbidden)
 			return
 		}
@@ -274,6 +282,7 @@ func (s *Server) routes() {
 	s.memoryRoutes(m)
 	s.wikiRoutes(m)
 	s.boardRoutes(m)
+	s.browserRoutes(m)
 	s.settingsRoutes(m)
 	s.fsRoutes(m)
 	s.scheduleRoutes(m)

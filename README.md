@@ -615,6 +615,34 @@ is kept as a document under `notes/` that says which conversation and message
 it came from, and read into the pages at once: a page about the same subject
 gains it, with where the sources disagree said plainly.
 
+## The browser
+
+The agent can work in your own Chrome — a page behind your login, a web app
+to operate, something to look at — through the agent-tui extension, the way
+Claude in Chrome does.
+
+```sh
+agent-tui browser extension     # write the extension's folder; prints its path
+# Chrome: chrome://extensions → Developer mode → Load unpacked → that folder
+agent-tui browser approve 1234  # the code the extension shows (or Approve on the admin's Browser page)
+agent-tui browser               # connected? who is asking?
+```
+
+The extension asks the gateway for work and answers; nothing in the browser
+listens. It is trusted once you approve the code it shows, and carries a token
+after that — a web page can reach the gateway, but never holds that token. It
+touches only the tabs the agent opened, gathered in an "agent-tui" tab group,
+and the ones you share from its popup.
+
+While it is connected the agent has `browser_open`, `browser_snapshot` (the
+page's text and its elements, numbered), `browser_click` and `browser_type` by
+those numbers, `browser_key`, `browser_scroll`, `browser_navigate`,
+`browser_tabs`, `browser_close` and `browser_screenshot` (a PNG it can open);
+from Claude Code they are `mcp__agent-tui__browser_*`. It is told never to type
+passwords or payment details, and to ask before anything that sends, buys,
+deletes or posts. The admin's **Browser** page approves, revokes, sets up and
+tries it by hand.
+
 ## The board
 
 The admin's **Board** (or the board button beside *new conversation*) shows the
