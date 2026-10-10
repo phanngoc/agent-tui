@@ -320,6 +320,56 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 			}
 			return hs
 		}
+		// A path an agent shortened in the middle,
+		// "/tmp/claude-1000/.../tasks/a.output", is looked for under the
+		// folder it starts in: the newest file there that ends the same way.
+		if head, tail, ok := elision(want); ok {
+			if !strings.HasPrefix(head, "/") && !strings.HasPrefix(head, "~") && !filepath.IsAbs(head) {
+				if files, err := p.fs.ListFiles(ctx, p.dir, 60000); err == nil {
+					if f, ok := p.newestEnding(ctx, files, strings.TrimPrefix(head, "./")+"/", tail); ok {
+						found(f)
+						return
+					}
+				}
+				writeJSON(w, map[string]any{"candidates": []string{}})
+				return
+			}
+			heads := []string{head}
+			if rest, ok := strings.CutPrefix(strings.ReplaceAll(head, `\`, "/"), "~/"); ok || head == "~" {
+				heads = nil
+				for _, h := range homes() {
+					heads = append(heads, joinAbs(h, rest))
+				}
+			}
+			for _, h := range heads {
+				dir, _, ok := outsideRoot(q.Get("root"), joinAbs(h, "x"))
+				if !ok {
+					continue
+				}
+				op, err := filesOf(dir)
+				if err != nil {
+					continue
+				}
+				files, err := op.fs.ListFiles(ctx, op.dir, 60000)
+				if err != nil {
+					continue
+				}
+				f, ok := op.newestEnding(ctx, files, "", tail)
+				if !ok {
+					continue
+				}
+				abs := joinAbs(h, f)
+				if rel, ok := p.rel(abs); ok {
+					found(rel)
+					return
+				}
+				if beyond(abs) {
+					return
+				}
+			}
+			writeJSON(w, map[string]any{"candidates": []string{}})
+			return
+		}
 		var outside []string // absolute paths beyond the project to try
 		if rest, ok := strings.CutPrefix(strings.ReplaceAll(want, `\`, "/"), "~/"); ok || want == "~" {
 			for _, h := range homes() {
@@ -408,6 +458,50 @@ func (s *Server) fileRoutes(m *http.ServeMux) {
 		}
 		writeJSON(w, map[string]any{"candidates": nz(cands)})
 	})
+}
+
+// elision splits a path shortened in the middle, "/tmp/x/.../tasks/a.output"
+// or "~/w/…/a.go", into the folder it starts in and the end it keeps — false
+// when the path is whole, or shortened more than once. The folder keeps its
+// own spelling; the end is slash-separated.
+func elision(p string) (head, tail string, ok bool) {
+	s := strings.ReplaceAll(p, `\`, "/")
+	for _, mark := range []string{"/.../", "/…/"} {
+		i := strings.Index(s, mark)
+		if i <= 0 {
+			continue
+		}
+		t := s[i+len(mark):]
+		if t != "" && !strings.Contains(t, "/.../") && !strings.Contains(t, "/…/") {
+			return p[:i], t, true
+		}
+	}
+	return "", "", false
+}
+
+// newestEnding is the most recently changed of files — relative to p's folder,
+// shortest first — that starts with prefix and ends with tail, with at least
+// a folder between: what a shortened path most likely meant.
+func (p projectFS) newestEnding(ctx context.Context, files []string, prefix, tail string) (string, bool) {
+	var best string
+	var bestT int64
+	n := 0
+	for _, f := range files {
+		if !strings.HasPrefix(f, prefix) || !strings.HasSuffix(strings.TrimPrefix(f, prefix), "/"+tail) {
+			continue
+		}
+		if n++; n > 20 {
+			break
+		}
+		abs, err := p.join(f)
+		if err != nil {
+			continue
+		}
+		if st, err := p.fs.Stat(ctx, abs); err == nil && !st.Dir && (best == "" || st.ModNano > bestT) {
+			best, bestT = f, st.ModNano
+		}
+	}
+	return best, best != ""
 }
 
 // outsideRoot splits an absolute path beyond the project into the folder the

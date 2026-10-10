@@ -15,7 +15,7 @@ export function useFileOpener() {
   return React.useContext(FileOpener);
 }
 
-const pathish = /^[\w.@~+\-/\\:]+$/;
+const pathish = /^[\w.@~+\-/\\:…]+$/;
 const knownExt =
   /\.(md|mdx|go|ts|tsx|js|jsx|mjs|cjs|py|rb|rs|java|kt|php|cs|c|h|cpp|hpp|sh|ps1|sql|json|ya?ml|toml|ini|env|conf|xml|html|css|scss|txt|log|csv|mod|sum|lock|gradle|properties|dockerfile|tf|proto|graphql|svg|png|jpe?g|gif|webp|pem|crt|cer|csr|pub)(:\d+(:\d+)?)?$/i;
 
@@ -52,9 +52,11 @@ const folderToken = /(?<![\w.$:/\\-])(?:~[/\\]|[A-Za-z]:[/\\]|\\\\|\/)?(?:[\w.@+
 
 /** inFolderSaid is name in a folder the same text names, when it names one. */
 function inFolderSaid(text: string, name: string): string | undefined {
-  if (!text.includes(name)) return undefined;
+  // A bare name only: a path with folders is the project's or the home's.
+  if (name.includes("/") || !text.includes(name)) return undefined;
   for (const m of text.matchAll(folderToken)) {
     if (/^\/\//.test(m[0])) continue; // a URL's host, not a folder
+    if (/[/\\](?:\.\.\.|…)[/\\]/.test(m[0])) continue; // shortened, not a folder to put a file in
     return m[0] + name;
   }
   return undefined;
@@ -69,19 +71,57 @@ function pathEnding(text: string, name: string): string | undefined {
   return undefined;
 }
 
+// elided is the shape of the whole path an agent shortened in the middle,
+// "/tmp/claude-1000/.../tasks/a.output", or nothing when it is whole.
+function elided(p: string): RegExp | undefined {
+  const parts = p.replace(/\\/g, "/").split(/\/(?:\.\.\.|…)\//);
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return undefined;
+  const esc = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp("^" + esc(parts[0]) + "/.+/" + esc(parts[1]) + "$");
+}
+
+/** wholePathOf is the whole path a shortened one stands for, as the conversation's tools or replies wrote it. */
+function wholePathOf(messages: Message[], shape: RegExp): string | undefined {
+  const fits = (s: string) => {
+    for (const m of s.matchAll(pathToken)) {
+      const tok = m[0].replace(/[.:]+$/, "");
+      if (!elided(tok) && shape.test(tok.replace(/\\/g, "/"))) return tok;
+    }
+    return undefined;
+  };
+  const calls = (list: ToolCall[] | undefined): ToolCall[] => (list ?? []).flatMap((c) => [c, ...calls(c.agent?.calls)]);
+  for (let i = messages.length - 1; i >= 0; i--) {
+    for (const c of calls(messages[i].tools).reverse()) {
+      for (const s of [...stringsOf(c.input), c.result ?? ""]) {
+        const f = fits(s);
+        if (f) return f;
+      }
+    }
+    const f = fits(messages[i].text ?? "");
+    if (f) return f;
+  }
+  return undefined;
+}
+
 /**
  * fullPathOf is the file a bare name or a relative path in a reply means,
  * found among the files the conversation's tools worked on — the latest one
  * whose path it is the end of — so a file written outside the project opens
- * too. Its line, if it named one, is kept.
+ * too. A path shortened in the middle, "/tmp/x/.../tasks/a.output", is the
+ * whole one the conversation wrote. Its line, if it named one, is kept.
  */
 export function fullPathOf(messages: Message[], p: string): string | undefined {
   const t = p.trim();
   const m = t.match(/^(.*?)(:\d+(?::\d+)?)?$/);
   const name = (m?.[1] ?? t).replace(/\\/g, "/").replace(/^\.\//, "");
+  const line = m?.[2] ?? "";
+  const shape = name ? elided(name) : undefined;
+  if (shape) {
+    const f = wholePathOf(messages, shape);
+    return f ? f + line : undefined; // else the gateway looks on disk
+  }
   if (!name || isAbsolute(name)) return undefined;
   const calls = (list: ToolCall[] | undefined): ToolCall[] => (list ?? []).flatMap((c) => [c, ...calls(c.agent?.calls)]);
-  const line = m?.[2] ?? "";
   // A file a tool wrote or read by name, latest first.
   for (let i = messages.length - 1; i >= 0; i--) {
     const cs = calls(messages[i].tools);
