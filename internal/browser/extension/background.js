@@ -306,12 +306,15 @@ function pageSnapshot(max) {
     return s.visibility !== "hidden" && s.display !== "none" && s.opacity !== "0";
   };
   const clean = (s) => (s || "").replace(/\s+/g, " ").trim();
+  // A text box is named by its label or placeholder, never by what's typed
+  // in it — that's its value="", and the name has to stay put across typing.
+  const typed = (el) =>
+    el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable || (el.tagName === "INPUT" && kind(el) === "textbox");
   const name = (el) =>
     clean(
       el.getAttribute("aria-label") ||
         (el.labels && el.labels[0] && el.labels[0].innerText) ||
-        el.innerText ||
-        el.value ||
+        (typed(el) ? "" : el.innerText || el.value) ||
         el.getAttribute("placeholder") ||
         el.getAttribute("title") ||
         el.getAttribute("alt") ||
