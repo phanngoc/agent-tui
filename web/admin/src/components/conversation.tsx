@@ -478,6 +478,7 @@ export function Conversation({ id, initialTab = "context" }: { id: string; initi
           onQuotes={setQuotes}
           queue={queue}
           onUnqueue={unqueue}
+          onStop={() => cmd("cancel", {})}
         />
         {termOpen && (
           <BottomDock>
@@ -577,10 +578,13 @@ function Composer({
   onCommand,
   btw,
   above,
+  onStop,
 }: {
   session: string;
   root: string;
   busy: boolean;
+  /** onStop stops the turn that is running. */
+  onStop: () => void;
   owner?: string;
   target?: string;
   onSend: (t: string, now?: boolean, files?: Attached[]) => Promise<void>;
@@ -739,6 +743,12 @@ function Composer({
                 btw.show(false);
                 return;
               }
+              // Escape in an empty box stops the turn, as in Claude Code.
+              if (e.key === "Escape" && !text && busy) {
+                e.preventDefault();
+                onStop();
+                return;
+              }
               if (isCommand && e.key === "Enter" && !e.shiftKey) {
                 // A command runs on Enter, on a phone too, and never as "send now".
                 e.preventDefault();
@@ -774,6 +784,12 @@ function Composer({
               className="relative max-h-48 min-h-10 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0 dark:bg-transparent"
             />
             </div>
+            {busy && (
+              // Where the eye is while it works: stop it from here.
+              <Button onClick={onStop} size="icon" variant="outline" className="border-destructive/50 text-destructive hover:bg-destructive/10 hover:text-destructive" title="Stop the agent (Esc in an empty box)" aria-label="Stop">
+                <SquareIcon className="fill-current" />
+              </Button>
+            )}
             {busy && (
               <Button
                 onClick={() => void go(true)}

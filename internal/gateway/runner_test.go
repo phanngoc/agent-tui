@@ -100,6 +100,64 @@ func TestRunnerRecordsToolResultsAndRoutesApprovals(t *testing.T) {
 	}
 }
 
+// silentStop is an engine that, stopped, closes its events without an EvDone
+// — as a CLI engine killed mid-turn can.
+type silentStop struct{ started chan struct{} }
+
+func (s *silentStop) ID() string      { return "api" }
+func (s *silentStop) Label() string   { return "silent" }
+func (s *silentStop) Detail() string  { return "" }
+func (s *silentStop) Available() bool { return true }
+func (s *silentStop) CanAsk() bool    { return true }
+func (s *silentStop) Run(ctx context.Context, _ agent.Turn, out chan<- agent.Event) {
+	defer close(out)
+	close(s.started)
+	<-ctx.Done()
+}
+
+// A turn stopped from the web is over for everyone watching, even when its
+// engine never says it is done.
+func TestStoppedTurnEndsWithoutTheEnginesDone(t *testing.T) {
+	t.Setenv("XDG_DATA_HOME", t.TempDir())
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
+	root := t.TempDir()
+	eng := &silentStop{started: make(chan struct{})}
+	h := NewHub()
+	r := NewRunner(h, config.Default())
+	h.Local = r
+	r.roots[root] = &project{root: root, fs: vfs.NewLocal(root), dir: root, mgr: session.NewManager(config.DataDir(), root, "m"), reg: engine.NewRegistryWith(eng)}
+	_, events, cancel := h.Subscribe(0)
+	defer cancel()
+
+	s, err := r.NewSession(root, "", "", "api", "", "auto", "sleep for a long time")
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-eng.started
+	if !h.Busy(s.ID) {
+		t.Fatal("not busy while running")
+	}
+	if _, err := h.Route(Command{Type: CmdCancel, Session: s.ID, From: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.After(10 * time.Second)
+	for done := false; !done; {
+		select {
+		case e := <-events:
+			done = e.Type == EvTurnDone && e.Session == s.ID
+		case <-deadline:
+			t.Fatal("no turn.done after the stop")
+		}
+	}
+	if h.Busy(s.ID) {
+		t.Fatal("still busy after the stop")
+	}
+	if _, err := h.Route(Command{Type: CmdCancel, Session: s.ID, From: "web"}); err == nil || !strings.Contains(err.Error(), "nothing is running") {
+		t.Fatalf("a second stop: %v", err)
+	}
+	r.Shutdown()
+}
+
 func TestWSLPath(t *testing.T) {
 	for in, want := range map[string][2]string{
 		`\\wsl.localhost\Ubuntu-24.04\home\me\x`: {"Ubuntu-24.04", "/home/me/x"},
