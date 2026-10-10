@@ -220,4 +220,69 @@ func (s *Server) fsRoutes(m *http.ServeMux) {
 		}
 		writeJSON(w, resp)
 	})
+
+	// POST /api/fs/mkdir makes a folder in the one the picker shows, to start a
+	// project in: {parent, name}. A WSL folder is made through its share.
+	m.HandleFunc("POST /api/fs/mkdir", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Parent string `json:"parent"`
+			Name   string `json:"name"`
+		}
+		if err := readJSON(r, &in); err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		parent := filepath.Clean(filepath.FromSlash(strings.TrimSpace(in.Parent)))
+		if !filepath.IsAbs(parent) && !strings.HasPrefix(parent, `\\`) {
+			fail(w, http.StatusBadRequest, errors.New("give the full path of the folder to make it in"))
+			return
+		}
+		name, err := folderName(in.Name)
+		if err != nil {
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		if st, err := os.Stat(parent); err != nil || !st.IsDir() {
+			fail(w, http.StatusBadRequest, errors.New("no folder "+parent))
+			return
+		}
+		full := filepath.Join(parent, name)
+		if err := os.Mkdir(full, 0o755); err != nil {
+			if errors.Is(err, os.ErrExist) {
+				fail(w, http.StatusConflict, errors.New(name+" is there already"))
+				return
+			}
+			fail(w, http.StatusBadRequest, err)
+			return
+		}
+		writeJSON(w, map[string]any{"path": full})
+	})
+}
+
+// folderName checks a new folder's name: one name, not a path, that every
+// system the picker reaches — Windows, and Linux through a WSL share — takes.
+func folderName(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	switch {
+	case s == "":
+		return "", errors.New("name the folder")
+	case s == "." || s == "..":
+		return "", errors.New("not a folder name: " + s)
+	case len(s) > 255:
+		return "", errors.New("a folder name is at most 255 characters")
+	case strings.ContainsAny(s, `/\<>:"|?*`):
+		return "", errors.New(`a folder name cannot have / \ < > : " | ? *`)
+	case strings.HasSuffix(s, ".") || strings.HasSuffix(s, " "):
+		return "", errors.New("Windows does not take a folder name ending in a dot or a space")
+	}
+	for _, r := range s {
+		if r < 32 {
+			return "", errors.New("a folder name cannot have control characters")
+		}
+	}
+	if base, _, _ := strings.Cut(strings.ToUpper(s), "."); base == "CON" || base == "PRN" || base == "AUX" || base == "NUL" ||
+		len(base) == 4 && (strings.HasPrefix(base, "COM") || strings.HasPrefix(base, "LPT")) && base[3] >= '1' && base[3] <= '9' {
+		return "", errors.New(s + " is a name Windows keeps for itself")
+	}
+	return s, nil
 }

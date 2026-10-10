@@ -60,6 +60,7 @@ func isHost(target string) bool { return target == "" || target == "host" }
 
 type turn struct {
 	s         *session.Session
+	ctx       context.Context // done once the turn is stopped
 	cancel    context.CancelFunc
 	approvals map[string]chan agent.Verdict
 	choices   map[string]chan int
@@ -345,7 +346,7 @@ func (r *Runner) start(p *project, s *session.Session, prompt string, fresh bool
 	}
 	s.ForkPending = false
 	ctx, cancel := context.WithCancel(context.Background())
-	tr := &turn{s: s, cancel: cancel, approvals: map[string]chan agent.Verdict{}, choices: map[string]chan int{}}
+	tr := &turn{s: s, ctx: ctx, cancel: cancel, approvals: map[string]chan agent.Verdict{}, choices: map[string]chan int{}}
 	if st, ok := eng.(agent.Steerer); ok && st.CanSteer() {
 		tr.steers = true
 		t.Steer = func() []string { return r.takeQueue(s.ID) }
@@ -377,11 +378,30 @@ func (r *Runner) publishSummary(s *session.Session, busy bool) {
 // publishes them.
 func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event) {
 	s := tr.s
+	done := false
 	defer func() {
+		stopped := tr.ctx.Err() != nil
 		r.mu.Lock()
 		delete(r.turns, s.ID)
 		r.mu.Unlock()
 		tr.cancel()
+		// An engine may close its events without saying it is done — stopped
+		// mid-turn, or failing in a way it did not report. The turn is over all
+		// the same: say so, or every viewer goes on showing it running, with
+		// nothing left to stop; and say why, when nobody stopped it.
+		if !done {
+			why := context.Canceled
+			if !stopped {
+				why = errors.New("the engine ended the turn without finishing it")
+				s.LastErr = why.Error()
+			}
+			p.mgr.Save(s)
+			if out := FromAgent(s.ID, agent.EvDone{Err: why}); out != nil {
+				out.Root = s.Root
+				r.Hub.Publish(*out)
+			}
+			r.publishSummary(s, false)
+		}
 		// What was sent meanwhile and not yet heard goes now.
 		r.next(p, s)
 	}()
@@ -438,6 +458,7 @@ func (r *Runner) pump(p *project, tr *turn, engID string, ch <-chan agent.Event)
 				Data: mustJSON(ChoiceData{ID: id, Call: e.Call, Question: e.Question, Options: e.Options})})
 			continue
 		case agent.EvDone:
+			done = true
 			s.SetSeen(engID, len(s.Messages))
 			if e.Err != nil && !errors.Is(e.Err, context.Canceled) {
 				s.LastErr = e.Err.Error()

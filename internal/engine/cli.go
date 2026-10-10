@@ -180,7 +180,29 @@ func firstVersionToken(s string) string {
 // Run executes one turn by spawning the CLI and translating its output.
 func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	defer close(out)
+	if !c.run(ctx, t, out) {
+		return
+	}
+	// The CLI no longer has the conversation it was asked to resume — a turn
+	// stopped before the CLI saved it leaves exactly that. Rather than every
+	// later turn failing the same way, start the CLI afresh, briefed on the
+	// conversation so far.
+	t.ExternalID, t.Fork = "", false
+	if n := len(t.History); n > 1 {
+		t.Brief = session.Brief(t.History[:n-1], session.BriefLimit)
+	}
+	c.run(ctx, t, out)
+}
 
+// lostResume says the CLI's stderr or result is its answer to resuming a
+// conversation it does not have.
+func lostResume(text string) bool {
+	return strings.Contains(text, "No conversation found with session ID")
+}
+
+// run is one spawn of the CLI. It reports lost when the conversation to resume
+// is gone and nothing was said yet, leaving the turn's end to a second try.
+func (c *CLI) run(ctx context.Context, t agent.Turn, out chan<- agent.Event) (lost bool) {
 	send := func(e agent.Event) bool {
 		select {
 		case out <- e:
@@ -368,6 +390,7 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	sc.Buffer(make([]byte, 0, 256<<10), 64<<20)
 
 	stopped := false
+	said := false // anything of the conversation's own came out
 	for sc.Scan() {
 		raw := sc.Bytes()
 		if len(raw) == 0 || raw[0] != '{' {
@@ -379,6 +402,11 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 		dec.line(raw, func(e agent.Event) {
 			if in != nil {
 				in.track(e)
+			}
+			switch e.(type) {
+			case agent.EvSession, agent.EvUsage, agent.EvStatus:
+			default:
+				said = true
 			}
 			if u, ok := e.(agent.EvUsage); ok && cred.ID != "" {
 				recordUsage(poolDir(), cred, u, time.Now())
@@ -396,9 +424,14 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	waitErr := cmd.Wait()
 	wg.Wait()
 
+	if ctx.Err() == nil && t.ExternalID != "" && !said && lostResume(errTail.text()+"\n"+dec.failure()) {
+		return true
+	}
 	switch {
 	case ctx.Err() != nil:
-		send(agent.EvDone{Err: ctx.Err()})
+		// Stopped: say so even though ctx is done — send would drop it,
+		// and the runner reads until the channel closes.
+		out <- agent.EvDone{Err: ctx.Err()}
 	case dec.failure() != "":
 		send(agent.EvDone{Err: fmt.Errorf("%s: %s", c.id, dec.failure())})
 	case missingBinary(waitErr, errTail.text()):
@@ -408,6 +441,7 @@ func (c *CLI) Run(ctx context.Context, t agent.Turn, out chan<- agent.Event) {
 	default:
 		send(agent.EvDone{})
 	}
+	return false
 }
 
 // CanSteer: a CLI that reads stream-json on stdin takes messages mid-turn.

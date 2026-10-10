@@ -1,7 +1,8 @@
 "use client";
 
 import * as React from "react";
-import { ArrowUpIcon, ChevronRightIcon, ClockIcon, FolderIcon, FolderGit2Icon, HardDriveIcon, PencilIcon, SearchIcon, TerminalSquareIcon } from "lucide-react";
+import { ArrowUpIcon, ChevronRightIcon, ClockIcon, FolderIcon, FolderGit2Icon, FolderPlusIcon, HardDriveIcon, PencilIcon, SearchIcon, TerminalSquareIcon } from "lucide-react";
+import { toast } from "sonner";
 import { cn } from "@/lib/utils";
 import { api, qs } from "@/lib/api";
 import { useFetch } from "@/lib/hooks";
@@ -104,6 +105,9 @@ export function FolderPicker({
   // where you are, and typing a path is the exception.
   const [editing, setEditing] = React.useState(false);
   const crumbBar = React.useRef<HTMLDivElement>(null);
+  // A folder being made where the picker is: its name as typed, or null.
+  const [making, setMaking] = React.useState<string | null>(null);
+  const [makeErr, setMakeErr] = React.useState<string | null>(null);
 
   const go = React.useCallback(
     async (p: string) => {
@@ -150,6 +154,74 @@ export function FolderPicker({
     onPick(p);
     onOpenChange(false);
   };
+  // make creates the folder and opens it, ready to be used.
+  const make = async () => {
+    const name = (making ?? "").trim();
+    if (!name || !listing) return;
+    try {
+      const r = await api.post<{ path: string }>("/api/fs/mkdir", { parent: path, name });
+      setMaking(null);
+      setMakeErr(null);
+      toast.success(`Made ${name}`);
+      await go(r.path);
+    } catch (e) {
+      setMakeErr((e as Error).message);
+    }
+  };
+  const newButton = (
+    <Button
+      type="button"
+      size={mobile ? "sm" : "xs"}
+      variant="outline"
+      className="shrink-0"
+      disabled={!listing}
+      title="Make a folder here"
+      onClick={() => {
+        setMaking("");
+        setMakeErr(null);
+      }}
+    >
+      <FolderPlusIcon /> New folder
+    </Button>
+  );
+  const makeRow =
+    making === null ? null : (
+      <div className="border-b bg-muted/30 px-3 py-2">
+        <form
+          className="flex items-center gap-2"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void make();
+          }}
+        >
+          <FolderPlusIcon className="size-4 shrink-0 text-primary" />
+          <Input
+            autoFocus
+            value={making}
+            onChange={(e) => {
+              setMaking(e.target.value);
+              setMakeErr(null);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                e.preventDefault();
+                e.stopPropagation();
+                setMaking(null);
+              }
+            }}
+            placeholder="New folder name"
+            className={cn("min-w-0 flex-1", mobile ? "h-9" : "h-7 text-xs")}
+          />
+          <Button type="submit" size={mobile ? "sm" : "xs"} disabled={!making.trim()}>
+            Create
+          </Button>
+          <Button type="button" size={mobile ? "sm" : "xs"} variant="ghost" onClick={() => setMaking(null)}>
+            Cancel
+          </Button>
+        </form>
+        {makeErr && <div className="mt-1 pl-6 text-xs text-destructive">{makeErr}</div>}
+      </div>
+    );
 
   const section = (title: string, places: Place[], Icon: React.ElementType) =>
     places.length === 0 ? null : (
@@ -212,11 +284,13 @@ export function FolderPicker({
       <label className="flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
         <input type="checkbox" checked={hidden} onChange={(e) => setHidden(e.target.checked)} /> hidden
       </label>
+      {newButton}
     </div>
   );
   const listEl = (
     <div className={cn("min-h-0 flex-1 overflow-auto", !mobile && "rounded-lg border", loading && "opacity-60")}>
-      {shown.length === 0 && !loading && <div className="p-6 text-center text-sm text-muted-foreground">No folders here.</div>}
+      {makeRow}
+      {shown.length === 0 && !loading && making === null && <div className="p-6 text-center text-sm text-muted-foreground">No folders here.</div>}
       {shown.map((e) => (
         <div key={e.path} className="flex items-center border-b last:border-b-0">
           <button
