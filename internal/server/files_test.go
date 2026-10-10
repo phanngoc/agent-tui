@@ -140,6 +140,53 @@ func TestProjectExplorer(t *testing.T) {
 	if none.Path != "" {
 		t.Errorf("a missing home file resolved to %q", none.Path)
 	}
+
+	// A path an agent shortened in the middle,
+	// "/tmp/claude-1000/.../tasks/w1mzdj41i.output": the file under that
+	// folder that ends the same way — outside the project, in it, or the
+	// home's.
+	tasks := filepath.Join(elsewhere, "-home-x-repo", "7009bc78", "tasks")
+	_ = os.MkdirAll(tasks, 0o755)
+	_ = os.WriteFile(filepath.Join(tasks, "w1mzdj41i.output"), []byte("{}"), 0o644)
+	_ = os.WriteFile(filepath.Join(root, "output", "deep.md"), []byte("#"), 0o644)
+	_ = os.MkdirAll(filepath.Join(home, "w", "repo", "src"), 0o755)
+	_ = os.WriteFile(filepath.Join(home, "w", "repo", "src", "a.go"), []byte("package a"), 0o644)
+	for p, want := range map[string]struct{ root, path string }{
+		filepath.Join(elsewhere, "...", "tasks", "w1mzdj41i.output") + ":2": {tasks, "w1mzdj41i.output"},
+		filepath.Join(root, "…", "deep.md"):                                 {"", "output/deep.md"},
+		"~/w/.../src/a.go":                                                  {filepath.Join(home, "w", "repo", "src"), "a.go"},
+	} {
+		var res struct {
+			Root, Path string
+			Outside    bool
+		}
+		get("/api/files/resolve", url.Values{"p": {p}}, &res)
+		if res.Path != want.path || res.Outside != (want.root != "") || want.root != "" && filepath.Clean(res.Root) != filepath.Clean(want.root) {
+			t.Errorf("resolve %q = %+v; want %s in %q", p, res, want.path, want.root)
+		}
+	}
+	get("/api/files/resolve", url.Values{"p": {filepath.Join(elsewhere, "...", "tasks", "none.output")}}, &none)
+	if none.Path != "" {
+		t.Errorf("a missing shortened path resolved to %q", none.Path)
+	}
+}
+
+func TestElision(t *testing.T) {
+	for in, want := range map[string][2]string{
+		"/tmp/claude-1000/.../tasks/a.output": {"/tmp/claude-1000", "tasks/a.output"},
+		`C:\Users\x\...\b\c.md`:               {`C:\Users\x`, "b/c.md"},
+		"src/…/a.go":                          {"src", "a.go"},
+	} {
+		h, tl, ok := elision(in)
+		if !ok || h != want[0] || tl != want[1] {
+			t.Errorf("elision(%q) = %q, %q, %v; want %q", in, h, tl, ok, want)
+		}
+	}
+	for _, in := range []string{"/tmp/a/b.go", ".../a.go", "/a/.../", "/a/.../b/.../c.go", "../x/y.go"} {
+		if _, _, ok := elision(in); ok {
+			t.Errorf("elision(%q) took it for shortened", in)
+		}
+	}
 }
 
 func TestMntPath(t *testing.T) {
